@@ -130,7 +130,7 @@ function rowHtml(row) {
   const corr = r && final != null && auto != null && (r.correction || r.manual) ? final - auto : null;
   const canPlay = row.id && state.files.has(row.id);
   const playing = canPlay && player.isPlaying(row.id);
-  const meta = [formatSize(row.size), formatDuration(r?.duration)];
+  const meta = [r?.source?.kind === "youtube" ? "YouTube" : formatSize(row.size), formatDuration(r?.duration)];
   if (final != null) meta.push(`<span class="stage-tag">${stageFor(final).label}</span>`);
   if (r && needsReanalysis(r)) meta.push("réanalyse conseillée");
 

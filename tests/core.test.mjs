@@ -59,7 +59,7 @@ test("export / import roundtrip never loses corrections", () => {
 test("progression is monotonic overall and flags big jumps", () => {
   const items = [5, 8, 12, 14, 15, 40, 42, 43, 90].map((score, i) => ({
     id: `t${i}`, name: `t${i}`, score,
-    subscores: { energy: score, tempo: (i * 37) % 100, density: score, brightness: 50, harshness: score, loudness: score, complexity: 50, noise: 0 },
+    subscores: { energy: score, tempo: (i * 37) % 100, density: score, brightness: 50, harshness: score, pressure: score, complexity: 50, noise: 0 },
   }));
   const { steps, stats } = buildProgression(items, { tolerance: 4 });
   assert.equal(steps.length, items.length);

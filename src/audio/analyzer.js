@@ -3,7 +3,7 @@
 // supported.
 
 import { ANALYSIS } from "../config.js";
-import { decodeToMono } from "./decoder.js";
+import { decodeToMono, pcmToMono } from "./decoder.js";
 
 function spawnWorker() {
   return new Promise((resolve, reject) => {
@@ -109,12 +109,23 @@ function ensureWorkers() {
 export function analyzeAudio(arrayBuffer, onProgress = () => {}) {
   return withSlot(async () => {
     onProgress("decode", 0);
-    const decoded = await decodeToMono(arrayBuffer);
-    onProgress("features", 0);
-    const report = (p) => onProgress("features", p);
-    if (await ensureWorkers()) return pool.run(decoded.mono, decoded.sampleRate, decoded.clipping, report);
-    const { extractFeatures } = await import("./features.js");
-    await new Promise((r) => setTimeout(r, 0));
-    return extractFeatures(decoded.mono, decoded.sampleRate, decoded.clipping, report);
+    return extract(await decodeToMono(arrayBuffer), onProgress);
   });
+}
+
+/** Same as analyzeAudio, for raw PCM channels (e.g. captured tab audio). */
+export function analyzePcm(channels, sampleRate, onProgress = () => {}) {
+  return withSlot(async () => {
+    onProgress("decode", 0);
+    return extract(await pcmToMono(channels, sampleRate), onProgress);
+  });
+}
+
+async function extract(decoded, onProgress) {
+  onProgress("features", 0);
+  const report = (p) => onProgress("features", p);
+  if (await ensureWorkers()) return pool.run(decoded.mono, decoded.sampleRate, decoded.clipping, report);
+  const { extractFeatures } = await import("./features.js");
+  await new Promise((r) => setTimeout(r, 0));
+  return extractFeatures(decoded.mono, decoded.sampleRate, decoded.clipping, report);
 }
