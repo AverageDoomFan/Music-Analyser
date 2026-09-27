@@ -5,7 +5,8 @@
 //   id, hashAlgorithm, name, size, type, lastModified, source: {kind, ...},
 //   addedAt, updatedAt, duration, error,
 //   featureVersion, features,                       // raw features, never altered
-//   auto: { algorithmVersion, subscores, confidences, explain, score, computedAt, weightsKey },
+//   auto: { algorithmVersion, aggregation, subscores, confidences, explain, score, stats,
+//           curves: { times, intensity, subscores }, computedAt, weightsKey },
 //   initialAuto: { algorithmVersion, score, computedAt },   // first automatic score ever
 //   correction: null | { answers, overrides, deltas, previousScore, modelScore, score,
 //                         algorithmVersion, createdAt },
@@ -13,7 +14,7 @@
 //   finalScore, history: [{ at, kind, score, algorithmVersion }]
 // }
 
-import { ALGORITHM_VERSION, FEATURE_VERSION } from "../config.js";
+import { ALGORITHM_VERSION, FEATURE_VERSION, DEFAULT_WEIGHTS, DEFAULT_AGGREGATION } from "../config.js";
 import { scoreFeatures } from "../scoring/index.js";
 import { applyCorrection } from "../scoring/correction.js";
 
@@ -33,15 +34,27 @@ export function createRecord({ id, hashAlgorithm, name, size, type, lastModified
   };
 }
 
-export const weightsKey = (weights) => Object.keys(weights).sort().map((k) => `${k}:${weights[k]}`).join("|");
+/**
+ * Scoring settings: { weights, aggregation }. A bare weights object is accepted
+ * for convenience (default aggregation).
+ */
+export function normalizeScoring(scoring) {
+  if (scoring?.weights) return { weights: scoring.weights, aggregation: scoring.aggregation ?? DEFAULT_AGGREGATION };
+  return { weights: scoring ?? DEFAULT_WEIGHTS, aggregation: DEFAULT_AGGREGATION };
+}
 
-export function applyFeatures(record, features, weights) {
+export const scoringKey = (scoring) => {
+  const { weights, aggregation } = normalizeScoring(scoring);
+  return `${aggregation}|` + Object.keys(weights).sort().map((k) => `${k}:${weights[k]}`).join("|");
+};
+
+export function applyFeatures(record, features, scoring) {
   record.features = features;
   record.featureVersion = features.featureVersion;
   record.duration = features.duration;
   record.error = null;
   record.auto = null; // force a fresh score
-  rescore(record, weights, "analyse");
+  rescore(record, scoring, "analyse");
   return record;
 }
 
@@ -49,13 +62,14 @@ export function applyFeatures(record, features, weights) {
  * Recomputes the automatic score from cached features (no audio needed) and
  * re-applies the stored correction answers. Returns true if anything changed.
  */
-export function rescore(record, weights, reason = "recalcul") {
+export function rescore(record, scoring, reason = "recalcul") {
   if (!record.features) return false;
-  const key = weightsKey(weights);
+  const { weights, aggregation } = normalizeScoring(scoring);
+  const key = scoringKey(scoring);
   const upToDate = record.auto && record.auto.algorithmVersion === ALGORITHM_VERSION && record.auto.weightsKey === key;
   if (upToDate) return false;
   const prevFinal = record.finalScore;
-  const auto = scoreFeatures(record.features, weights);
+  const auto = scoreFeatures(record.features, weights, aggregation);
   record.auto = { ...auto, computedAt: Date.now(), weightsKey: key };
   if (!record.initialAuto) record.initialAuto = { algorithmVersion: auto.algorithmVersion, score: auto.score, computedAt: Date.now() };
   if (record.correction?.answers) {
@@ -71,8 +85,8 @@ export function rescore(record, weights, reason = "recalcul") {
   return true;
 }
 
-export function commitCorrection(record, answers, weights) {
-  const c = applyCorrection(record.auto, answers, weights);
+export function commitCorrection(record, answers, scoring) {
+  const c = applyCorrection(record.auto, answers, normalizeScoring(scoring).weights);
   record.correction = {
     answers: { ...answers },
     overrides: c.overrides, deltas: c.deltas,

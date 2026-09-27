@@ -3,7 +3,6 @@
 import { ALGORITHM_VERSION } from "./config.js";
 import { state, subscribe, notify } from "./app/store.js";
 import * as ctl from "./app/controller.js";
-import { initYouTube } from "./ui/youtube.js";
 import { initLibrary, renderLibrary } from "./ui/library.js";
 import { initDetail, openDetail } from "./ui/detail.js";
 import { initCorrection } from "./ui/correction.js";
@@ -103,7 +102,6 @@ function renderQueue() {
 async function main() {
   $("version-info").textContent = `· algorithme v${ALGORITHM_VERSION}`;
   initImport();
-  initYouTube();
   initTabs();
   initLibrary({ openDetail });
   initDetail();

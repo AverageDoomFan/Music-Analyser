@@ -4,7 +4,8 @@
 // No genre rule anywhere: only audio features. To replace the model, write a
 // module exposing the same functions and point src/scoring/index.js to it.
 
-import { ALGORITHM_VERSION, CALIBRATION, DEFAULT_WEIGHTS } from "../config.js";
+import { ALGORITHM_VERSION, CALIBRATION, DEFAULT_WEIGHTS, DEFAULT_AGGREGATION } from "../config.js";
+import { aggregate, aggregateAll } from "./aggregate.js";
 
 const clamp01 = (x) => (Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0);
 /** Linear map of x from [lo, hi] to [0, 1], clamped. */
@@ -177,15 +178,64 @@ export function calibrate(raw) {
   return 100;
 }
 
-/** Full automatic scoring of a feature set. */
-export function scoreFeatures(features, weights = DEFAULT_WEIGHTS) {
-  const { subscores, confidences, explain } = computeSubscores(features);
+/**
+ * Rebuilds one feature object per timeline window. Track-level properties
+ * (dynamic range, clipping, analysed length) are shared by every window.
+ * Features without a timeline (older extractor) yield a single window.
+ */
+export function timelineWindows(features) {
+  const tl = features.timeline;
+  if (!tl?.times?.length) return { times: [features.duration ? features.duration / 2 : 0], windows: [features] };
+  const context = {
+    loudnessRange: features.loudnessRange,
+    clippingRatio: features.clippingRatio,
+    analyzedSeconds: features.analyzedSeconds,
+    featureVersion: features.featureVersion,
+  };
+  const windows = tl.times.map((_, i) => {
+    const w = { ...context };
+    for (const [k, arr] of Object.entries(tl.series)) w[k] = arr[i];
+    w.bandEnergy = { sub: w.bandSub, bass: w.bandBass, lowMid: w.bandLowMid, highMid: w.bandHighMid, high: w.bandHigh };
+    return w;
+  });
+  return { times: tl.times, windows };
+}
+
+/** Sub-scores and intensity of every window: the curves of a track. */
+export function computeCurves(features, weights = DEFAULT_WEIGHTS) {
+  const { times, windows } = timelineWindows(features);
+  const intensity = [];
+  const subscores = {};
+  const perWindow = [];
+  for (const w of windows) {
+    const s = computeSubscores(w).subscores;
+    perWindow.push(s);
+    intensity.push(computeIntensity(s, weights));
+    for (const [dim, v] of Object.entries(s)) (subscores[dim] ??= []).push(v);
+  }
+  return { times, intensity, subscores, perWindow };
+}
+
+/**
+ * Full automatic scoring. The score is an aggregation (see AGGREGATIONS) of
+ * the intensity curve; displayed sub-scores use the same aggregation of their
+ * own curves. Confidences and explanations describe the whole track.
+ */
+export function scoreFeatures(features, weights = DEFAULT_WEIGHTS, aggregation = DEFAULT_AGGREGATION) {
+  const curves = computeCurves(features, weights);
+  const stats = aggregateAll(curves.intensity, curves.times);
+  const subscores = {};
+  for (const [dim, values] of Object.entries(curves.subscores)) subscores[dim] = round1(aggregate(values, aggregation, curves.times));
+  const { confidences, explain } = computeSubscores(features);
   return {
     algorithmVersion: ALGORITHM_VERSION,
+    aggregation,
     subscores,
     confidences,
     explain,
-    score: computeIntensity(subscores, weights),
+    stats,
+    score: stats[aggregation],
+    curves: { times: curves.times, intensity: curves.intensity, subscores: curves.subscores },
   };
 }
 

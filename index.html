@@ -28,26 +28,6 @@
           <input type="file" id="file-input" accept="audio/*,.mp3,.wav,.ogg,.oga,.flac,.m4a,.aac,.opus" multiple hidden>
         </label>
       </div>
-      <form class="youtube" id="youtube-form" autocomplete="off">
-        <label for="youtube-url" class="muted">Lien YouTube</label>
-        <input type="url" id="youtube-url" placeholder="https://www.youtube.com/watch?v=…">
-        <button class="btn" type="submit">Analyser</button>
-        <p class="muted small" id="youtube-status" role="status"></p>
-      </form>
-      <div class="yt-panel card" id="yt-panel" hidden>
-        <div class="yt-player"><div id="yt-player-host"></div></div>
-        <div class="yt-side">
-          <strong id="yt-title"></strong>
-          <p class="muted small">La vidéo est lue ici en temps réel et le navigateur capture le son de cet onglet (Chrome/Edge sur ordinateur). Rien n'est téléchargé : l'audio capturé est analysé localement puis oublié. La capture est suspendue pendant les pubs et les pauses.</p>
-          <div class="progress"><div class="progress-bar" id="yt-bar"></div></div>
-          <p class="small" id="yt-status" role="status"></p>
-          <div class="yt-actions">
-            <button class="btn primary" id="yt-start" type="button">Capturer et analyser</button>
-            <button class="btn" id="yt-stop" type="button" disabled>Arrêter et analyser</button>
-            <button class="btn ghost" id="yt-cancel" type="button">Annuler</button>
-          </div>
-        </div>
-      </div>
       <div class="queue" id="queue" hidden>
         <div class="queue-text" id="queue-text" role="status"></div>
         <div class="progress"><div class="progress-bar" id="queue-bar"></div></div>
@@ -71,14 +51,13 @@
           <option value="error">Erreurs</option>
         </select>
         <select id="filter-stage" aria-label="Filtrer par niveau"></select>
-        <select id="sort" aria-label="Trier">
-          <option value="score-asc">Score ↑</option>
-          <option value="score-desc">Score ↓</option>
-          <option value="name-asc">Nom A→Z</option>
-          <option value="name-desc">Nom Z→A</option>
-          <option value="date-desc">Plus récents</option>
-          <option value="date-asc">Plus anciens</option>
-        </select>
+        <label class="inline">Score
+          <select id="aggregation" aria-label="Méthode de calcul du score" title="Comment la courbe d'intensité d'un morceau devient son score"></select>
+        </label>
+        <label class="inline">Tri
+          <select id="sort-key" aria-label="Trier par"></select>
+        </label>
+        <button class="btn" id="sort-dir" type="button" aria-label="Inverser l'ordre de tri">↑</button>
         <button class="btn" id="rescore-all" type="button" title="Recalcule tous les scores depuis les caractéristiques en cache">Recalculer tout</button>
       </div>
       <div class="table-wrap">
@@ -87,6 +66,7 @@
             <tr>
               <th class="col-play"><span class="sr-only">Écouter</span></th>
               <th data-sort="name">Morceau</th>
+              <th class="col-curve hide-sm">Courbe</th>
               <th data-sort="score" class="num">Score</th>
               <th class="num hide-sm">Auto</th>
               <th class="num hide-sm">Correction</th>

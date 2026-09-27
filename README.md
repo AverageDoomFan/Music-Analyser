@@ -10,12 +10,13 @@ Le score est un outil pratique de classement perceptif, **pas une mesure scienti
 
 ## Utilisation
 
-1. Dépose des fichiers (MP3, WAV, OGG, FLAC, M4A… selon le navigateur) ou un dossier entier, ou colle un lien YouTube (voir plus bas).
+1. Dépose des fichiers (MP3, WAV, OGG, FLAC, M4A… selon le navigateur) ou un dossier entier.
 2. L'analyse tourne en arrière-plan (Web Workers) ; les résultats sont mis en cache dans IndexedDB.
-3. Ouvre un morceau pour voir **pourquoi** il a ce score (sous-scores, fiabilité, caractéristiques brutes).
-4. « Le score ne correspond pas » → quelques questions ciblées, aperçu ancien/nouveau score, accepter ou annuler.
-5. Onglet **Progression** → « Créer une progression », export M3U / texte.
-6. Paramètres → pondérations, apprentissage à partir des corrections, export/import JSON, effacement des données.
+3. Choisis comment la courbe d'intensité devient un score (moyenne des pics, moyenne, médiane, pic, perceptive) et trie par score, par statistique de courbe (début, fin, variabilité…), par nom ou par date.
+4. Ouvre un morceau pour suivre ses **courbes dans le temps** (intensité, sous-scores, BPM, volume relatif, attaques…) et voir **pourquoi** il a ce score.
+5. « Le score ne correspond pas » → quelques questions ciblées, aperçu ancien/nouveau score, accepter ou annuler.
+6. Onglet **Progression** → « Créer une progression », export M3U / texte.
+7. Paramètres → pondérations, apprentissage à partir des corrections, export/import JSON, effacement des données.
 
 Les fichiers audio ne sont jamais envoyés à un serveur. Ils ne sont pas non plus stockés : seules les caractéristiques extraites le sont. La lecture et la réanalyse audio sont donc possibles pour les fichiers importés pendant la session ; un fichier réimporté plus tard est reconnu par son empreinte SHA-256 et n'est pas réanalysé.
 
@@ -44,16 +45,15 @@ index.html, styles.css
 src/
   config.js                 ALGORITHM_VERSION, FEATURE_VERSION, pondérations, calibration, paliers
   audio/
-    sources.js              AudioSource → LocalFileSource, YouTubeSource
-    capture.js              capture audio d'onglet (getDisplayMedia + AudioWorklet)
-    youtube-player.js       lecteur YouTube officiel (IFrame API)
-    decoder.js              décodage / rééchantillonnage → mono 44,1 kHz + clipping par canal
+    sources.js              AudioSource → LocalFileSource (point d'extension pour d'autres sources)
+    decoder.js              décodage Web Audio → mono 44,1 kHz + clipping par canal
     fft.js                  FFT radix-2
     features.js             extraction des caractéristiques brutes (fonction pure, testable en Node)
     features.worker.js      exécution dans un Web Worker
     analyzer.js             file d'attente, pool de workers, repli sur le thread principal
   scoring/
-    model.js                caractéristiques → 8 sous-scores → score 0-100
+    model.js                caractéristiques → 8 sous-scores → intensité, par fenêtre (courbes)
+    aggregate.js            courbe → score (moyenne des pics, moyenne, médiane, pic, perceptive…)
     index.js                modèle actif (point de remplacement du modèle)
     correction.js           questions, sélection des questions pertinentes, application des réponses
     learning.js             ajustement des pondérations globales à partir des corrections
@@ -78,6 +78,31 @@ Le scoring, le stockage, l'import audio et l'interface sont indépendants : un n
 
 Les fichiers de plus de 12 minutes sont analysés sur 12 extraits de 45 s répartis sur toute la durée.
 
+### Courbes dans le temps
+
+Rien n'est seulement moyenné. L'extraction se fait en deux passes :
+
+1. une passe par trame STFT (~11,6 ms) qui stocke toutes les mesures ;
+2. un résumé de ces trames, calculé une fois pour le morceau entier et une fois pour chaque **fenêtre de 6 s (pas de 3 s)**.
+
+Chaque caractéristique (BPM local et sa fiabilité, attaques/s, volume relatif au morceau, grave, brillance, planéité, PLR…) devient ainsi une courbe, stockée en colonnes dans `features.timeline`. Le modèle calcule les sous-scores et l'intensité **de chaque fenêtre** : on obtient une courbe d'intensité et une courbe par sous-score.
+
+**Du morceau à un score** (`src/scoring/aggregate.js`, réglable au-dessus de la bibliothèque ou dans Paramètres) :
+
+| Méthode | Calcul |
+|---|---|
+| Moyenne des pics *(défaut)* | moyenne des 25 % de fenêtres les plus intenses (refrains, drops) |
+| Moyenne | moyenne de toute la courbe |
+| Médiane | niveau typique, insensible aux intros / outros / breaks |
+| Pic | maximum de la courbe lissée sur ~12 s (un accident isolé ne compte pas) |
+| Perceptive | moyenne de puissance (p = 3) : tout compte, les passages intenses davantage |
+
+Statistiques supplémentaires pour le tri : **Début** (20 premières secondes), **Fin** (20 dernières), **Variabilité** (p90 − p10). Les sous-scores affichés utilisent la même méthode sur leurs propres courbes. Changer de méthode recalcule tout depuis le cache, sans relire l'audio.
+
+Une correction décale toute la courbe : elle s'applique comme l'écart qu'elle provoque sur les sous-scores agrégés, ajouté au score agrégé. Le même décalage est appliqué aux statistiques pour le tri.
+
+La **progression** utilise les courbes : le coût d'une transition tient compte de l'écart entre la **fin** d'un morceau et le **début** du suivant, en plus de l'écart de score et de la différence de timbre et de rythme.
+
 ### Score
 
 Huit sous-scores 0-100, chacun mélange explicite de composantes normalisées (visibles dans l'infobulle du détail) :
@@ -93,7 +118,7 @@ Huit sous-scores 0-100, chacun mélange explicite de composantes normalisées (v
 | Complexité | variabilité spectrale et rythmique |
 | Bruit | planéité forte, spectre rempli, absence de pics tonals, clipping, écrasement |
 
-Score = moyenne pondérée des sept premières dimensions, puis poussée « bruit/extrême » vers 100 qui n'agit que si le morceau est déjà intense (un bruit doux n'est pas « extrême »), puis calibration par morceaux (`CALIBRATION` dans `config.js`). Pondérations modifiables dans `config.js` (`DEFAULT_WEIGHTS`) ou dans l'interface. La calibration a été réglée sur des signaux synthétiques caricaturaux et sur des plages typiques de musique réelle : c'est un point de départ, les corrections et l'apprentissage des pondérations servent à l'adapter à ton oreille.
+Intensité d'une fenêtre = moyenne pondérée des sept premières dimensions, puis poussée « bruit/extrême » vers 100 qui n'agit que si le morceau est déjà intense (un bruit doux n'est pas « extrême »), puis calibration par morceaux (`CALIBRATION` dans `config.js`). Pondérations modifiables dans `config.js` (`DEFAULT_WEIGHTS`) ou dans l'interface. La calibration a été réglée sur des signaux synthétiques caricaturaux et sur des plages typiques de musique réelle : c'est un point de départ, les corrections et l'apprentissage des pondérations servent à l'adapter à ton oreille.
 
 Chaque sous-score a une **fiabilité** (cohérence de ses composantes ; pour le tempo, fiabilité du beat tracking). Les questions de correction ne portent que sur les dimensions qui peuvent expliquer l'écart et dont l'analyse est peu sûre ; la question sur le bruit est toujours posée en haut de l'échelle.
 
@@ -102,17 +127,4 @@ Chaque sous-score a une **fiabilité** (cohérence de ses composantes ; pour le 
 Chaque morceau stocke : caractéristiques brutes, score automatique initial, score automatique courant, réponses de correction, sous-scores corrigés, score corrigé, score manuel, score final, historique horodaté, versions de l'algorithme et de l'extraction.
 
 - Changement de `ALGORITHM_VERSION` → au chargement, tous les scores sont recalculés **depuis les caractéristiques en cache**, sans relire l'audio, et les réponses de correction sont réappliquées.
-- Changement de `FEATURE_VERSION` → les scores restent (les caractéristiques manquantes sont approximées), les morceaux sont marqués « réanalyse conseillée ». Passage 1.0 → 1.1 : normalisation de loudness et caractéristiques du grave ; réimporter les fichiers pour en profiter, les corrections sont conservées.
-
-### YouTube
-
-Colle un lien YouTube puis « Capturer et analyser » (Chrome ou Edge sur ordinateur) :
-
-1. la vidéo est chargée dans le lecteur officiel intégré (IFrame API) ;
-2. le navigateur demande quoi partager : choisis **cet onglet** et coche **« Partager l'audio de l'onglet »** ;
-3. la vidéo est lue en entier, en temps réel ; le son de l'onglet est enregistré en mémoire uniquement pendant que la vidéo avance (pubs, chargements et pauses sont ignorés) ;
-4. à la fin (ou « Arrêter et analyser » après 20 s minimum), l'audio est analysé comme un fichier local puis oublié.
-
-Rien n'est téléchargé depuis YouTube et aucune protection (CORS, conditions d'utilisation) n'est contournée : c'est le son que le navigateur joue déjà à l'utilisateur. Le morceau est identifié par l'id de la vidéo (`youtube:<id>`), donc mis en cache comme un fichier. Limites : capture en temps réel, navigateurs de bureau Chromium uniquement (Firefox et Safari ne partagent pas l'audio d'onglet), vidéos dont l'intégration est autorisée. YouTube normalise déjà le volume de lecture, ce qui ne change rien puisque l'analyse normalise elle-même.
-
-Architecture : `YouTubeSource` (identité, description) + `TabAudioCapture` (`src/audio/capture.js`, AudioWorklet) + lecteur (`src/audio/youtube-player.js`) ; le PCM capturé passe par `analyzePcm` (rééchantillonnage à 44,1 kHz) puis par le même pipeline que les fichiers.
+- Changement de `FEATURE_VERSION` → les scores restent (les caractéristiques manquantes sont approximées), les morceaux sont marqués « réanalyse conseillée ». Passage 1.0 → 1.1 : normalisation de loudness et caractéristiques du grave. 1.1 → 1.2 : courbes dans le temps (sans réanalyse, un morceau n'a qu'une fenêtre, donc une courbe plate). Réimporter les fichiers pour en profiter ; les corrections sont conservées.

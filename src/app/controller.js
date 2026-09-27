@@ -1,12 +1,12 @@
 // Use cases: import, cache lookup, analysis, rescoring, corrections, backup.
 // UI modules call these functions and re-render from the store.
 
-import { AUDIO_EXTENSIONS, DEFAULT_WEIGHTS, FEATURE_VERSION } from "../config.js";
+import { AUDIO_EXTENSIONS, DEFAULT_WEIGHTS, FEATURE_VERSION, AGGREGATIONS, DEFAULT_AGGREGATION } from "../config.js";
 import { state, notify } from "./store.js";
 import { db } from "../storage/db.js";
 import { buildExport, downloadJson, parseExport, mergeRecord } from "../storage/backup.js";
 import { LocalFileSource } from "../audio/sources.js";
-import { analyzeAudio, analyzePcm } from "../audio/analyzer.js";
+import { analyzeAudio } from "../audio/analyzer.js";
 import {
   createRecord, applyFeatures, rescore, commitCorrection, clearCorrection, setManualScore,
 } from "../core/track.js";
@@ -21,12 +21,14 @@ let jobSeq = 0;
 export async function init() {
   const saved = await db.getSetting("weights");
   if (saved) state.weights = sanitizeWeights(saved);
+  const aggregation = await db.getSetting("aggregation");
+  if (AGGREGATIONS.some((a) => a.key === aggregation)) state.aggregation = aggregation;
   const records = await db.getAllTracks();
   const changed = [];
   for (const r of records) {
     state.records.set(r.id, r);
     // new algorithm version or new weights: rescore from cached features
-    if (rescore(r, state.weights, "migration")) changed.push(r);
+    if (rescore(r, scoring(), "migration")) changed.push(r);
   }
   if (changed.length) await db.putTracks(changed);
   notify();
@@ -101,24 +103,6 @@ async function processSource(source, job, force) {
   return ingest({ identity, meta, sourceDesc: source.describe(), job, force, analyze: (cb) => analyzeAudio(buffer, cb) });
 }
 
-/**
- * Queues already captured PCM (YouTube tab capture) for analysis.
- * @param {{source:import("../audio/sources.js").AudioSource, meta:object, channels:Float32Array[], sampleRate:number}} input
- */
-export async function enqueuePcm({ source, meta, channels, sampleRate }) {
-  const identity = await source.getIdentity();
-  const key = `job-${++jobSeq}`;
-  const job = { key, id: null, name: meta.name, size: null, stage: "queued", progress: 0 };
-  state.jobs.set(key, job);
-  state.queue.total++;
-  notify();
-  pending.push(() => ingest({
-    identity, meta, sourceDesc: source.describe(), job, force: true,
-    analyze: (cb) => analyzePcm(channels, sampleRate, cb),
-  }));
-  pump();
-}
-
 /** Cache lookup, record creation, analysis and persistence, shared by every source. */
 async function ingest({ identity, meta, sourceDesc, job, force, analyze }) {
   let record;
@@ -134,7 +118,7 @@ async function ingest({ identity, meta, sourceDesc, job, force, analyze }) {
     const existing = state.records.get(identity.id);
     if (existing && existing.features && existing.featureVersion === FEATURE_VERSION && !force) {
       // Cache hit: no decoding, no analysis.
-      rescore(existing, state.weights);
+      rescore(existing, scoring());
       if (!existing.name) existing.name = meta.name;
       await db.putTrack(existing);
       state.queue.cached++;
@@ -143,7 +127,6 @@ async function ingest({ identity, meta, sourceDesc, job, force, analyze }) {
 
     record = existing ?? createRecord({ ...meta, id: identity.id, hashAlgorithm: identity.algorithm, source: sourceDesc });
     record.source = sourceDesc;
-    if (meta.name && sourceDesc.kind !== "local") record.name = meta.name;
     if (!existing) {
       state.records.set(record.id, record);
       await db.putTrack(record);
@@ -156,8 +139,7 @@ async function ingest({ identity, meta, sourceDesc, job, force, analyze }) {
       notify();
     });
     if (features.sourceLoudnessLufs <= -69) throw new Error("Audio silencieux : rien à analyser.");
-    applyFeatures(record, features, state.weights);
-    if (meta.duration) record.duration = meta.duration; // e.g. full video length when only part was captured
+    applyFeatures(record, features, scoring());
     await db.putTrack(record);
   } catch (err) {
     console.error(err);
@@ -191,7 +173,7 @@ export async function recompute(id) {
   const r = state.records.get(id);
   if (!r) return;
   r.auto = null;
-  rescore(r, state.weights, "recalcul");
+  rescore(r, scoring(), "recalcul");
   await save(r);
 }
 
@@ -200,7 +182,7 @@ export async function recomputeAll() {
   for (const r of state.records.values()) {
     if (!r.features) continue;
     r.auto = null;
-    rescore(r, state.weights, "recalcul");
+    rescore(r, scoring(), "recalcul");
     changed.push(r);
   }
   await db.putTracks(changed);
@@ -210,7 +192,7 @@ export async function recomputeAll() {
 
 export async function saveCorrection(id, answers) {
   const r = state.records.get(id);
-  commitCorrection(r, answers, state.weights);
+  commitCorrection(r, answers, scoring());
   await save(r);
 }
 
@@ -244,15 +226,33 @@ export async function setWeights(weights) {
   state.weights = sanitizeWeights(weights);
   await db.setSetting("weights", state.weights);
   const changed = [];
-  for (const r of state.records.values()) if (rescore(r, state.weights, "pondérations")) changed.push(r);
+  for (const r of state.records.values()) if (rescore(r, scoring(), "pondérations")) changed.push(r);
+  await db.putTracks(changed);
+  notify();
+}
+
+/** Current scoring settings. */
+export const scoring = () => ({ weights: state.weights, aggregation: state.aggregation });
+
+/** Chooses how intensity curves become scores; rescoring uses cached curves' features only. */
+export async function setAggregation(aggregation) {
+  if (!AGGREGATIONS.some((a) => a.key === aggregation)) return;
+  state.aggregation = aggregation;
+  await db.setSetting("aggregation", aggregation);
+  const changed = [];
+  for (const r of state.records.values()) if (rescore(r, scoring(), "agrégation")) changed.push(r);
   await db.putTracks(changed);
   notify();
 }
 
 export function correctionSamples() {
   return [...state.records.values()]
-    .filter((r) => r.auto && (r.correction || r.manual))
-    .map((r) => ({ subscores: r.auto.subscores, target: r.finalScore }));
+    .filter((r) => r.auto?.curves && (r.correction || r.manual))
+    .map((r) => {
+      const { times, subscores } = r.auto.curves;
+      const windows = times.map((_, i) => Object.fromEntries(Object.entries(subscores).map(([d, arr]) => [d, arr[i]])));
+      return { windows, times, aggregation: state.aggregation, target: r.finalScore };
+    });
 }
 
 /** Proposes weights fitted on the user's corrections (not applied). */
@@ -265,7 +265,7 @@ export function proposeWeights() {
 // ---------- backup ----------
 
 export async function exportDatabase() {
-  const data = buildExport([...state.records.values()], { weights: state.weights });
+  const data = buildExport([...state.records.values()], { weights: state.weights, aggregation: state.aggregation });
   downloadJson(data, "music-energy-database.json");
   return data.tracks.length;
 }
@@ -275,13 +275,13 @@ export async function importDatabase(file) {
   const merged = [];
   for (const incoming of tracks) {
     const rec = mergeRecord(state.records.get(incoming.id), incoming);
-    rescore(rec, state.weights, "import");
+    rescore(rec, scoring(), "import");
     state.records.set(rec.id, rec);
     merged.push(rec);
   }
   await db.putTracks(merged);
   notify();
-  return { count: merged.length, weights: settings.weights ?? null };
+  return { count: merged.length, weights: settings.weights ?? null, aggregation: settings.aggregation ?? null };
 }
 
 export async function clearAllData() {
@@ -289,6 +289,7 @@ export async function clearAllData() {
   state.records.clear();
   state.files.clear();
   state.weights = { ...DEFAULT_WEIGHTS };
+  state.aggregation = DEFAULT_AGGREGATION;
   state.progression = null;
   notify();
 }
@@ -298,7 +299,17 @@ export async function clearAllData() {
 export function buildProgression(tolerance) {
   const items = [...state.records.values()]
     .filter((r) => r.finalScore != null && r.auto)
-    .map((r) => ({ id: r.id, name: r.name, duration: r.duration, score: r.finalScore, subscores: { ...r.auto.subscores, ...(r.correction?.overrides ?? {}) } }));
+    .map((r) => {
+      // a correction shifts the whole curve: apply the same offset to its start / end
+      const offset = r.finalScore - r.auto.score;
+      const stats = r.auto.stats ?? {};
+      return {
+        id: r.id, name: r.name, duration: r.duration, score: r.finalScore,
+        start: (stats.start ?? r.auto.score) + offset,
+        end: (stats.end ?? r.auto.score) + offset,
+        subscores: { ...r.auto.subscores, ...(r.correction?.overrides ?? {}) },
+      };
+    });
   state.progression = { ...buildOrder(items, { tolerance }), tolerance, builtAt: Date.now() };
   notify();
   return state.progression;

@@ -1,29 +1,32 @@
 // Global weight adaptation from user corrections.
-// Fits the weights so that computeIntensity(auto sub-scores) gets closer to the
-// user's final scores, with a pull towards the starting weights so a handful of
-// corrections cannot wreck the model.
+// Fits the weights so that the automatic score (aggregated intensity curve)
+// gets closer to the user's final scores, with a pull towards the starting
+// weights so a handful of corrections cannot wreck the model.
 
 import { computeIntensity } from "./model.js";
+import { aggregate } from "./aggregate.js";
 
 const MIN_W = 0.05;
 const MAX_W = 3;
 
 /**
- * @param {{subscores:Object, target:number}[]} samples
+ * @param {{windows:Object[], times?:number[], aggregation:string, target:number}[]} samples
+ *        windows = per-window sub-scores of each corrected track
  * @param {Object} startWeights
  * @returns {{weights:Object, errorBefore:number, errorAfter:number, n:number}}
  */
-export function fitWeights(samples, startWeights, { iterations = 250, rate = 0.02, regularization = 0.15 } = {}) {
+export function fitWeights(samples, startWeights, { iterations = 200, rate = 0.02, regularization = 0.15 } = {}) {
   const keys = Object.keys(startWeights);
   const w = { ...startWeights };
+  const predict = (s, weights) => aggregate(s.windows.map((sub) => computeIntensity(sub, weights)), s.aggregation, s.times);
   const loss = (weights) => {
     let e = 0;
-    for (const s of samples) e += ((computeIntensity(s.subscores, weights) - s.target) / 100) ** 2;
+    for (const s of samples) e += ((predict(s, weights) - s.target) / 100) ** 2;
     let r = 0;
     for (const k of keys) r += (weights[k] - startWeights[k]) ** 2;
     return e / Math.max(1, samples.length) + regularization * r / keys.length;
   };
-  const rmse = (weights) => Math.sqrt(samples.reduce((a, s) => a + (computeIntensity(s.subscores, weights) - s.target) ** 2, 0) / Math.max(1, samples.length));
+  const rmse = (weights) => Math.sqrt(samples.reduce((a, s) => a + (predict(s, weights) - s.target) ** 2, 0) / Math.max(1, samples.length));
 
   const errorBefore = rmse(w);
   const h = 1e-3;

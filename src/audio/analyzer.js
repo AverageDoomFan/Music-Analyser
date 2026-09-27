@@ -3,7 +3,7 @@
 // supported.
 
 import { ANALYSIS } from "../config.js";
-import { decodeToMono, pcmToMono } from "./decoder.js";
+import { decodeToMono } from "./decoder.js";
 
 function spawnWorker() {
   return new Promise((resolve, reject) => {
@@ -110,14 +110,6 @@ export function analyzeAudio(arrayBuffer, onProgress = () => {}) {
   return withSlot(async () => {
     onProgress("decode", 0);
     return extract(await decodeToMono(arrayBuffer), onProgress);
-  });
-}
-
-/** Same as analyzeAudio, for raw PCM channels (e.g. captured tab audio). */
-export function analyzePcm(channels, sampleRate, onProgress = () => {}) {
-  return withSlot(async () => {
-    onProgress("decode", 0);
-    return extract(await pcmToMono(channels, sampleRate), onProgress);
   });
 }
 

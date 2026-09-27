@@ -6,7 +6,7 @@
  * Bump it whenever the scoring changes: stored tracks whose version differs are
  * re-scored automatically from their cached features, without re-decoding audio.
  */
-export const ALGORITHM_VERSION = "1.1";
+export const ALGORITHM_VERSION = "1.2";
 
 /**
  * Version of the feature extractor (audio -> raw features).
@@ -14,7 +14,7 @@ export const ALGORITHM_VERSION = "1.1";
  * file again. Tracks with an older feature version are flagged "réanalyse
  * conseillée" but keep their scores and corrections.
  */
-export const FEATURE_VERSION = "1.1";
+export const FEATURE_VERSION = "1.2";
 
 /** Schema version of the JSON export. */
 export const EXPORT_SCHEMA_VERSION = 1;
@@ -27,6 +27,8 @@ export const ANALYSIS = {
   maxFullAnalysisSeconds: 12 * 60,
   excerptSeconds: 45,
   excerptCount: 12,
+  windowSeconds: 6,         // timeline: features are also computed on sliding windows
+  windowHopSeconds: 3,
   referenceLufs: -14,       // every file is normalised to this loudness before analysis
   silenceDb: -60,           // frames below this RMS (after normalisation) are "silent"
   concurrency: 2,           // files decoded/analysed in parallel
@@ -48,8 +50,28 @@ export const DEFAULT_WEIGHTS = Object.freeze({
   noise: 1.0,
 });
 
+/**
+ * How a track's intensity curve (and each sub-score curve) becomes its score.
+ * The first one is the default.
+ */
+export const AGGREGATIONS = [
+  { key: "topMean", label: "Moyenne des pics", hint: "Moyenne des 25 % de moments les plus intenses (refrains, drops) : ce que l'on retient d'un morceau." },
+  { key: "mean", label: "Moyenne", hint: "Intensité moyenne sur toute la durée." },
+  { key: "median", label: "Médiane", hint: "Niveau typique, insensible aux intros, outros et breaks." },
+  { key: "peak", label: "Pic", hint: "Passage le plus intense, lissé sur ~12 s pour ignorer les accidents." },
+  { key: "perceptual", label: "Perceptive", hint: "Moyenne de puissance : chaque passage compte, les passages intenses davantage." },
+];
+export const DEFAULT_AGGREGATION = AGGREGATIONS[0].key;
+
+/** Extra curve statistics offered for sorting (not as scores). */
+export const CURVE_STATS = [
+  { key: "start", label: "Début", hint: "Intensité des 20 premières secondes." },
+  { key: "end", label: "Fin", hint: "Intensité des 20 dernières secondes." },
+  { key: "variability", label: "Variabilité", hint: "Écart entre passages calmes et intenses (p90 − p10)." },
+];
+
 export const DIMENSIONS = [
-  { key: "energy", label: "Énergie", hint: "Activité globale : volume, mouvement, attaques." },
+  { key: "energy", label: "Énergie", hint: "Activité globale : mouvement spectral, attaques, dynamique." },
   { key: "tempo", label: "Tempo", hint: "Vitesse des événements (onsets), BPM pondéré par sa fiabilité." },
   { key: "density", label: "Densité", hint: "Remplissage spectral et temporel, peu de silences." },
   { key: "brightness", label: "Brillance", hint: "Centre de gravité spectral, énergie dans les aigus." },

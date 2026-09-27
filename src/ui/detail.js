@@ -1,13 +1,14 @@
 // Track detail dialog: why a track got its score, manual edit, actions.
 
-import { DIMENSIONS, stageFor, ALGORITHM_VERSION, ANALYSIS } from "../config.js";
+import { DIMENSIONS, stageFor, ALGORITHM_VERSION, ANALYSIS, AGGREGATIONS, CURVE_STATS } from "../config.js";
+import { aggregate } from "../scoring/aggregate.js";
+import { renderTimeline } from "./charts.js";
 import { state, subscribe } from "../app/store.js";
 import { statusOf, needsReanalysis } from "../core/track.js";
 import * as ctl from "../app/controller.js";
 import { formatDuration, formatSize, formatScore, formatDate, escapeHtml } from "../util/format.js";
 import { questionById } from "../scoring/correction.js";
 import { openCorrection } from "./correction.js";
-import { openYouTube } from "./youtube.js";
 import { toast } from "./toast.js";
 import { player } from "./player.js";
 
@@ -17,6 +18,11 @@ let currentId = null;
 export function initDetail() {
   const d = dialog();
   d.addEventListener("close", () => { currentId = null; });
+  d.addEventListener("change", (e) => {
+    if (e.target.id !== "timeline-series" || !currentId) return;
+    seriesKey = e.target.value;
+    renderTimelineSection(state.records.get(currentId));
+  });
   d.addEventListener("click", async (e) => {
     if (e.target === d) return d.close(); // backdrop
     const action = e.target.closest("[data-action]")?.dataset.action;
@@ -38,12 +44,6 @@ export function initDetail() {
       case "correction-clear": await ctl.removeCorrection(id); toast("Correction retirée."); break;
       case "recompute": await ctl.recompute(id); toast("Score recalculé depuis les caractéristiques en cache."); break;
       case "reanalyze":
-        if (r.source?.kind === "youtube") {
-          d.close();
-          openYouTube(r.source.url);
-          document.getElementById("yt-panel").scrollIntoView({ behavior: "smooth", block: "center" });
-          break;
-        }
         if (ctl.reanalyze(id)) toast("Réanalyse de l'audio lancée.");
         else toast("Fichier audio non disponible dans cette session : réimporte-le (il sera reconnu par son empreinte).", "error");
         break;
@@ -61,6 +61,7 @@ export function initDetail() {
 
 export function openDetail(id) {
   if (!state.records.has(id)) return;
+  seriesKey = "intensity";
   currentId = id;
   render(true);
   if (!dialog().open) dialog().showModal();
@@ -89,7 +90,7 @@ function render(force = false) {
     <div class="dialog-head">
       <div>
         <h2>${escapeHtml(r.name)}</h2>
-        <div class="muted small">${r.source?.kind === "youtube" ? `<a href="${escapeHtml(r.source.url)}" target="_blank" rel="noopener">YouTube</a>` : formatSize(r.size)} · ${formatDuration(r.duration)} · ajouté le ${formatDate(r.addedAt)}</div>
+        <div class="muted small">${formatSize(r.size)} · ${formatDuration(r.duration)} · ajouté le ${formatDate(r.addedAt)}</div>
       </div>
       <button class="icon-btn" data-action="close" aria-label="Fermer">✕</button>
     </div>
@@ -97,10 +98,20 @@ function render(force = false) {
       ${r.error && !auto ? `<div class="notice">⚠ ${escapeHtml(r.error)}</div>` : ""}
       ${needsReanalysis(r) ? `<div class="notice">Caractéristiques extraites par une ancienne version de l'analyse (${escapeHtml(r.featureVersion)}). Le score reste valable ; réimporte le fichier pour une réanalyse complète.</div>` : ""}
       ${auto ? scoreBlock(r, final) : `<p class="muted">Pas encore analysé.</p>`}
+      ${auto?.curves ? `
+        <h3>Évolution dans le temps</h3>
+        <div class="card">
+          <div class="timeline-head">
+            <select id="timeline-series" aria-label="Courbe affichée">${seriesFor(r).map((sr) => `<option value="${sr.key}" ${sr.key === seriesKey ? "selected" : ""}>${sr.label}</option>`).join("")}</select>
+            <span class="muted small">fenêtres de ${r.features?.timeline?.windowSeconds ?? "—"} s${r.features?.excerpted ? " · extraits répartis sur le morceau" : ""}</span>
+          </div>
+          <div id="timeline-chart"></div>
+          <div class="agg-stats" id="timeline-stats"></div>
+        </div>` : ""}
       ${auto ? `
         <h3>Pourquoi ce score ?</h3>
         <div class="subs">${DIMENSIONS.map((dim) => subRow(dim, auto, overrides)).join("")}</div>
-        <p class="muted small">La barre montre le sous-score automatique, le trait vertical la valeur corrigée. « fiab. » = cohérence des indicateurs qui composent la dimension.</p>
+        <p class="muted small">La barre montre le sous-score automatique (même méthode d'agrégation que le score, appliquée à sa courbe), le trait vertical la valeur corrigée. « fiab. » = cohérence des indicateurs qui composent la dimension.</p>
         ${correctionBlock(r)}
         <h3>Score manuel</h3>
         <div class="manual-edit">
@@ -122,7 +133,68 @@ function render(force = false) {
       <button class="btn" data-action="reanalyze" title="Relit et réanalyse le fichier audio">Réanalyser l'audio</button>
       ${auto ? `<button class="btn primary" data-action="mismatch">Le score ne correspond pas</button>` : ""}
     </div>`;
+  if (auto?.curves) renderTimelineSection(r);
   if (focusedId) d.querySelector(`#${focusedId}`)?.focus();
+}
+
+// ---------- timeline ----------
+
+let seriesKey = "intensity";
+
+const db10 = (v) => 10 * Math.log10(Math.max(v, 1e-12));
+const signed = (v, d = 1) => `${v > 0 ? "+" : ""}${v.toFixed(d)}`;
+
+/** Curves available for a track: intensity, sub-scores, then raw features. */
+function seriesFor(r) {
+  const c = r.auto.curves;
+  const tl = r.features?.timeline;
+  const list = [
+    { key: "intensity", label: "Intensité", values: c.intensity, score: true },
+    ...DIMENSIONS.map((d) => ({ key: `sub:${d.key}`, label: `Sous-score · ${d.label}`, values: c.subscores[d.key], score: true })),
+  ];
+  if (tl?.series) {
+    const sr = tl.series;
+    list.push(
+      // BPM only where the beat is reliable enough
+      { key: "bpm", label: "BPM (si fiable)", values: sr.bpm.map((v, i) => (v && sr.bpmConfidence[i] >= 0.3 ? v : null)), format: (v) => v.toFixed(0) },
+      { key: "loudnessRel", label: "Volume relatif au morceau (LU)", values: sr.loudnessRel, format: (v) => signed(v) },
+      { key: "onsetRate", label: "Attaques / s", values: sr.onsetRate, format: (v) => v.toFixed(1) },
+      { key: "lowPulse", label: "Attaques dans le grave", values: sr.lowPulse, format: (v) => v.toFixed(3) },
+      { key: "bassRatio", label: "Poids du grave (%)", values: sr.bassRatio.map((v) => v * 100), format: (v) => v.toFixed(0) },
+      { key: "centroidMean", label: "Brillance · centroïde (Hz)", values: sr.centroidMean, format: (v) => v.toFixed(0) },
+      { key: "flatnessMedian", label: "Planéité spectrale (dB)", values: sr.flatnessMedian.map(db10), format: (v) => v.toFixed(1) },
+      { key: "plrDb", label: "Pic / loudness (dB)", values: sr.plrDb, format: (v) => v.toFixed(1) },
+    );
+  }
+  return list;
+}
+
+function renderTimelineSection(r) {
+  const d = dialog();
+  const host = d.querySelector("#timeline-chart");
+  if (!host || !r?.auto?.curves) return;
+  const list = seriesFor(r);
+  const sr = list.find((x) => x.key === seriesKey) ?? list[0];
+  const times = r.auto.curves.times;
+  const fmt = sr.format ?? ((v) => v.toFixed(0));
+  const agg = r.auto.aggregation ?? state.aggregation;
+  const aggLabel = AGGREGATIONS.find((a) => a.key === agg)?.label ?? agg;
+  renderTimeline(host, {
+    times,
+    values: sr.values,
+    min: sr.score ? 0 : undefined,
+    max: sr.score ? 100 : undefined,
+    format: fmt,
+    bands: sr.key === "intensity",
+    ref: sr.key === "intensity" ? r.auto.score : undefined,
+    refLabel: sr.key === "intensity" ? `score auto · ${aggLabel}` : undefined,
+  });
+  const keys = [...AGGREGATIONS.map((a) => a.key).filter((k) => sr.score || k !== "perceptual"), ...CURVE_STATS.map((c) => c.key)];
+  const label = (k) => AGGREGATIONS.find((a) => a.key === k)?.label ?? CURVE_STATS.find((c) => c.key === k)?.label ?? k;
+  const values = sr.values.map((v) => (v == null ? NaN : v));
+  d.querySelector("#timeline-stats").innerHTML = values.some(Number.isFinite)
+    ? keys.map((k) => `<div class="${sr.score && k === agg ? "active" : ""}" title="${escapeHtml(AGGREGATIONS.find((a) => a.key === k)?.hint ?? CURVE_STATS.find((c) => c.key === k)?.hint ?? "")}"><span>${label(k)}</span><b>${fmt(aggregate(values, k, times))}</b></div>`).join("")
+    : `<p class="muted small">Pas de valeur fiable sur ce morceau.</p>`;
 }
 
 function scoreBlock(r, final) {
@@ -131,7 +203,7 @@ function scoreBlock(r, final) {
   return `
     <div class="score-head">
       <span class="big-score">${formatScore(final)}</span>
-      <span><strong>${stageFor(final).label}</strong><br><span class="muted small">${statusOf(r) === "corrected" ? `automatique : ${formatScore(auto)}` : "score automatique"} · algorithme v${escapeHtml(r.auto.algorithmVersion)}</span></span>
+      <span><strong>${stageFor(final).label}</strong><br><span class="muted small">${statusOf(r) === "corrected" ? `automatique : ${formatScore(auto)}` : "score automatique"} · ${escapeHtml(AGGREGATIONS.find((a) => a.key === r.auto.aggregation)?.label ?? "")} de la courbe · algorithme v${escapeHtml(r.auto.algorithmVersion)}</span></span>
     </div>
     <div class="intensity" aria-hidden="true">
       <div class="intensity-scale">
