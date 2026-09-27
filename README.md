@@ -1,5 +1,10 @@
 # Music Energy Analyzer
 
+Deux outils dans une même web app 100 % navigateur :
+
+- **Analyse** : score d'intensité perceptive, courbes dans le temps, playlists progressives.
+- **Rythme** : découpage d'un morceau en notes pour créer une map de jeu de rythme (pistes par instrument, cue sounds, KPS, difficulté).
+
 Web app 100 % navigateur qui analyse des fichiers audio **localement** et leur attribue un score d'intensité perceptive de 0 à 100, pour construire une playlist allant du plus calme au plus extrême :
 
 ```
@@ -61,6 +66,11 @@ src/
   storage/db.js             IndexedDB (tracks, settings)
   storage/backup.js         export / import JSON avec fusion sans perte de corrections
   playlist/progression.js   algorithme de progression + export M3U / texte
+  rhythm/bands.js           bandes log + enveloppes d'attaque SuperFlux (worker : rhythm.worker.js)
+  rhythm/notes.js           regroupement en pistes, détection des notes, suppression des échos
+  rhythm/difficulty.js      KPS, difficulté (strain), statistiques de map
+  rhythm/session.js         décodage partagé avec la lecture, cache des bandes pour la session
+  audio/engine.js           lecture Web Audio : position, piste isolée, cues planifiés
   app/                      état et cas d'usage (contrôleur)
   ui/                       bibliothèque, détail, correction, paramètres, progression, graphiques
 ```
@@ -77,6 +87,27 @@ Le scoring, le stockage, l'import audio et l'interface sont indépendants : un n
 **Indépendance au volume** : chaque fichier est d'abord normalisé à -14 LUFS (loudness type BS.1770 : filtre K, gating). Le niveau de mastering d'un fichier ne change donc ni ses caractéristiques ni son score ; un même morceau exporté 12 dB plus bas obtient le même score (vérifié par les tests). La loudness d'origine est conservée à titre informatif uniquement.
 
 Les fichiers de plus de 12 minutes sont analysés sur 12 extraits de 45 s répartis sur toute la durée.
+
+## Onglet Rythme : créateur de map
+
+Choisis un morceau importé pendant la session (ou ouvre-le depuis son détail avec « Rythme »). Les notes sont extraites automatiquement.
+
+- **Matrice** pistes × temps. Le fond coloré montre l'énergie captée dans la plage de fréquences de chaque piste, les traits sont les notes (plus opaques = attaque plus forte). Les aigus sont en haut.
+- **Lecture** : clic sur la matrice ou sur une courbe = lecture depuis ce point, re-clic = stop (Espace aussi). La tête de lecture avance et la vue la suit. Molette pour défiler, Ctrl + molette pour zoomer, clic sur la vue d'ensemble pour se déplacer.
+- **Écouter** : la musique originale, les cues seuls, ou **une piste isolée** (filtrage passe-bande sur sa plage : 🎧 sur la piste) pour entendre ce qui a été extrait.
+- **Cues** : chaque piste cochée joue un « tick » à une hauteur qui lui est propre sur chacune de ses notes, planifié à l'échantillon près par-dessus la musique.
+- **Pistes cochées** = la map : elles définissent les cues, les **KPS** (notes par seconde, fenêtre glissante d'1 s) et la **difficulté** (★, modèle de « strain » : chaque note ajoute une charge qui décroît avec le temps, avec un bonus pour les accords et les changements de piste). Les deux sont affichées en courbes, avec des statistiques.
+- **Paramètres de découpage** : nombre de pistes max, mode et seuil de regroupement, sensibilité, écart minimal entre notes, suppression des échos entre pistes, bandes par octave, plage de fréquences. **Correction manuelle** : ✂ scinde une piste, ⤓ la fusionne avec celle du dessous.
+- La map (pistes, notes, paramètres, sélection) est enregistrée dans IndexedDB avec le morceau. L'export de map pour un jeu n'est pas encore prévu.
+
+### Algorithme (`src/rhythm/`)
+
+1. **Bandes** (`bands.js`) : STFT de 2048 points avec un pas de 256 (5,8 ms), puis bandes logarithmiques (6 par octave par défaut, de 30 Hz à 16 kHz). Pour chaque bande : niveau log et enveloppe d'attaque de type **SuperFlux** (montée par rapport au maximum de la bande et de ses voisines deux trames plus tôt, ce qui neutralise le vibrato et les glissandos). Tourne dans un Web Worker ; les paramètres légers sont ensuite recalculés instantanément, sans refaire ce passage.
+2. **Regroupement en pistes** (`notes.js`) : les bandes voisines sont fusionnées tant qu'elles appartiennent au même son. Critère *timbre* : le rapport de force entre les deux groupes reste constant d'une attaque à l'autre (dispersion du log-rapport). Critère *rythme* : les attaques sont simultanées. Le mode *auto* prend le meilleur des deux, avec un seuil de coïncidence élevé. Les groupes presque silencieux sont absorbés. Une piste = une plage de fréquences contiguë.
+3. **Notes** : pics de l'enveloppe de chaque piste au-dessus d'un seuil adaptatif (moyenne locale + k·écart-type sur ±0,3 s, plus un plancher relatif), avec un écart minimal. Le seuil suit la dynamique locale : attaques douces d'un orchestre comme 25+ notes/s d'un extratone.
+4. **Un son = une piste** : parmi des notes simultanées (±30 ms) de pistes différentes, on compare la **montée d'amplitude perçue** (pondération A) de chaque piste. Les échos faibles disparaissent. Une note forte pour sa propre piste reste (une mélodie sur un kick). Deux pistes dont les notes coïncident presque toujours sont un même son dédoublé (son pitché qui change de bandes) : seule la plus forte garde la note.
+
+Testé (`tests/rhythm.test.mjs`) sur un mix kick / charley / mélodie (chaque instrument dans sa piste, timing à ±5 ms), un extratone mélodique à 25 impulsions/s et des cordes legato avec vibrato.
 
 ### Courbes dans le temps
 

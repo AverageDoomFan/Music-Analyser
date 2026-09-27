@@ -208,6 +208,14 @@ export async function setManual(id, value) {
   await save(r);
 }
 
+/** Stores a track's rhythm map (lanes, notes, parameters, selection). */
+export async function saveRhythm(id, rhythm) {
+  const r = state.records.get(id);
+  if (!r) return;
+  r.rhythm = rhythm;
+  await db.putTrack(r);
+}
+
 export async function deleteTrack(id) {
   state.records.delete(id);
   state.files.delete(id);
