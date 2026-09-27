@@ -6,7 +6,7 @@
  * Bump it whenever the scoring changes: stored tracks whose version differs are
  * re-scored automatically from their cached features, without re-decoding audio.
  */
-export const ALGORITHM_VERSION = "1.0";
+export const ALGORITHM_VERSION = "1.1";
 
 /**
  * Version of the feature extractor (audio -> raw features).
@@ -14,7 +14,7 @@ export const ALGORITHM_VERSION = "1.0";
  * file again. Tracks with an older feature version are flagged "réanalyse
  * conseillée" but keep their scores and corrections.
  */
-export const FEATURE_VERSION = "1.0";
+export const FEATURE_VERSION = "1.1";
 
 /** Schema version of the JSON export. */
 export const EXPORT_SCHEMA_VERSION = 1;
@@ -27,7 +27,8 @@ export const ANALYSIS = {
   maxFullAnalysisSeconds: 12 * 60,
   excerptSeconds: 45,
   excerptCount: 12,
-  silenceDb: -60,           // frames below this RMS are "silent"
+  referenceLufs: -14,       // every file is normalised to this loudness before analysis
+  silenceDb: -60,           // frames below this RMS (after normalisation) are "silent"
   concurrency: 2,           // files decoded/analysed in parallel
 };
 
@@ -42,7 +43,7 @@ export const DEFAULT_WEIGHTS = Object.freeze({
   density: 0.9,
   brightness: 0.35,
   harshness: 1.2,
-  loudness: 0.8,
+  pressure: 0.9,
   complexity: 0.35,
   noise: 1.0,
 });
@@ -53,7 +54,7 @@ export const DIMENSIONS = [
   { key: "density", label: "Densité", hint: "Remplissage spectral et temporel, peu de silences." },
   { key: "brightness", label: "Brillance", hint: "Centre de gravité spectral, énergie dans les aigus." },
   { key: "harshness", label: "Dureté", hint: "Aigus bruités, transitoires, saturation : l'agressivité du timbre." },
-  { key: "loudness", label: "Volume", hint: "Loudness approximative et compression." },
+  { key: "pressure", label: "Pression", hint: "Kicks et basses : attaques dans le grave, poids, maintien et saturation du grave, écrasement. Indépendant du volume du fichier." },
   { key: "complexity", label: "Complexité", hint: "Variabilité spectrale et rythmique." },
   { key: "noise", label: "Bruit", hint: "Caractère bruitiste / extrême : spectre plat, peu de tonalité." },
 ];

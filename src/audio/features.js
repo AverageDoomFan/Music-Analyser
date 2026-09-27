@@ -1,6 +1,10 @@
 // Raw feature extraction. Pure function: PCM in, plain object out.
 // Runs in a Web Worker in the browser and directly in Node for tests.
 // These values are NOT scores: they are inputs for src/scoring/model.js.
+//
+// Level independence: the signal is first normalised to a reference loudness
+// (ANALYSIS.referenceLufs), so the mastering level of a file never changes its
+// features. The file's own loudness is kept for information only.
 
 import { FFT } from "./fft.js";
 import { ANALYSIS, FEATURE_VERSION } from "../config.js";
@@ -36,6 +40,19 @@ export function extractFeatures(mono, sampleRate, extra = {}, onProgress = () =>
   const analyzedSamples = segments.reduce((a, [s, e]) => a + (e - s), 0);
   const frameRate = sampleRate / H;
 
+  // --- loudness normalisation (in place: the caller hands over its buffer)
+  const sourceLoud = loudness(mono, sampleRate, segments);
+  let sourcePeak = 0;
+  for (let i = 0; i < mono.length; i++) { const a = Math.abs(mono[i]); if (a > sourcePeak) sourcePeak = a; }
+  const gainDb = sourceLoud.integrated > -70 ? Math.max(-30, Math.min(50, ANALYSIS.referenceLufs - sourceLoud.integrated)) : 0;
+  const gain = 10 ** (gainDb / 20);
+  if (gain !== 1) for (let i = 0; i < mono.length; i++) mono[i] *= gain;
+
+  // low end (kicks / bass) bins
+  const kKickLo = bin(40), kKickHi = bin(150);
+  const kLowFlatLo = bin(30), kLowFlatHi = bin(500);
+  const prevLowLog = new Float64Array(nBins);
+
   const mag = new Float64Array(nBins);
   const prevLog = new Float64Array(nBins);
   const curNorm = new Float64Array(nBins);
@@ -50,6 +67,11 @@ export function extractFeatures(mono, sampleRate, extra = {}, onProgress = () =>
   const onsetTimes = [];
   const onsetPeaks = [];
   const onsetEnvAll = [];
+  const kickTimes = [];
+  const kickPeaks = [];
+  const kickEnvAll = [];
+  const lowDb = [];
+  const lowFlat = [];
   let acSum = null;
   let acWeight = 0;
   let totalFrames = 0;
@@ -58,6 +80,7 @@ export function extractFeatures(mono, sampleRate, extra = {}, onProgress = () =>
 
   for (const [segStart, segEnd] of segments) {
     const env = [];
+    const kickEnv = [];
     let havePrev = false;
     for (let off = segStart; off + N <= segEnd || (off === segStart && off < segEnd); off += H) {
       totalFrames++;
@@ -89,6 +112,19 @@ export function extractFeatures(mono, sampleRate, extra = {}, onProgress = () =>
       od /= kHi - kLo + 1;
       env.push(havePrev ? od : 0);
 
+      // --- low-band onset envelope (kick attacks) and low-band energy
+      let lod = 0, lowP = 0;
+      for (let k = kKickLo; k <= kKickHi; k++) {
+        const l = Math.log1p(1000 * mag[k]);
+        if (havePrev) {
+          const d = l - prevLowLog[k];
+          if (d > 0) lod += d;
+        }
+        prevLowLog[k] = l;
+        lowP += mag[k] * mag[k];
+      }
+      kickEnv.push(havePrev ? lod / (kKickHi - kKickLo + 1) : 0);
+
       if (rmsDb < ANALYSIS.silenceDb) {
         acc.silent++;
         havePrev = true;
@@ -98,6 +134,19 @@ export function extractFeatures(mono, sampleRate, extra = {}, onProgress = () =>
       }
       acc.frames++;
       acc.rmsDb.push(rmsDb);
+      lowDb.push(10 * Math.log10(lowP + EPS));
+      {
+        // flatness of the low end: a clean kick / sub is nearly sinusoidal,
+        // a distorted one spreads harmonics and noise over 30–500 Hz
+        let ls = 0, ll = 0;
+        const nl = kLowFlatHi - kLowFlatLo + 1;
+        for (let k = kLowFlatLo; k <= kLowFlatHi; k++) {
+          const p = mag[k] * mag[k];
+          ls += Math.log(p + EPS);
+          ll += p;
+        }
+        lowFlat.push(Math.exp(ls / nl) / (ll / nl + EPS));
+      }
       acc.zcr.push(zc / Math.max(1, len));
 
       // --- spectral shape
@@ -174,6 +223,11 @@ export function extractFeatures(mono, sampleRate, extra = {}, onProgress = () =>
       onsetPeaks.push(val);
     }
     for (const v of env) onsetEnvAll.push(v);
+    for (const [idx, val] of pickOnsets(kickEnv, frameRate, KICK_PICK)) {
+      kickTimes.push(offsetSec + idx / frameRate);
+      kickPeaks.push(val);
+    }
+    for (const v of kickEnv) kickEnvAll.push(v);
 
     // --- tempo autocorrelation for this segment
     const ac = onsetAutocorrelation(env, frameRate);
@@ -193,7 +247,6 @@ export function extractFeatures(mono, sampleRate, extra = {}, onProgress = () =>
   tempo.confidence = Math.round(tempo.confidence * clamp01(mean(onsetPeaks) / 0.05) * 1000) / 1000;
   if (onsetTimes.length < 4) tempo.confidence = 0;
   const onsetEnvMean = mean(onsetEnvAll);
-  const loud = loudness(mono, sampleRate, segments);
   const bandTotal = Object.values(acc.bandPower).reduce((a, b) => a + b, 0) + EPS;
   const bandEnergy = Object.fromEntries(Object.entries(acc.bandPower).map(([k, v]) => [k, v / bandTotal]));
 
@@ -209,6 +262,7 @@ export function extractFeatures(mono, sampleRate, extra = {}, onProgress = () =>
   const nonSilentFraction = acc.frames / Math.max(1, totalFrames);
   const globalRms = Math.sqrt(sumSq / Math.max(1, n) / Math.max(0.05, nonSilentFraction));
   const peakDb = 20 * Math.log10(peak + EPS);
+  const kickEnvMean = mean(kickEnvAll);
 
   // rhythmic regularity: coefficient of variation of inter-onset intervals
   const ioi = [];
@@ -231,7 +285,7 @@ export function extractFeatures(mono, sampleRate, extra = {}, onProgress = () =>
     bpm: tempo.bpm,
     bpmConfidence: tempo.confidence,
     onsetRate: onsetTimes.length / Math.max(1, nonSilentSeconds),
-    onsetStrength: mean(onsetPeaks),           // absolute (level dependent)
+    onsetStrength: mean(onsetPeaks),           // on the loudness-normalised signal
     transientStrength: onsetPeaks.length ? mean(onsetPeaks) / (onsetEnvMean + EPS) : 0, // peak vs typical flux
     onsetEnvMean,
     ioiCv,
@@ -256,12 +310,22 @@ export function extractFeatures(mono, sampleRate, extra = {}, onProgress = () =>
     midRatio: bandEnergy.lowMid + bandEnergy.highMid,
     highRatio: bandEnergy.high,
 
-    // general
-    loudnessLufs: loud.integrated,
-    loudnessRange: loud.range,
-    shortTermMaxLufs: loud.shortTermMax,
-    peakDb,
+    // low end / pressure (all relative to the normalised level)
+    lowPulse: kickEnvMean,                     // mean positive low-band flux: kick/bass attack activity
+    kickRate: kickTimes.length / Math.max(1, nonSilentSeconds), // clearly separated kicks only (informative)
+    kickPunch: mean(kickPeaks),
+    lowBandDbStd: std(lowDb),
+    lowFlatnessMedian: median(lowFlat),
+
+    // general (level independent)
+    loudnessRange: sourceLoud.range,
+    shortTermPeakLu: sourceLoud.shortTermMax - sourceLoud.integrated,
+    plrDb: 20 * Math.log10(sourcePeak + EPS) - sourceLoud.integrated,
     crestDb: peakDb - 20 * Math.log10(globalRms + EPS),
+    // informative only, never scored
+    sourceLoudnessLufs: sourceLoud.integrated,
+    normalizationGainDb: gainDb,
+    peakDb: peakDb - gainDb,
     clippingRatio: extra.clippingRatio ?? 0,
     channelPeakDb: extra.channelPeakDb ?? peakDb,
   };
@@ -283,11 +347,11 @@ function chooseSegments(length, sampleRate) {
   return segs;
 }
 
-function pickOnsets(env, frameRate) {
+function pickOnsets(env, frameRate, { floor = 0.008, medianFactor = 1, meanFactor = 0.35, minGapSec = 0.025 } = {}) {
   const n = env.length;
   if (n < 5) return [];
   const W = Math.max(3, Math.round(0.12 * frameRate));
-  const minGap = Math.max(1, Math.round(0.025 * frameRate));
+  const minGap = Math.max(1, Math.round(minGapSec * frameRate));
   const globalMean = mean(env);
   const out = [];
   // adaptive threshold: local median + fraction of the global mean
@@ -300,7 +364,7 @@ function pickOnsets(env, frameRate) {
     for (let j = lo; j <= hi; j++) win.push(env[j]);
     win.sort((a, b) => a - b);
     const med = win[win.length >> 1];
-    const thresh = med + 0.35 * globalMean + 0.008;
+    const thresh = medianFactor * med + meanFactor * globalMean + floor;
     const v = env[i];
     if (v <= thresh) continue;
     // local maximum within ±minGap
@@ -314,6 +378,9 @@ function pickOnsets(env, frameRate) {
   }
   return out;
 }
+
+// kicks need a clear low-band attack standing out from the local level
+const KICK_PICK = { floor: 0.15, medianFactor: 2, meanFactor: 0.5, minGapSec: 0.04 };
 
 const TEMPO_MIN = 45;
 const TEMPO_MAX = 240;
@@ -482,9 +549,9 @@ export function measureClipping(channels) {
   let peak = 0;
   for (const ch of channels) for (let i = 0; i < ch.length; i++) { const a = Math.abs(ch[i]); if (a > peak) peak = a; }
   let clipped = 0, total = 0;
-  if (peak >= 0.5) {
+  if (peak >= 0.01) {
     const thr = peak * 0.98;
-    const flat = 2e-5;
+    const flat = 2e-5 * peak; // relative, so the measure does not depend on the file's level
     for (const ch of channels) {
       total += ch.length;
       let run = 0;

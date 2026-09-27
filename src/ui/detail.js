@@ -1,12 +1,13 @@
 // Track detail dialog: why a track got its score, manual edit, actions.
 
-import { DIMENSIONS, stageFor, ALGORITHM_VERSION } from "../config.js";
+import { DIMENSIONS, stageFor, ALGORITHM_VERSION, ANALYSIS } from "../config.js";
 import { state, subscribe } from "../app/store.js";
 import { statusOf, needsReanalysis } from "../core/track.js";
 import * as ctl from "../app/controller.js";
 import { formatDuration, formatSize, formatScore, formatDate, escapeHtml } from "../util/format.js";
 import { questionById } from "../scoring/correction.js";
 import { openCorrection } from "./correction.js";
+import { openYouTube } from "./youtube.js";
 import { toast } from "./toast.js";
 import { player } from "./player.js";
 
@@ -37,6 +38,12 @@ export function initDetail() {
       case "correction-clear": await ctl.removeCorrection(id); toast("Correction retirée."); break;
       case "recompute": await ctl.recompute(id); toast("Score recalculé depuis les caractéristiques en cache."); break;
       case "reanalyze":
+        if (r.source?.kind === "youtube") {
+          d.close();
+          openYouTube(r.source.url);
+          document.getElementById("yt-panel").scrollIntoView({ behavior: "smooth", block: "center" });
+          break;
+        }
         if (ctl.reanalyze(id)) toast("Réanalyse de l'audio lancée.");
         else toast("Fichier audio non disponible dans cette session : réimporte-le (il sera reconnu par son empreinte).", "error");
         break;
@@ -82,7 +89,7 @@ function render(force = false) {
     <div class="dialog-head">
       <div>
         <h2>${escapeHtml(r.name)}</h2>
-        <div class="muted small">${formatSize(r.size)} · ${formatDuration(r.duration)} · ajouté le ${formatDate(r.addedAt)}</div>
+        <div class="muted small">${r.source?.kind === "youtube" ? `<a href="${escapeHtml(r.source.url)}" target="_blank" rel="noopener">YouTube</a>` : formatSize(r.size)} · ${formatDuration(r.duration)} · ajouté le ${formatDate(r.addedAt)}</div>
       </div>
       <button class="icon-btn" data-action="close" aria-label="Fermer">✕</button>
     </div>
@@ -170,10 +177,15 @@ function featuresBlock(f) {
   const items = [
     ["BPM estimé", f.bpm ? `${n(f.bpm)} (fiab. ${Math.round(f.bpmConfidence * 100)} %)` : "—"],
     ["Onsets / s", n(f.onsetRate, 1)],
-    ["Loudness approx.", n(f.loudnessLufs, 1, " LUFS")],
+    ["Loudness du fichier*", n(f.sourceLoudnessLufs ?? f.loudnessLufs, 1, " LUFS")],
     ["Plage dynamique", n(f.loudnessRange, 1, " LU")],
     ["Crest factor", n(f.crestDb, 1, " dB")],
+    ["Pic / loudness (PLR)", n(f.plrDb, 1, " dB")],
     ["Pic", n(f.channelPeakDb, 1, " dBFS")],
+    ["Attaques dans le grave", n(f.lowPulse, 3)],
+    ["Kicks nets / s", n(f.kickRate, 1)],
+    ["Variation du grave", n(f.lowBandDbStd, 1, " dB")],
+    ["Planéité du grave", f.lowFlatnessMedian != null ? n(10 * Math.log10(Math.max(f.lowFlatnessMedian, 1e-12)), 1, " dB") : "—"],
     ["Clipping", pct(f.clippingRatio)],
     ["Centroïde", n(f.centroidMean, 0, " Hz")],
     ["Largeur de bande", n(f.bandwidthMean, 0, " Hz")],
@@ -186,5 +198,6 @@ function featuresBlock(f) {
     ["Silences", pct(f.silenceRatio)],
     ["Durée analysée", `${formatDuration(f.analyzedSeconds)}${f.excerpted ? " (extraits)" : ""}`],
   ];
-  return `<div class="features">${items.map(([k, v]) => `<div><span>${k}</span><span>${v}</span></div>`).join("")}</div>`;
+  return `<div class="features">${items.map(([k, v]) => `<div><span>${k}</span><span>${v}</span></div>`).join("")}</div>
+    <p class="muted small">* Informatif seulement : chaque fichier est normalisé à ${ANALYSIS.referenceLufs} LUFS avant l'analyse, son volume n'influence pas le score.</p>`;
 }

@@ -10,7 +10,7 @@ Le score est un outil pratique de classement perceptif, **pas une mesure scienti
 
 ## Utilisation
 
-1. Dépose des fichiers (MP3, WAV, OGG, FLAC, M4A… selon le navigateur) ou un dossier entier.
+1. Dépose des fichiers (MP3, WAV, OGG, FLAC, M4A… selon le navigateur) ou un dossier entier, ou colle un lien YouTube (voir plus bas).
 2. L'analyse tourne en arrière-plan (Web Workers) ; les résultats sont mis en cache dans IndexedDB.
 3. Ouvre un morceau pour voir **pourquoi** il a ce score (sous-scores, fiabilité, caractéristiques brutes).
 4. « Le score ne correspond pas » → quelques questions ciblées, aperçu ancien/nouveau score, accepter ou annuler.
@@ -44,8 +44,10 @@ index.html, styles.css
 src/
   config.js                 ALGORITHM_VERSION, FEATURE_VERSION, pondérations, calibration, paliers
   audio/
-    sources.js              AudioSource → LocalFileSource, YouTubeSource (interface seulement)
-    decoder.js              décodage Web Audio → mono 44,1 kHz + mesure du clipping par canal
+    sources.js              AudioSource → LocalFileSource, YouTubeSource
+    capture.js              capture audio d'onglet (getDisplayMedia + AudioWorklet)
+    youtube-player.js       lecteur YouTube officiel (IFrame API)
+    decoder.js              décodage / rééchantillonnage → mono 44,1 kHz + clipping par canal
     fft.js                  FFT radix-2
     features.js             extraction des caractéristiques brutes (fonction pure, testable en Node)
     features.worker.js      exécution dans un Web Worker
@@ -69,7 +71,10 @@ Le scoring, le stockage, l'import audio et l'interface sont indépendants : un n
 
 - **Temporelles** : BPM (autocorrélation de l'enveloppe d'onsets + fiabilité), onsets/s, régularité rythmique, RMS (moyenne, écart-type), silences.
 - **Spectrales** : centroïde, largeur de bande, rolloff 85 %, flux (moyenne, écart-type), planéité, zero crossing rate, crête spectrale, remplissage spectral, énergie par bandes (sub, basses, bas-médiums, haut-médiums, aigus) et ratios graves/médiums/aigus.
-- **Générales** : loudness approximative type BS.1770 (LUFS, filtre K, gating), plage dynamique (type LRA), crest factor, pic, clipping (plateaux de ≥ 3 échantillons au pic), force des transitoires.
+- **Grave / pression** : attaques dans le grave (flux positif 40–150 Hz), kicks nets par seconde, variation d'énergie du grave (grave soutenu ou pulsé), planéité 30–500 Hz (kick propre quasi sinusoïdal vs kick saturé).
+- **Générales** : plage dynamique (type LRA), rapport pic/loudness (PLR), crest factor, clipping (plateaux de ≥ 3 échantillons au pic, relatif au pic), force des transitoires.
+
+**Indépendance au volume** : chaque fichier est d'abord normalisé à -14 LUFS (loudness type BS.1770 : filtre K, gating). Le niveau de mastering d'un fichier ne change donc ni ses caractéristiques ni son score ; un même morceau exporté 12 dB plus bas obtient le même score (vérifié par les tests). La loudness d'origine est conservée à titre informatif uniquement.
 
 Les fichiers de plus de 12 minutes sont analysés sur 12 extraits de 45 s répartis sur toute la durée.
 
@@ -84,7 +89,7 @@ Huit sous-scores 0-100, chacun mélange explicite de composantes normalisées (v
 | Densité | remplissage spectral, largeur de bande, attaques, peu de silences |
 | Brillance | centroïde, rolloff, énergie > 2 kHz |
 | Dureté | planéité, aigus, flux, transitoires, clipping, saturation |
-| Volume | loudness, compression |
+| Pression | kicks et basses : attaques dans le grave, poids, maintien et saturation du grave, écrasement (PLR) — indépendant du volume |
 | Complexité | variabilité spectrale et rythmique |
 | Bruit | planéité forte, spectre rempli, absence de pics tonals, clipping, écrasement |
 
@@ -97,8 +102,17 @@ Chaque sous-score a une **fiabilité** (cohérence de ses composantes ; pour le 
 Chaque morceau stocke : caractéristiques brutes, score automatique initial, score automatique courant, réponses de correction, sous-scores corrigés, score corrigé, score manuel, score final, historique horodaté, versions de l'algorithme et de l'extraction.
 
 - Changement de `ALGORITHM_VERSION` → au chargement, tous les scores sont recalculés **depuis les caractéristiques en cache**, sans relire l'audio, et les réponses de correction sont réappliquées.
-- Changement de `FEATURE_VERSION` → les scores restent, les morceaux sont marqués « réanalyse conseillée ».
+- Changement de `FEATURE_VERSION` → les scores restent (les caractéristiques manquantes sont approximées), les morceaux sont marqués « réanalyse conseillée ». Passage 1.0 → 1.1 : normalisation de loudness et caractéristiques du grave ; réimporter les fichiers pour en profiter, les corrections sont conservées.
 
 ### YouTube
 
-`YouTubeSource` définit l'interface (identité par id de vidéo, `getArrayBuffer()` délégué à un « provider »). Aucun provider n'est fourni : une page statique ne doit pas contourner les restrictions de YouTube (CORS, conditions d'utilisation). L'interface affiche « Analyse YouTube : nécessite un service/outil compatible. » Un service légitime pourra être branché plus tard sans toucher au reste du pipeline.
+Colle un lien YouTube puis « Capturer et analyser » (Chrome ou Edge sur ordinateur) :
+
+1. la vidéo est chargée dans le lecteur officiel intégré (IFrame API) ;
+2. le navigateur demande quoi partager : choisis **cet onglet** et coche **« Partager l'audio de l'onglet »** ;
+3. la vidéo est lue en entier, en temps réel ; le son de l'onglet est enregistré en mémoire uniquement pendant que la vidéo avance (pubs, chargements et pauses sont ignorés) ;
+4. à la fin (ou « Arrêter et analyser » après 20 s minimum), l'audio est analysé comme un fichier local puis oublié.
+
+Rien n'est téléchargé depuis YouTube et aucune protection (CORS, conditions d'utilisation) n'est contournée : c'est le son que le navigateur joue déjà à l'utilisateur. Le morceau est identifié par l'id de la vidéo (`youtube:<id>`), donc mis en cache comme un fichier. Limites : capture en temps réel, navigateurs de bureau Chromium uniquement (Firefox et Safari ne partagent pas l'audio d'onglet), vidéos dont l'intégration est autorisée. YouTube normalise déjà le volume de lecture, ce qui ne change rien puisque l'analyse normalise elle-même.
+
+Architecture : `YouTubeSource` (identité, description) + `TabAudioCapture` (`src/audio/capture.js`, AudioWorklet) + lecteur (`src/audio/youtube-player.js`) ; le PCM capturé passe par `analyzePcm` (rééchantillonnage à 44,1 kHz) puis par le même pipeline que les fichiers.

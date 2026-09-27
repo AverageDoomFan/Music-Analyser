@@ -6,7 +6,7 @@ import { state, notify } from "./store.js";
 import { db } from "../storage/db.js";
 import { buildExport, downloadJson, parseExport, mergeRecord } from "../storage/backup.js";
 import { LocalFileSource } from "../audio/sources.js";
-import { analyzeAudio } from "../audio/analyzer.js";
+import { analyzeAudio, analyzePcm } from "../audio/analyzer.js";
 import {
   createRecord, applyFeatures, rescore, commitCorrection, clearCorrection, setManualScore,
 } from "../core/track.js";
@@ -20,7 +20,7 @@ let jobSeq = 0;
 
 export async function init() {
   const saved = await db.getSetting("weights");
-  if (saved) state.weights = { ...DEFAULT_WEIGHTS, ...saved };
+  if (saved) state.weights = sanitizeWeights(saved);
   const records = await db.getAllTracks();
   const changed = [];
   for (const r of records) {
@@ -31,6 +31,13 @@ export async function init() {
   if (changed.length) await db.putTracks(changed);
   notify();
   return { count: records.length, rescored: changed.length };
+}
+
+/** Keeps only known dimensions (a dimension may be renamed between versions). */
+export function sanitizeWeights(weights) {
+  const out = { ...DEFAULT_WEIGHTS };
+  for (const k of Object.keys(DEFAULT_WEIGHTS)) if (Number.isFinite(weights?.[k])) out[k] = weights[k];
+  return out;
 }
 
 export function isAudioFile(file) {
@@ -52,7 +59,14 @@ export function enqueue(source, { force = false } = {}) {
   state.jobs.set(key, job);
   state.queue.total++;
   notify();
-  pending.push(() => processSource(source, job, force));
+  pending.push(() => processSource(source, job, force).catch((err) => {
+    // failures before identification (unreadable file…)
+    state.queue.errors++;
+    state.queue.done++;
+    state.jobs.delete(job.key);
+    toastHook(`${job.name} : ${err.message || err}`, "error");
+    notify();
+  }));
   pump();
 }
 
@@ -78,16 +92,38 @@ function finishQueue() {
 }
 
 async function processSource(source, job, force) {
+  const meta = await source.getMetadata();
+  job.stage = "hash";
+  notify();
+  const buffer = await source.getArrayBuffer();
+  const identity = await source.getIdentity(buffer);
+  if (source.file) state.files.set(identity.id, source.file);
+  return ingest({ identity, meta, sourceDesc: source.describe(), job, force, analyze: (cb) => analyzeAudio(buffer, cb) });
+}
+
+/**
+ * Queues already captured PCM (YouTube tab capture) for analysis.
+ * @param {{source:import("../audio/sources.js").AudioSource, meta:object, channels:Float32Array[], sampleRate:number}} input
+ */
+export async function enqueuePcm({ source, meta, channels, sampleRate }) {
+  const identity = await source.getIdentity();
+  const key = `job-${++jobSeq}`;
+  const job = { key, id: null, name: meta.name, size: null, stage: "queued", progress: 0 };
+  state.jobs.set(key, job);
+  state.queue.total++;
+  notify();
+  pending.push(() => ingest({
+    identity, meta, sourceDesc: source.describe(), job, force: true,
+    analyze: (cb) => analyzePcm(channels, sampleRate, cb),
+  }));
+  pump();
+}
+
+/** Cache lookup, record creation, analysis and persistence, shared by every source. */
+async function ingest({ identity, meta, sourceDesc, job, force, analyze }) {
   let record;
   try {
-    const meta = await source.getMetadata();
-    job.stage = "hash";
-    notify();
-    const buffer = await source.getArrayBuffer();
-    const identity = await source.getIdentity(buffer);
     job.id = identity.id;
-    if (source.file) state.files.set(identity.id, source.file);
-
     // Duplicate inside the same batch: let the first job handle it.
     const dup = [...state.jobs.values()].find((j) => j !== job && j.id === identity.id);
     if (dup) {
@@ -105,19 +141,23 @@ async function processSource(source, job, force) {
       return;
     }
 
-    record = existing ?? createRecord({ ...meta, id: identity.id, hashAlgorithm: identity.algorithm, source: source.describe() });
+    record = existing ?? createRecord({ ...meta, id: identity.id, hashAlgorithm: identity.algorithm, source: sourceDesc });
+    record.source = sourceDesc;
+    if (meta.name && sourceDesc.kind !== "local") record.name = meta.name;
     if (!existing) {
       state.records.set(record.id, record);
       await db.putTrack(record);
     }
     job.stage = "decode";
     notify();
-    const features = await analyzeAudio(buffer, (stage, p) => {
+    const features = await analyze((stage, p) => {
       job.stage = stage;
       job.progress = p;
       notify();
     });
+    if (features.sourceLoudnessLufs <= -69) throw new Error("Audio silencieux : rien à analyser.");
     applyFeatures(record, features, state.weights);
+    if (meta.duration) record.duration = meta.duration; // e.g. full video length when only part was captured
     await db.putTrack(record);
   } catch (err) {
     console.error(err);
@@ -201,7 +241,7 @@ async function save(r) {
 // ---------- weights ----------
 
 export async function setWeights(weights) {
-  state.weights = { ...weights };
+  state.weights = sanitizeWeights(weights);
   await db.setSetting("weights", state.weights);
   const changed = [];
   for (const r of state.records.values()) if (rescore(r, state.weights, "pondérations")) changed.push(r);

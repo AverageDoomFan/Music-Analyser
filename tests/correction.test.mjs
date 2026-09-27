@@ -5,10 +5,10 @@ import { fitWeights } from "../src/scoring/learning.js";
 import { computeIntensity } from "../src/scoring/model.js";
 import { DEFAULT_WEIGHTS } from "../src/config.js";
 
-const subscores = { energy: 60, tempo: 50, density: 55, brightness: 40, harshness: 35, loudness: 70, complexity: 40, noise: 10 };
+const subscores = { energy: 60, tempo: 50, density: 55, brightness: 40, harshness: 35, pressure: 70, complexity: 40, noise: 10 };
 const auto = {
   subscores,
-  confidences: { energy: 0.9, tempo: 0.95, density: 0.5, brightness: 0.8, harshness: 0.4, loudness: 0.9, complexity: 0.6, noise: 0.5 },
+  confidences: { energy: 0.9, tempo: 0.95, density: 0.5, brightness: 0.8, harshness: 0.4, pressure: 0.9, complexity: 0.6, noise: 0.5 },
   score: computeIntensity(subscores),
 };
 
@@ -47,7 +47,7 @@ test("weight fitting reduces the error on corrections", () => {
   const samples = [];
   for (let i = 0; i < 12; i++) {
     const h = (i * 9) % 100;
-    const s = { energy: 50, tempo: 50, density: 50, brightness: 50, harshness: h, loudness: 50, complexity: 50, noise: 5 };
+    const s = { energy: 50, tempo: 50, density: 50, brightness: 50, harshness: h, pressure: 50, complexity: 50, noise: 5 };
     samples.push({ subscores: s, target: computeIntensity(s, { ...DEFAULT_WEIGHTS, harshness: 3 }) });
   }
   const r = fitWeights(samples, DEFAULT_WEIGHTS);

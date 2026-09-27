@@ -7,7 +7,7 @@
 
 import { stageFor } from "../config.js";
 
-const DIMS = ["energy", "tempo", "density", "brightness", "harshness", "loudness", "complexity", "noise"];
+const DIMS = ["energy", "tempo", "density", "brightness", "harshness", "pressure", "complexity", "noise"];
 
 /**
  * @param {{id:string, score:number, subscores:Object}[]} items

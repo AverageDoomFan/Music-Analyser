@@ -24,6 +24,8 @@ test("features are finite and plausible", () => {
   assert.equal(results.ambient.features.onsetRate, 0);
   assert.ok(results.harshNoise.features.flatnessMedian > 0.3);
   assert.ok(results.speedcore.features.clippingRatio > 0.01);
+  assert.ok(Math.abs(results.pop.features.sourceLoudnessLufs - -6.4) < 1);
+  assert.ok(Math.abs(results.pop.features.normalizationGainDb - (-14 - results.pop.features.sourceLoudnessLufs)) < 0.01);
   assert.equal(results.piano.features.clippingRatio, 0);
 });
 
@@ -56,19 +58,47 @@ test("harshness and noise separate loud tonal music from saturated music", () =>
 });
 
 test("noise only pushes when the base is already intense", () => {
-  const calm = { energy: 15, tempo: 10, density: 20, brightness: 20, harshness: 10, loudness: 20, complexity: 10 };
+  const calm = { energy: 15, tempo: 10, density: 20, brightness: 20, harshness: 10, pressure: 20, complexity: 10 };
   const a = computeIntensity({ ...calm, noise: 0 }, DEFAULT_WEIGHTS);
   const b = computeIntensity({ ...calm, noise: 100 }, DEFAULT_WEIGHTS);
   assert.equal(a, b);
-  const loud = { energy: 85, tempo: 70, density: 85, brightness: 70, harshness: 80, loudness: 90, complexity: 50 };
+  const loud = { energy: 85, tempo: 70, density: 85, brightness: 70, harshness: 80, pressure: 90, complexity: 50 };
   assert.ok(computeIntensity({ ...loud, noise: 100 }) - computeIntensity({ ...loud, noise: 0 }) > 5);
 });
 
 test("weights change the score", () => {
   const subs = results.rapSlow.subscores;
-  const more = computeIntensity(subs, { ...DEFAULT_WEIGHTS, harshness: 0.05, loudness: 3 });
-  const less = computeIntensity(subs, { ...DEFAULT_WEIGHTS, harshness: 3, loudness: 0.05 });
+  const more = computeIntensity(subs, { ...DEFAULT_WEIGHTS, harshness: 0.05, pressure: 3 });
+  const less = computeIntensity(subs, { ...DEFAULT_WEIGHTS, harshness: 3, pressure: 0.05 });
   assert.notEqual(more, less);
+});
+
+test("the file's level does not change features or scores", () => {
+  for (const name of ["piano", "pop", "metal", "speedcore"]) {
+    const ref = results[name];
+    for (const gain of [0.25, 0.5, 1.8]) {
+      const x = tracks[name]();
+      for (let i = 0; i < x.length; i++) x[i] *= gain;
+      const r = scoreFeatures(extractFeatures(x, SR, measureClipping([x])));
+      assert.ok(Math.abs(r.score - ref.score) < 0.5, `${name} ×${gain}: ${r.score} vs ${ref.score}`);
+      for (const [dim, v] of Object.entries(r.subscores)) assert.ok(Math.abs(v - ref.subscores[dim]) < 1, `${name} ×${gain} ${dim}`);
+    }
+  }
+});
+
+test("features from the previous extractor still get a score", () => {
+  const f = { ...results.pop.features, featureVersion: "1.0" };
+  for (const k of ["lowPulse", "lowBandDbStd", "lowFlatnessMedian", "plrDb", "kickRate", "kickPunch"]) delete f[k];
+  const r = scoreFeatures(f);
+  assert.ok(Number.isFinite(r.score));
+  assert.ok(Math.abs(r.score - results.pop.score) < 25);
+});
+
+test("pressure follows the low end, not the level", () => {
+  const p = (n) => results[n].subscores.pressure;
+  assert.ok(p("piano") < p("pop"));
+  assert.ok(p("ambient") < p("hardstyle"));
+  assert.ok(p("harshNoise") < p("metal"), "noise without bass has little low-end pressure");
 });
 
 test("long files are analysed through excerpts", () => {

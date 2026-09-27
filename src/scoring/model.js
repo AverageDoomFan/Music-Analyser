@@ -20,24 +20,29 @@ const db = (x) => 10 * Math.log10(Math.max(x, 1e-12));
  * Keeping components explicit lets the UI explain a score and lets us derive
  * a confidence from how much the components agree.
  */
-function components(f) {
+function components(raw) {
+  const f = withFallbacks(raw);
   const hf = (f.bandEnergy?.highMid ?? 0) + (f.bandEnergy?.high ?? 0);
   const flatDb = db(f.flatnessMedian);
-  const loud = lin(f.loudnessLufs, -30, -6);
-  const compression = 1 - lin(f.crestDb, 6, 20);
+  // Everything below is level independent: the extractor normalises each
+  // file to a reference loudness, so the mastering level never counts.
+  const squash = 1 - lin(f.plrDb, 5, 16);              // peak-to-loudness ratio: limiter / clipping
   const steady = 1 - lin(f.loudnessRange, 3, 16);
   const onsets = lin(f.onsetRate, 0.5, 12);
-  const motion = lin(f.onsetEnvMean, 0.005, 0.22);
+  const motion = lin(f.onsetEnvMean, 0.005, 0.2);
   const clip = lin(Math.log10(f.clippingRatio + 1e-6), -5, -1.5);
   const conf = clamp01(f.bpmConfidence);
   const bpmNorm = f.bpm ? lin(f.bpm, 60, 180) : onsets;
+  const bassPresence = lin(f.bassRatio, 0.05, 0.35);  // low-end measures only count if there is a low end
+  const lowPunch = lin(f.lowPulse, 0.02, 0.25) * bassPresence;
 
   return {
     energy: [
-      ["Loudness", loud, 0.45],
-      ["Mouvement spectral", motion, 0.3],
-      ["Dynamique resserrée", steady, 0.1],
-      ["Densité d'attaques", lin(f.onsetRate, 0.5, 8), 0.15],
+      ["Mouvement spectral", motion, 0.35],
+      ["Densité d'attaques", lin(f.onsetRate, 0.5, 8), 0.2],
+      ["Dynamique resserrée", steady, 0.15],
+      ["Attaques dans le grave", lowPunch, 0.15],
+      ["Écrasement", squash, 0.15],
     ],
     tempo: [
       ["Onsets / s", onsets, 0.55],
@@ -64,9 +69,12 @@ function components(f) {
       ["Clipping", clip, 0.1],
       ["Saturation / compression", 1 - lin(f.crestDb, 4, 14), 0.1],
     ],
-    loudness: [
-      ["Loudness (LUFS approx.)", loud, 0.7],
-      ["Compression", compression, 0.3],
+    pressure: [
+      ["Attaques dans le grave (kicks)", lowPunch, 0.3],
+      ["Poids du grave", lin(f.bassRatio, 0.15, 0.85), 0.2],
+      ["Grave soutenu", (1 - lin(f.lowBandDbStd, 1.5, 12)) * bassPresence, 0.15],
+      ["Saturation du grave", lin(db(f.lowFlatnessMedian), -30, -5) * bassPresence, 0.15],
+      ["Écrasement (PLR faible)", squash, 0.2],
     ],
     complexity: [
       ["Variation du centroïde", lin(f.centroidStd, 100, 1500), 0.35],
@@ -80,6 +88,21 @@ function components(f) {
       ["Clipping", clip, 0.1],
       ["Écrasement (crest faible)", 1 - lin(f.crestDb, 3, 10), 0.1],
     ],
+  };
+}
+
+/**
+ * Features extracted by an older extractor lack some fields: approximate them
+ * so old tracks keep a sensible score until they are re-analysed.
+ */
+function withFallbacks(f) {
+  if (f.lowPulse != null) return f;
+  return {
+    ...f,
+    lowPulse: (f.onsetEnvMean ?? 0) * 1.3,
+    lowBandDbStd: f.rmsDbStd ?? 6,
+    lowFlatnessMedian: f.flatnessMedian ?? 0,
+    plrDb: f.plrDb ?? (f.crestDb ?? 12) + 2,
   };
 }
 
@@ -139,7 +162,7 @@ export function computeIntensity(subscores, weights = DEFAULT_WEIGHTS) {
   const base = w ? s / w : 0;
   const noise = (subscores.noise ?? 0) / 100;
   const gate = smoothstep(0.35, 0.7, base);
-  const push = clamp01(Math.max(0, weights.noise ?? 0) * 0.8 * noise * gate);
+  const push = clamp01(Math.max(0, weights.noise ?? 0) * noise * gate);
   const raw = base + (1 - base) * push;
   return round1(calibrate(raw));
 }

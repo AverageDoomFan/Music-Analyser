@@ -3,7 +3,7 @@
 import { ALGORITHM_VERSION } from "./config.js";
 import { state, subscribe, notify } from "./app/store.js";
 import * as ctl from "./app/controller.js";
-import { YouTubeSource } from "./audio/sources.js";
+import { initYouTube } from "./ui/youtube.js";
 import { initLibrary, renderLibrary } from "./ui/library.js";
 import { initDetail, openDetail } from "./ui/detail.js";
 import { initCorrection } from "./ui/correction.js";
@@ -48,15 +48,6 @@ function initImport() {
     if (files.length) accept(files);
   });
 
-  $("youtube-form").addEventListener("submit", (e) => {
-    e.preventDefault();
-    const url = $("youtube-url").value;
-    const source = new YouTubeSource(url);
-    const status = $("youtube-status");
-    if (!source.videoId) status.textContent = "Lien YouTube non reconnu.";
-    else if (!source.available) status.textContent = `Vidéo ${source.videoId} — analyse YouTube : nécessite un service/outil compatible. Aucun contournement des protections de YouTube n'est intégré ; importe plutôt un fichier audio que tu possèdes.`;
-    else ctl.enqueue(source);
-  });
 }
 
 /** Supports dropped folders (webkitGetAsEntry) as well as plain files. */
@@ -112,6 +103,7 @@ function renderQueue() {
 async function main() {
   $("version-info").textContent = `· algorithme v${ALGORITHM_VERSION}`;
   initImport();
+  initYouTube();
   initTabs();
   initLibrary({ openDetail });
   initDetail();

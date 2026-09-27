@@ -1,13 +1,15 @@
 // AudioSource abstraction. The analysis pipeline only needs an identity and
-// the encoded audio bytes, so new origins can be added without touching it.
+// the audio (encoded bytes or raw PCM), so new origins plug in without
+// touching it.
 //
-//   LocalFileSource – files chosen or dropped by the user (implemented)
-//   YouTubeSource   – placeholder: a static page must not bypass YouTube's
-//                     restrictions (CORS, terms of service). It would need a
-//                     compatible external service/tool providing the audio
-//                     legitimately; until then it reports itself unavailable.
+//   LocalFileSource – files chosen or dropped by the user: encoded bytes.
+//   YouTubeSource   – a video played in the official embedded player; its
+//                     audio is obtained by capturing the tab the user shares
+//                     (see capture.js). Nothing is downloaded from YouTube and
+//                     no protection (CORS, DRM, terms) is bypassed.
 
 import { hashArrayBuffer } from "../util/hash.js";
+import { tabCaptureSupported } from "./capture.js";
 
 export class AudioSourceUnavailableError extends Error {}
 
@@ -38,30 +40,28 @@ export class LocalFileSource extends AudioSource {
   describe() { return { kind: "local" }; }
 }
 
-export const YOUTUBE_UNAVAILABLE_MESSAGE = "Analyse YouTube : nécessite un service/outil compatible.";
+export const YOUTUBE_UNAVAILABLE_MESSAGE =
+  "Analyse YouTube : nécessite la capture audio d'onglet (Chrome ou Edge sur ordinateur).";
 
 export class YouTubeSource extends AudioSource {
-  constructor(url, provider = null) {
+  constructor(url) {
     super();
     this.url = url;
     this.videoId = parseYouTubeId(url);
-    // provider: optional object { fetchAudio(videoId): Promise<ArrayBuffer>, name }
-    // backed by a service the user is entitled to use. None ships with the app.
-    this.provider = provider;
   }
   get kind() { return "youtube"; }
-  get available() { return !!(this.videoId && this.provider); }
+  get available() { return !!this.videoId && tabCaptureSupported(); }
+  get watchUrl() { return `https://www.youtube.com/watch?v=${this.videoId}`; }
   async getMetadata() {
     return { name: `YouTube ${this.videoId ?? this.url}`, size: null, type: "youtube", lastModified: null };
   }
   async getArrayBuffer() {
-    if (!this.videoId) throw new AudioSourceUnavailableError("Lien YouTube invalide.");
-    if (!this.provider) throw new AudioSourceUnavailableError(YOUTUBE_UNAVAILABLE_MESSAGE);
-    return this.provider.fetchAudio(this.videoId);
+    // Audio comes as PCM from TabAudioCapture, never as downloaded bytes.
+    throw new AudioSourceUnavailableError(YOUTUBE_UNAVAILABLE_MESSAGE);
   }
-  // A YouTube video is identified by its id, not by the bytes of one download.
+  // A YouTube video is identified by its id, not by the bytes of one capture.
   async getIdentity() { return { id: `youtube:${this.videoId}`, algorithm: "youtube-id" }; }
-  describe() { return { kind: "youtube", url: this.url, videoId: this.videoId, provider: this.provider?.name ?? null }; }
+  describe() { return { kind: "youtube", url: this.watchUrl, videoId: this.videoId, method: "tab-capture" }; }
 }
 
 export function parseYouTubeId(url) {

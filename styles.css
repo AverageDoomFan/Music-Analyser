@@ -113,6 +113,13 @@ input[type="search"], input[type="url"], input[type="number"], select {
 .youtube { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .youtube input { flex: 1 1 260px; }
 .youtube p { flex-basis: 100%; margin: 0; }
+.yt-panel { display: grid; grid-template-columns: minmax(0, 420px) 1fr; gap: 16px; align-items: start; }
+.yt-player { position: relative; aspect-ratio: 16 / 9; background: #000; border-radius: 8px; overflow: hidden; }
+.yt-player > div, .yt-player iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.yt-side { display: grid; gap: 8px; align-content: start; }
+.yt-side p { margin: 0; }
+.yt-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+@media (max-width: 720px) { .yt-panel { grid-template-columns: 1fr; } }
 .queue { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; }
 .queue-text { font-size: 0.88rem; margin-bottom: 6px; color: var(--text-2); }
 .progress { height: 6px; background: var(--track); border-radius: 3px; overflow: hidden; }
