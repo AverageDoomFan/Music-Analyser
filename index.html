@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Music Energy Analyzer</title>
+  <meta name="description" content="Analyse locale de fichiers audio et classement perceptif du plus calme au plus extrême.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M2 26h4V16H2zm6 0h4V10H8zm6 0h4V6h-4zm6 0h4V12h-4zm6 0h4V2h-4z' fill='%233987e5'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="src/main.js"></script>
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <h1>Music Energy Analyzer</h1>
+      <p class="tagline">Classement perceptif, du plus calme au plus bruitiste. Analyse 100 % locale : tes fichiers ne quittent pas le navigateur.</p>
+    </div>
+    <button class="btn ghost" id="open-settings" type="button" aria-haspopup="dialog">Paramètres</button>
+  </header>
+
+  <main>
+    <section class="import" aria-label="Import">
+      <div class="dropzone" id="dropzone" tabindex="0">
+        <p><strong>Dépose tes musiques ici</strong> (MP3, WAV, OGG, FLAC…)</p>
+        <p class="muted">ou</p>
+        <label class="btn primary">
+          Importer des fichiers
+          <input type="file" id="file-input" accept="audio/*,.mp3,.wav,.ogg,.oga,.flac,.m4a,.aac,.opus" multiple hidden>
+        </label>
+      </div>
+      <form class="youtube" id="youtube-form" autocomplete="off">
+        <label for="youtube-url" class="muted">Lien YouTube</label>
+        <input type="url" id="youtube-url" placeholder="https://www.youtube.com/watch?v=…">
+        <button class="btn" type="submit">Analyser</button>
+        <p class="muted small" id="youtube-status" role="status"></p>
+      </form>
+      <div class="queue" id="queue" hidden>
+        <div class="queue-text" id="queue-text" role="status"></div>
+        <div class="progress"><div class="progress-bar" id="queue-bar"></div></div>
+      </div>
+    </section>
+
+    <nav class="tabs" role="tablist">
+      <button role="tab" id="tab-library" aria-selected="true" aria-controls="panel-library">Bibliothèque <span class="count" id="library-count">0</span></button>
+      <button role="tab" id="tab-progression" aria-selected="false" aria-controls="panel-progression">Progression</button>
+    </nav>
+
+    <section id="panel-library" role="tabpanel" aria-labelledby="tab-library">
+      <div class="overview" id="overview"></div>
+      <div class="toolbar">
+        <input type="search" id="search" placeholder="Rechercher…" aria-label="Rechercher">
+        <select id="filter-status" aria-label="Filtrer par statut">
+          <option value="all">Tous les statuts</option>
+          <option value="pending">Non analysés</option>
+          <option value="analyzed">Analysés</option>
+          <option value="corrected">Corrigés</option>
+          <option value="error">Erreurs</option>
+        </select>
+        <select id="filter-stage" aria-label="Filtrer par niveau"></select>
+        <select id="sort" aria-label="Trier">
+          <option value="score-asc">Score ↑</option>
+          <option value="score-desc">Score ↓</option>
+          <option value="name-asc">Nom A→Z</option>
+          <option value="name-desc">Nom Z→A</option>
+          <option value="date-desc">Plus récents</option>
+          <option value="date-asc">Plus anciens</option>
+        </select>
+        <button class="btn" id="rescore-all" type="button" title="Recalcule tous les scores depuis les caractéristiques en cache">Recalculer tout</button>
+      </div>
+      <div class="table-wrap">
+        <table class="library" id="library">
+          <thead>
+            <tr>
+              <th class="col-play"><span class="sr-only">Écouter</span></th>
+              <th data-sort="name">Morceau</th>
+              <th data-sort="score" class="num">Score</th>
+              <th class="num hide-sm">Auto</th>
+              <th class="num hide-sm">Correction</th>
+              <th>Statut</th>
+              <th class="hide-sm"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody id="library-body"></tbody>
+        </table>
+        <p class="empty" id="library-empty">Aucun morceau pour l'instant. Importe des fichiers pour commencer.</p>
+      </div>
+    </section>
+
+    <section id="panel-progression" role="tabpanel" aria-labelledby="tab-progression" hidden>
+      <div class="toolbar">
+        <button class="btn primary" id="build-progression" type="button">Créer une progression</button>
+        <label class="inline">Souplesse
+          <input type="range" id="tolerance" min="0" max="15" step="1" value="6" aria-describedby="tolerance-help">
+          <output id="tolerance-value">6</output>
+        </label>
+        <span class="muted small" id="tolerance-help">écart de score dans lequel l'ordre peut être ajusté pour lisser les transitions</span>
+        <span class="spacer"></span>
+        <button class="btn" id="export-m3u" type="button" disabled>Exporter M3U</button>
+        <button class="btn" id="export-txt" type="button" disabled>Exporter texte</button>
+      </div>
+      <div id="progression-output"><p class="empty">Clique sur « Créer une progression » pour ordonner les morceaux analysés.</p></div>
+    </section>
+  </main>
+
+  <footer class="app-footer muted small">
+    Le score est un outil pratique de classement perceptif, pas une mesure scientifique de l'intensité.
+    <span id="version-info"></span>
+  </footer>
+
+  <dialog id="detail-dialog" class="dialog wide"></dialog>
+  <dialog id="correction-dialog" class="dialog"></dialog>
+  <dialog id="settings-dialog" class="dialog wide"></dialog>
+  <div class="toasts" id="toasts" aria-live="polite" popover="manual"></div>
+</body>
+</html>
