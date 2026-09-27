@@ -1,6 +1,6 @@
 // Settings dialog: model weights, learning from corrections, backup, reset.
 
-import { ALGORITHM_VERSION, FEATURE_VERSION, DEFAULT_WEIGHTS, DIMENSIONS } from "../config.js";
+import { ALGORITHM_VERSION, FEATURE_VERSION, DEFAULT_WEIGHTS, DIMENSIONS, AGGREGATIONS } from "../config.js";
 import { state } from "../app/store.js";
 import * as ctl from "../app/controller.js";
 import { toast } from "./toast.js";
@@ -20,13 +20,22 @@ export function initSettings() {
     d.querySelector("[data-action=apply-weights]").disabled = false;
   });
   d.addEventListener("change", async (e) => {
+    if (e.target.name === "aggregation") {
+      await ctl.setAggregation(e.target.value);
+      toast("Scores recalculés depuis les courbes en cache.");
+      return;
+    }
     if (e.target.id !== "import-json" || !e.target.files[0]) return;
     try {
-      const { count, weights } = await ctl.importDatabase(e.target.files[0]);
+      const { count, weights, aggregation } = await ctl.importDatabase(e.target.files[0]);
       toast(`${count} morceaux importés / fusionnés.`);
       if (weights && confirm("Le fichier contient aussi des pondérations. Les appliquer ?")) {
         await ctl.setWeights({ ...DEFAULT_WEIGHTS, ...weights });
         draft = { ...state.weights };
+        render();
+      }
+      if (aggregation && aggregation !== state.aggregation && confirm("Le fichier utilise une autre méthode de calcul du score. L'appliquer ?")) {
+        await ctl.setAggregation(aggregation);
         render();
       }
     } catch (err) {
@@ -92,6 +101,12 @@ function render() {
   dialog().innerHTML = `
     <div class="dialog-head"><h2>Paramètres</h2><button class="icon-btn" data-action="close" aria-label="Fermer">✕</button></div>
     <div class="dialog-body">
+      <h3>Calcul du score à partir de la courbe</h3>
+      <p class="muted small">Chaque morceau est analysé par fenêtres de quelques secondes : l'intensité et chaque sous-score forment une courbe. Choisis comment cette courbe devient un score (aussi disponible au-dessus de la bibliothèque).</p>
+      <div class="agg-options">${AGGREGATIONS.map((a) => `
+        <label><input type="radio" name="aggregation" value="${a.key}" ${state.aggregation === a.key ? "checked" : ""}> <strong>${a.label}</strong><small>${a.hint}</small></label>`).join("")}
+      </div>
+
       <h3>Pondérations du score d'intensité</h3>
       <p class="muted small">Importance relative de chaque dimension. « Bruit » agit comme une poussée vers 100 réservée aux morceaux déjà intenses. Les scores sont recalculés depuis le cache, sans relire l'audio.</p>
       <div class="weights">${DIMENSIONS.map((dim) => `

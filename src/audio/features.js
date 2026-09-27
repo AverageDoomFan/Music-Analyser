@@ -19,12 +19,99 @@ const BANDS = [
 ];
 
 /**
- * @param {Float32Array} mono  mono PCM, [-1, 1]
+ * @param {Float32Array} mono  mono PCM, [-1, 1] (normalised in place)
  * @param {number} sampleRate
  * @param {object} [extra]     values measured elsewhere (e.g. per-channel clipping)
  * @param {(p:number)=>void} [onProgress]
+ * @returns global features + `timeline` (the same features per analysis window)
  */
 export function extractFeatures(mono, sampleRate, extra = {}, onProgress = () => {}) {
+  const segments = chooseSegments(mono.length, sampleRate);
+  const analyzedSamples = segments.reduce((a, [s, e]) => a + (e - s), 0);
+
+  // --- loudness normalisation (in place: the caller hands over its buffer)
+  const kChunks = kWeightedChunks(mono, sampleRate, segments);
+  const sourceLoud = loudnessFromChunks(kChunks.flat());
+  let sourcePeak = 0;
+  for (let i = 0; i < mono.length; i++) { const a = Math.abs(mono[i]); if (a > sourcePeak) sourcePeak = a; }
+  const gainDb = sourceLoud.integrated > -70 ? Math.max(-30, Math.min(50, ANALYSIS.referenceLufs - sourceLoud.integrated)) : 0;
+  const gain = 10 ** (gainDb / 20);
+  if (gain !== 1) for (let i = 0; i < mono.length; i++) mono[i] *= gain;
+
+  const frames = analyzeFrames(mono, sampleRate, segments, (p) => onProgress(p * 0.9));
+  const ctx = {
+    frames, sampleRate, chunks: kChunks.flat(), sourceLoud, gainDb,
+    clippingRatio: extra.clippingRatio ?? 0,
+  };
+
+  // Whole track: every frame of every segment.
+  const global = summarize(ctx, frames.segments.map((sg) => [sg.start, sg.end]), true);
+
+  // Timeline: the same summary over sliding windows inside each segment.
+  const winFrames = Math.round(ANALYSIS.windowSeconds * frames.frameRate);
+  const hopFrames = Math.round(ANALYSIS.windowHopSeconds * frames.frameRate);
+  const windows = [];
+  for (const sg of frames.segments) {
+    const len = sg.end - sg.start;
+    if (len <= winFrames) {
+      windows.push([sg.start, sg.end]);
+      continue;
+    }
+    for (let a = sg.start; a + winFrames <= sg.end; a += hopFrames) windows.push([a, a + winFrames]);
+    const last = windows.at(-1);
+    if (last[1] < sg.end - hopFrames / 2) windows.push([sg.end - winFrames, sg.end]);
+  }
+  const times = [];
+  const series = {};
+  windows.forEach(([a, b], i) => {
+    const w = summarize(ctx, [[a, b]], false);
+    times.push(round4((frames.time[a] + frames.time[b - 1]) / 2 + ANALYSIS.fftSize / 2 / sampleRate));
+    for (const key of TIMELINE_KEYS) (series[key] ??= []).push(round4(w[key] ?? 0));
+    if (i % 8 === 0) onProgress(0.9 + (0.1 * i) / windows.length);
+  });
+
+  onProgress(1);
+  return {
+    featureVersion: FEATURE_VERSION,
+    sampleRate,
+    duration: mono.length / sampleRate,
+    analyzedSeconds: analyzedSamples / sampleRate,
+    excerpted: segments.length > 1,
+    ...global,
+    // general (level independent)
+    loudnessRange: sourceLoud.range,
+    shortTermPeakLu: sourceLoud.shortTermMax - sourceLoud.integrated,
+    plrDb: 20 * Math.log10(sourcePeak + EPS) - sourceLoud.integrated,
+    // informative only, never scored
+    sourceLoudnessLufs: sourceLoud.integrated,
+    normalizationGainDb: gainDb,
+    peakDb: global.peakDb - gainDb,
+    clippingRatio: ctx.clippingRatio,
+    channelPeakDb: extra.channelPeakDb ?? global.peakDb - gainDb,
+    timeline: {
+      windowSeconds: ANALYSIS.windowSeconds,
+      hopSeconds: ANALYSIS.windowHopSeconds,
+      times,
+      series,
+    },
+  };
+}
+
+/** Per-window features stored in the timeline (columnar, one array per key). */
+export const TIMELINE_KEYS = [
+  "bpm", "bpmConfidence", "onsetRate", "onsetStrength", "transientStrength", "onsetEnvMean", "ioiCv",
+  "rmsDbMean", "rmsDbStd", "silenceRatio",
+  "centroidMean", "centroidStd", "bandwidthMean", "rolloffMean", "fluxMean", "fluxStd",
+  "flatnessMean", "flatnessMedian", "zcrMean", "spectralCrestMean", "spectralFill",
+  "bandSub", "bandBass", "bandLowMid", "bandHighMid", "bandHigh", "bassRatio", "midRatio", "highRatio",
+  "lowPulse", "kickRate", "kickPunch", "lowBandDbStd", "lowFlatnessMedian",
+  "plrDb", "crestDb", "loudnessRel",
+];
+
+// ---------------------------------------------------------------------------
+// Frame pass: one row per STFT frame, stored in typed arrays.
+
+function analyzeFrames(mono, sampleRate, segments, onProgress) {
   const { fftSize: N, hopSize: H } = ANALYSIS;
   const fft = new FFT(N);
   const nBins = N / 2 + 1;
@@ -34,122 +121,75 @@ export function extractFeatures(mono, sampleRate, extra = {}, onProgress = () =>
   const kLo = bin(40);
   const kHi = bin(Math.min(16000, nyquist - binHz));
   const kFlatLo = bin(60);
-  const bandRanges = BANDS.map(([name, lo, hi]) => [name, bin(lo), bin(Math.min(hi, nyquist))]);
-
-  const segments = chooseSegments(mono.length, sampleRate);
-  const analyzedSamples = segments.reduce((a, [s, e]) => a + (e - s), 0);
-  const frameRate = sampleRate / H;
-
-  // --- loudness normalisation (in place: the caller hands over its buffer)
-  const sourceLoud = loudness(mono, sampleRate, segments);
-  let sourcePeak = 0;
-  for (let i = 0; i < mono.length; i++) { const a = Math.abs(mono[i]); if (a > sourcePeak) sourcePeak = a; }
-  const gainDb = sourceLoud.integrated > -70 ? Math.max(-30, Math.min(50, ANALYSIS.referenceLufs - sourceLoud.integrated)) : 0;
-  const gain = 10 ** (gainDb / 20);
-  if (gain !== 1) for (let i = 0; i < mono.length; i++) mono[i] *= gain;
-
-  // low end (kicks / bass) bins
   const kKickLo = bin(40), kKickHi = bin(150);
   const kLowFlatLo = bin(30), kLowFlatHi = bin(500);
-  const prevLowLog = new Float64Array(nBins);
+  const bandRanges = BANDS.map(([name, lo, hi]) => [name, bin(lo), bin(Math.min(hi, nyquist))]);
+  const frameRate = sampleRate / H;
+
+  let total = 0;
+  for (const [s, e] of segments) total += Math.max(1, Math.floor((e - s - N) / H) + 1);
+  const cols = {};
+  for (const k of FRAME_COLUMNS) cols[k] = new Float32Array(total);
+  const silent = new Uint8Array(total);
+  const fluxValid = new Uint8Array(total);
 
   const mag = new Float64Array(nBins);
   const prevLog = new Float64Array(nBins);
+  const prevLowLog = new Float64Array(nBins);
   const curNorm = new Float64Array(nBins);
   const prevNorm = new Float64Array(nBins);
-
-  // Accumulators (over non-silent frames)
-  const acc = {
-    frames: 0, silent: 0,
-    centroid: [], bandwidth: [], rolloff: [], flatness: [], flux: [], zcr: [], crest: [], fill: [], rmsDb: [],
-    bandPower: Object.fromEntries(BANDS.map(([n]) => [n, 0])),
-  };
-  const onsetTimes = [];
-  const onsetPeaks = [];
-  const onsetEnvAll = [];
-  const kickTimes = [];
-  const kickPeaks = [];
-  const kickEnvAll = [];
-  const lowDb = [];
-  const lowFlat = [];
-  let acSum = null;
-  let acWeight = 0;
-  let totalFrames = 0;
-  let framesDone = 0;
-  const estFrames = Math.max(1, Math.floor(analyzedSamples / H));
+  const segs = [];
+  let f = 0;
 
   for (const [segStart, segEnd] of segments) {
-    const env = [];
-    const kickEnv = [];
+    const first = f;
     let havePrev = false;
-    for (let off = segStart; off + N <= segEnd || (off === segStart && off < segEnd); off += H) {
-      totalFrames++;
-      // --- time domain: RMS / ZCR over the frame
-      let sq = 0, zc = 0, prev = mono[off];
+    prevNorm.fill(0);
+    for (let off = segStart; (off + N <= segEnd || off === segStart) && off < segEnd && f < total; off += H, f++) {
+      cols.time[f] = off / sampleRate;
+      let sq = 0, zc = 0, pk = 0, prev = mono[off];
       const end = Math.min(off + N, segEnd);
       for (let i = off; i < end; i++) {
         const v = mono[i];
         sq += v * v;
+        const a = v < 0 ? -v : v;
+        if (a > pk) pk = a;
         if ((v >= 0) !== (prev >= 0)) zc++;
         prev = v;
       }
       const len = end - off;
-      const rms = Math.sqrt(sq / Math.max(1, len));
-      const rmsDb = 20 * Math.log10(rms + EPS);
+      cols.sumSq[f] = sq / Math.max(1, len);
+      cols.peak[f] = pk;
+      const rmsDb = 10 * Math.log10(cols.sumSq[f] + EPS);
+      cols.rmsDb[f] = rmsDb;
+      cols.zcr[f] = zc / Math.max(1, len);
 
       fft.magnitudes(mono, off, mag);
 
-      // --- onset envelope (log-compressed spectral flux, level dependent on purpose)
-      let od = 0;
+      // onset envelopes: broadband and low band (kicks), log-compressed flux
+      let od = 0, lod = 0, lowP = 0;
       for (let k = kLo; k <= kHi; k++) {
         const l = Math.log1p(1000 * mag[k]);
-        if (havePrev) {
-          const d = l - prevLog[k];
-          if (d > 0) od += d;
-        }
+        if (havePrev) { const d = l - prevLog[k]; if (d > 0) od += d; }
         prevLog[k] = l;
       }
-      od /= kHi - kLo + 1;
-      env.push(havePrev ? od : 0);
-
-      // --- low-band onset envelope (kick attacks) and low-band energy
-      let lod = 0, lowP = 0;
       for (let k = kKickLo; k <= kKickHi; k++) {
         const l = Math.log1p(1000 * mag[k]);
-        if (havePrev) {
-          const d = l - prevLowLog[k];
-          if (d > 0) lod += d;
-        }
+        if (havePrev) { const d = l - prevLowLog[k]; if (d > 0) lod += d; }
         prevLowLog[k] = l;
         lowP += mag[k] * mag[k];
       }
-      kickEnv.push(havePrev ? lod / (kKickHi - kKickLo + 1) : 0);
+      cols.od[f] = havePrev ? od / (kHi - kLo + 1) : 0;
+      cols.lowOd[f] = havePrev ? lod / (kKickHi - kKickLo + 1) : 0;
+      cols.lowDb[f] = 10 * Math.log10(lowP + EPS);
 
       if (rmsDb < ANALYSIS.silenceDb) {
-        acc.silent++;
+        silent[f] = 1;
         havePrev = true;
         prevNorm.fill(0);
-        framesDone++;
         continue;
       }
-      acc.frames++;
-      acc.rmsDb.push(rmsDb);
-      lowDb.push(10 * Math.log10(lowP + EPS));
-      {
-        // flatness of the low end: a clean kick / sub is nearly sinusoidal,
-        // a distorted one spreads harmonics and noise over 30–500 Hz
-        let ls = 0, ll = 0;
-        const nl = kLowFlatHi - kLowFlatLo + 1;
-        for (let k = kLowFlatLo; k <= kLowFlatHi; k++) {
-          const p = mag[k] * mag[k];
-          ls += Math.log(p + EPS);
-          ll += p;
-        }
-        lowFlat.push(Math.exp(ls / nl) / (ll / nl + EPS));
-      }
-      acc.zcr.push(zc / Math.max(1, len));
 
-      // --- spectral shape
       let sumM = 0, sumFM = 0, sumP = 0, maxM = 0, maxP = 0;
       for (let k = kLo; k <= kHi; k++) {
         const m = mag[k];
@@ -166,14 +206,12 @@ export function extractFeatures(mono, sampleRate, extra = {}, onProgress = () =>
         const df = k * binHz - centroid;
         sumVar += df * df * mag[k];
       }
-      const bandwidth = Math.sqrt(sumVar / (sumM + EPS));
       let cum = 0, rolloff = kHi * binHz;
       const target = 0.85 * sumM;
       for (let k = kLo; k <= kHi; k++) {
         cum += mag[k];
         if (cum >= target) { rolloff = k * binHz; break; }
       }
-      // flatness on power spectrum 60 Hz – 16 kHz
       let logSum = 0, linSum = 0, fillCount = 0;
       const nFlat = kHi - kFlatLo + 1;
       const fillThresh = maxP * 1e-4; // -40 dB below the frame's peak bin
@@ -183,9 +221,15 @@ export function extractFeatures(mono, sampleRate, extra = {}, onProgress = () =>
         linSum += p;
         if (p > fillThresh) fillCount++;
       }
-      const flatness = Math.exp(logSum / nFlat) / (linSum / nFlat + EPS);
-      const crest = maxM / (sumM / (kHi - kLo + 1) + EPS);
-
+      // flatness of the low end: a clean kick / sub is nearly sinusoidal,
+      // a distorted one spreads harmonics and noise over 30–500 Hz
+      let ls = 0, ll = 0;
+      const nl = kLowFlatHi - kLowFlatLo + 1;
+      for (let k = kLowFlatLo; k <= kLowFlatHi; k++) {
+        const p = mag[k] * mag[k];
+        ls += Math.log(p + EPS);
+        ll += p;
+      }
       // normalised flux (level independent timbre change)
       let flux = 0;
       for (let k = kLo; k <= kHi; k++) {
@@ -193,142 +237,150 @@ export function extractFeatures(mono, sampleRate, extra = {}, onProgress = () =>
         const d = curNorm[k] - prevNorm[k];
         if (d > 0) flux += d;
       }
-      const fluxValid = havePrev && prevNorm[kLo] + prevNorm[kHi] + prevNorm[(kLo + kHi) >> 1] > 0;
+      fluxValid[f] = havePrev && prevNorm[kLo] + prevNorm[kHi] + prevNorm[(kLo + kHi) >> 1] > 0 ? 1 : 0;
       prevNorm.set(curNorm);
 
+      cols.centroid[f] = centroid;
+      cols.bandwidth[f] = Math.sqrt(sumVar / (sumM + EPS));
+      cols.rolloff[f] = rolloff;
+      cols.flatness[f] = Math.exp(logSum / nFlat) / (linSum / nFlat + EPS);
+      cols.crest[f] = maxM / (sumM / (kHi - kLo + 1) + EPS);
+      cols.fill[f] = fillCount / nFlat;
+      cols.lowFlat[f] = Math.exp(ls / nl) / (ll / nl + EPS);
+      cols.flux[f] = flux;
       for (const [name, lo, hi] of bandRanges) {
         let p = 0;
         for (let k = lo; k <= hi; k++) p += mag[k] * mag[k];
-        acc.bandPower[name] += p;
+        cols[`band_${name}`][f] = p;
       }
-
-      acc.centroid.push(centroid);
-      acc.bandwidth.push(bandwidth);
-      acc.rolloff.push(rolloff);
-      acc.flatness.push(flatness);
-      acc.crest.push(crest);
-      acc.fill.push(fillCount / nFlat);
-      if (fluxValid) acc.flux.push(flux);
-
       havePrev = true;
-      framesDone++;
-      if ((framesDone & 511) === 0) onProgress(Math.min(0.95, framesDone / estFrames));
+      if ((f & 511) === 0) onProgress(f / total);
     }
+    // onsets, picked per segment so they never straddle a gap
+    const env = cols.od.subarray(first, f);
+    const onsets = pickOnsets(env, frameRate).map(([i, v]) => [first + i, v]);
+    const kicks = pickOnsets(cols.lowOd.subarray(first, f), frameRate, KICK_PICK).map(([i, v]) => [first + i, v]);
+    segs.push({ start: first, end: f, onsets, kicks });
+  }
+  return { ...cols, silent, fluxValid, count: f, frameRate, segments: segs };
+}
 
-    // --- onsets for this segment
-    const offsetSec = segStart / sampleRate;
-    const picked = pickOnsets(env, frameRate);
-    for (const [idx, val] of picked) {
-      onsetTimes.push(offsetSec + idx / frameRate);
-      onsetPeaks.push(val);
-    }
-    for (const v of env) onsetEnvAll.push(v);
-    for (const [idx, val] of pickOnsets(kickEnv, frameRate, KICK_PICK)) {
-      kickTimes.push(offsetSec + idx / frameRate);
-      kickPeaks.push(val);
-    }
-    for (const v of kickEnv) kickEnvAll.push(v);
+const FRAME_COLUMNS = [
+  "time", "sumSq", "peak", "rmsDb", "zcr", "od", "lowOd", "lowDb",
+  "centroid", "bandwidth", "rolloff", "flatness", "crest", "fill", "lowFlat", "flux",
+  ...BANDS.map(([n]) => `band_${n}`),
+];
 
-    // --- tempo autocorrelation for this segment
-    const ac = onsetAutocorrelation(env, frameRate);
-    if (ac) {
-      const w = env.length;
-      if (!acSum) acSum = new Float64Array(ac.values.length);
-      for (let i = 0; i < ac.values.length; i++) acSum[i] += ac.values[i] * w;
-      acWeight += w;
-      acSum.lagMin = ac.lagMin;
+// ---------------------------------------------------------------------------
+// Summary of a set of frame ranges (whole track or one window).
+
+function summarize(ctx, ranges, isGlobal) {
+  const F = ctx.frames;
+  const frameRate = F.frameRate;
+  const pick = (col, filter = (i) => !F.silent[i]) => {
+    const out = [];
+    for (const [a, b] of ranges) for (let i = a; i < b; i++) if (filter(i)) out.push(col[i]);
+    return out;
+  };
+  let frames = 0, silentCount = 0, sumSq = 0, peak = 0;
+  const bandPower = Object.fromEntries(BANDS.map(([n]) => [n, 0]));
+  for (const [a, b] of ranges) {
+    for (let i = a; i < b; i++) {
+      frames++;
+      sumSq += F.sumSq[i];
+      if (F.peak[i] > peak) peak = F.peak[i];
+      if (F.silent[i]) { silentCount++; continue; }
+      for (const [n] of BANDS) bandPower[n] += F[`band_${n}`][i];
     }
   }
+  const active = frames - silentCount;
+  const seconds = Math.max(active, 1) / frameRate;
 
-  // ---------- aggregates ----------
-  const nonSilentSeconds = (acc.frames * H) / sampleRate || analyzedSamples / sampleRate;
+  // onsets & kicks inside the ranges
+  const inRanges = (i) => ranges.some(([a, b]) => i >= a && i < b);
+  const onsets = [], kicks = [];
+  for (const sg of F.segments) {
+    for (const o of sg.onsets) if (inRanges(o[0])) onsets.push(o);
+    for (const k of sg.kicks) if (inRanges(k[0])) kicks.push(k);
+  }
+  const onsetPeaks = onsets.map((o) => o[1]);
+  const env = pick(F.od, () => true);
+  const onsetEnvMean = mean(env);
+  const ioi = [];
+  for (let i = 1; i < onsets.length; i++) {
+    const d = (onsets[i][0] - onsets[i - 1][0]) / frameRate;
+    if (d > 0 && d < 2) ioi.push(d);
+  }
+
+  // tempo: autocorrelation of the onset envelope, averaged over ranges
+  let acSum = null, acWeight = 0;
+  for (const [a, b] of ranges) {
+    const ac = onsetAutocorrelation(F.od.subarray(a, b), frameRate);
+    if (!ac) continue;
+    const w = b - a;
+    if (!acSum) acSum = new Float64Array(ac.values.length);
+    for (let i = 0; i < ac.values.length; i++) acSum[i] += ac.values[i] * w;
+    acWeight += w;
+    acSum.lagMin = ac.lagMin;
+  }
   const tempo = estimateTempo(acSum, acWeight, frameRate);
   // a periodicity made of barely audible fluctuations is not a reliable beat
   tempo.confidence = Math.round(tempo.confidence * clamp01(mean(onsetPeaks) / 0.05) * 1000) / 1000;
-  if (onsetTimes.length < 4) tempo.confidence = 0;
-  const onsetEnvMean = mean(onsetEnvAll);
-  const bandTotal = Object.values(acc.bandPower).reduce((a, b) => a + b, 0) + EPS;
-  const bandEnergy = Object.fromEntries(Object.entries(acc.bandPower).map(([k, v]) => [k, v / bandTotal]));
+  if (onsets.length < 4) tempo.confidence = 0;
 
-  let peak = 0, sumSq = 0, n = 0;
-  for (const [s, e] of segments) {
-    for (let i = s; i < e; i++) {
-      const a = Math.abs(mono[i]);
-      if (a > peak) peak = a;
-      sumSq += mono[i] * mono[i];
-      n++;
-    }
-  }
-  const nonSilentFraction = acc.frames / Math.max(1, totalFrames);
-  const globalRms = Math.sqrt(sumSq / Math.max(1, n) / Math.max(0.05, nonSilentFraction));
+  const bandTotal = Object.values(bandPower).reduce((x, y) => x + y, 0) + EPS;
+  const be = Object.fromEntries(Object.entries(bandPower).map(([k, v]) => [k, v / bandTotal]));
+  const nonSilentFraction = active / Math.max(1, frames);
+  const rms = Math.sqrt(sumSq / Math.max(1, frames) / Math.max(0.05, nonSilentFraction));
   const peakDb = 20 * Math.log10(peak + EPS);
-  const kickEnvMean = mean(kickEnvAll);
 
-  // rhythmic regularity: coefficient of variation of inter-onset intervals
-  const ioi = [];
-  for (let i = 1; i < onsetTimes.length; i++) {
-    const d = onsetTimes[i] - onsetTimes[i - 1];
-    if (d > 0 && d < 2) ioi.push(d);
-  }
-  const ioiCv = ioi.length > 4 ? std(ioi) / (mean(ioi) + EPS) : 1;
+  // loudness of the ranges relative to the whole track (the "volume" curve)
+  const t0 = F.time[ranges[0][0]];
+  const t1 = F.time[ranges.at(-1)[1] - 1] + ANALYSIS.fftSize / ctx.sampleRate;
+  const winLoud = isGlobal ? ctx.sourceLoud : loudnessFromChunks(ctx.chunks.filter((c) => c.t >= t0 && c.t < t1), false);
+  const loudnessRel = winLoud.integrated > -70 ? winLoud.integrated - ctx.sourceLoud.integrated : -30;
+  const kickEnvMean = mean(pick(F.lowOd, () => true));
 
-  onProgress(1);
-
-  return {
-    featureVersion: FEATURE_VERSION,
-    sampleRate,
-    duration: mono.length / sampleRate,
-    analyzedSeconds: analyzedSamples / sampleRate,
-    excerpted: segments.length > 1,
-
-    // temporal
+  const out = {
     bpm: tempo.bpm,
     bpmConfidence: tempo.confidence,
-    onsetRate: onsetTimes.length / Math.max(1, nonSilentSeconds),
-    onsetStrength: mean(onsetPeaks),           // on the loudness-normalised signal
-    transientStrength: onsetPeaks.length ? mean(onsetPeaks) / (onsetEnvMean + EPS) : 0, // peak vs typical flux
+    onsetRate: onsets.length / seconds,
+    onsetStrength: mean(onsetPeaks),
+    transientStrength: onsetPeaks.length ? mean(onsetPeaks) / (onsetEnvMean + EPS) : 0,
     onsetEnvMean,
-    ioiCv,
-    rmsDbMean: mean(acc.rmsDb),
-    rmsDbStd: std(acc.rmsDb),
-    silenceRatio: acc.silent / Math.max(1, totalFrames),
-
-    // spectral
-    centroidMean: mean(acc.centroid),
-    centroidStd: std(acc.centroid),
-    bandwidthMean: mean(acc.bandwidth),
-    rolloffMean: mean(acc.rolloff),
-    fluxMean: mean(acc.flux),
-    fluxStd: std(acc.flux),
-    flatnessMean: mean(acc.flatness),
-    flatnessMedian: median(acc.flatness),
-    zcrMean: mean(acc.zcr),
-    spectralCrestMean: mean(acc.crest),
-    spectralFill: mean(acc.fill),
-    bandEnergy,
-    bassRatio: bandEnergy.sub + bandEnergy.bass,
-    midRatio: bandEnergy.lowMid + bandEnergy.highMid,
-    highRatio: bandEnergy.high,
-
+    ioiCv: ioi.length > 4 ? std(ioi) / (mean(ioi) + EPS) : 1,
+    rmsDbMean: mean(pick(F.rmsDb)),
+    rmsDbStd: std(pick(F.rmsDb)),
+    silenceRatio: silentCount / Math.max(1, frames),
+    centroidMean: mean(pick(F.centroid)),
+    centroidStd: std(pick(F.centroid)),
+    bandwidthMean: mean(pick(F.bandwidth)),
+    rolloffMean: mean(pick(F.rolloff)),
+    fluxMean: mean(pick(F.flux, (i) => !F.silent[i] && F.fluxValid[i])),
+    fluxStd: std(pick(F.flux, (i) => !F.silent[i] && F.fluxValid[i])),
+    flatnessMean: mean(pick(F.flatness)),
+    flatnessMedian: median(pick(F.flatness)),
+    zcrMean: mean(pick(F.zcr)),
+    spectralCrestMean: mean(pick(F.crest)),
+    spectralFill: mean(pick(F.fill)),
+    bandEnergy: be,
+    bandSub: be.sub, bandBass: be.bass, bandLowMid: be.lowMid, bandHighMid: be.highMid, bandHigh: be.high,
+    bassRatio: be.sub + be.bass,
+    midRatio: be.lowMid + be.highMid,
+    highRatio: be.high,
     // low end / pressure (all relative to the normalised level)
     lowPulse: kickEnvMean,                     // mean positive low-band flux: kick/bass attack activity
-    kickRate: kickTimes.length / Math.max(1, nonSilentSeconds), // clearly separated kicks only (informative)
-    kickPunch: mean(kickPeaks),
-    lowBandDbStd: std(lowDb),
-    lowFlatnessMedian: median(lowFlat),
-
-    // general (level independent)
-    loudnessRange: sourceLoud.range,
-    shortTermPeakLu: sourceLoud.shortTermMax - sourceLoud.integrated,
-    plrDb: 20 * Math.log10(sourcePeak + EPS) - sourceLoud.integrated,
-    crestDb: peakDb - 20 * Math.log10(globalRms + EPS),
-    // informative only, never scored
-    sourceLoudnessLufs: sourceLoud.integrated,
-    normalizationGainDb: gainDb,
-    peakDb: peakDb - gainDb,
-    clippingRatio: extra.clippingRatio ?? 0,
-    channelPeakDb: extra.channelPeakDb ?? peakDb,
+    kickRate: kicks.length / seconds,          // clearly separated kicks only (informative)
+    kickPunch: mean(kicks.map((k) => k[1])),
+    lowBandDbStd: std(pick(F.lowDb)),
+    lowFlatnessMedian: median(pick(F.lowFlat)),
+    crestDb: peakDb - 20 * Math.log10(rms + EPS),
+    peakDb,
+    loudnessRel,
   };
+  // local peak-to-loudness ratio (the global one uses the source peak)
+  out.plrDb = peakDb - (ANALYSIS.referenceLufs + loudnessRel);
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -433,21 +485,15 @@ function estimateTempo(acSum, weight, frameRate) {
 }
 
 // ITU-R BS.1770 style loudness on the mono mix (approximation, +3 dB for dual mono).
-function loudness(mono, sampleRate, segments) {
+// Returns, per segment, the K-weighted mean square of consecutive 100 ms chunks.
+function kWeightedChunks(mono, sampleRate, segments) {
   const f1 = biquad("highshelf", 1681.974450955533, 3.999843853973347, 0.7071752369554196, sampleRate);
   const f2 = biquad("highpass", 38.13547087602444, 0, 0.5003270373238773, sampleRate);
-  const blockLen = Math.round(0.4 * sampleRate);
-  const blockHop = Math.round(0.1 * sampleRate);
-  const stLen = Math.round(3 * sampleRate);
-  const stHop = Math.round(1 * sampleRate);
-  const blocks = [];
-  const shortTerm = [];
-
-  for (const [s, e] of segments) {
-    // filtered squared signal, summed in 100 ms chunks
-    const chunkSums = [];
+  const hop = Math.round(0.1 * sampleRate);
+  return segments.map(([s, e]) => {
+    const chunks = [];
     let x1 = 0, x2 = 0, y1 = 0, y2 = 0, u1 = 0, u2 = 0, z1 = 0, z2 = 0;
-    let acc = 0, cnt = 0;
+    let acc = 0, cnt = 0, start = s;
     for (let i = s; i < e; i++) {
       const x = mono[i];
       const y = f1.b0 * x + f1.b1 * x1 + f1.b2 * x2 - f1.a1 * y1 - f1.a2 * y2;
@@ -455,20 +501,29 @@ function loudness(mono, sampleRate, segments) {
       const z = f2.b0 * y + f2.b1 * u1 + f2.b2 * u2 - f2.a1 * z1 - f2.a2 * z2;
       u2 = u1; u1 = y; z2 = z1; z1 = z;
       acc += z * z;
-      if (++cnt === blockHop) { chunkSums.push(acc); acc = 0; cnt = 0; }
+      if (++cnt === hop) {
+        chunks.push({ t: start / sampleRate, ms: acc / hop, seg: s });
+        acc = 0; cnt = 0; start = i + 1;
+      }
     }
-    const per = blockLen / blockHop; // 4 chunks per 400 ms block
-    for (let i = 0; i + per <= chunkSums.length; i++) {
+    return chunks;
+  });
+}
+
+/** Integrated loudness (400 ms blocks, gated), loudness range and max short-term loudness. */
+function loudnessFromChunks(chunks, withRange = true) {
+  const blocks = [];
+  const shortTerm = [];
+  for (let i = 0; i + 4 <= chunks.length; i++) {
+    if (chunks[i + 3].seg !== chunks[i].seg) continue;
+    blocks.push((chunks[i].ms + chunks[i + 1].ms + chunks[i + 2].ms + chunks[i + 3].ms) / 4);
+  }
+  if (withRange) {
+    for (let i = 0; i + 30 <= chunks.length; i += 10) {
+      if (chunks[i + 29].seg !== chunks[i].seg) continue;
       let sum = 0;
-      for (let j = 0; j < per; j++) sum += chunkSums[i + j];
-      blocks.push(sum / blockLen);
-    }
-    const perSt = stLen / blockHop;
-    const stStep = stHop / blockHop;
-    for (let i = 0; i + perSt <= chunkSums.length; i += stStep) {
-      let sum = 0;
-      for (let j = 0; j < perSt; j++) sum += chunkSums[i + j];
-      shortTerm.push(sum / stLen);
+      for (let j = 0; j < 30; j++) sum += chunks[i + j].ms;
+      shortTerm.push(sum / 30);
     }
   }
   const toLufs = (ms) => -0.691 + 10 * Math.log10(ms + EPS) + 3.01;
@@ -535,6 +590,10 @@ function quantile(sorted, q) {
   const lo = Math.floor(pos);
   const hi = Math.ceil(pos);
   return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+}
+/** 4 significant digits: keeps the stored timeline compact without losing tiny values. */
+function round4(x) {
+  return Number.isFinite(x) ? Number(x.toPrecision(4)) : 0;
 }
 function clamp01(x) {
   return Math.max(0, Math.min(1, x));

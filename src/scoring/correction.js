@@ -107,8 +107,10 @@ export function applyCorrection(auto, answers, weights = DEFAULT_WEIGHTS) {
     subscores[dim] = overrides[dim];
   }
 
-  const modelScore = computeIntensity(subscores, weights);
-  let score = modelScore;
+  // The automatic score aggregates a curve, so the correction is applied as the
+  // change it causes on the aggregated sub-scores, added to that score.
+  const modelScore = auto.score + computeIntensity(subscores, weights) - computeIntensity(auto.subscores, weights);
+  let score = Math.max(0, Math.min(100, modelScore));
   if (answers.overall != null) {
     const t = QUESTIONS[0].targets[answers.overall];
     score = Math.min(t + BAND, Math.max(t - BAND, modelScore));

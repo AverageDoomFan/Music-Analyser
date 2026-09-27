@@ -46,11 +46,20 @@ test("weight fitting reduces the error on corrections", () => {
   // user systematically finds harsh tracks more intense than the model
   const samples = [];
   for (let i = 0; i < 12; i++) {
-    const h = (i * 9) % 100;
-    const s = { energy: 50, tempo: 50, density: 50, brightness: 50, harshness: h, pressure: 50, complexity: 50, noise: 5 };
-    samples.push({ subscores: s, target: computeIntensity(s, { ...DEFAULT_WEIGHTS, harshness: 3 }) });
+    const windows = [0, 1, 2].map((k) => ({ energy: 50, tempo: 50, density: 50, brightness: 50, harshness: (i * 9 + k * 5) % 100, pressure: 50, complexity: 50, noise: 5 }));
+    const target = mean(windows.map((w) => computeIntensity(w, { ...DEFAULT_WEIGHTS, harshness: 3 })));
+    samples.push({ windows, aggregation: "mean", target });
   }
   const r = fitWeights(samples, DEFAULT_WEIGHTS);
   assert.ok(r.errorAfter < r.errorBefore);
   assert.ok(r.weights.harshness > DEFAULT_WEIGHTS.harshness);
 });
+
+test("a correction shifts the aggregated score by the change it causes", () => {
+  const curveAuto = { ...auto, score: auto.score + 12 }; // e.g. "peak" aggregation above the mean
+  const plain = applyCorrection(auto, { aggression: 4 });
+  const shifted = applyCorrection(curveAuto, { aggression: 4 });
+  assert.ok(Math.abs(shifted.modelScore - plain.modelScore - 12) < 0.01);
+});
+
+function mean(a) { return a.reduce((x, y) => x + y, 0) / a.length; }

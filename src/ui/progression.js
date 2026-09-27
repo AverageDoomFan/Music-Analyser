@@ -86,6 +86,6 @@ function itemHtml(s) {
     <span class="pos">${s.position}</span>
     <span><span class="track-name">${escapeHtml(s.name)}</span></span>
     <span class="num"><b>${formatScore(s.score)}</b></span>
-    <span class="jump${s.bigJump ? " big" : ""}" title="écart avec le morceau précédent">${s.position > 1 ? formatDelta(s.jump) : ""}</span>
+    <span class="jump${s.bigJump ? " big" : ""}" title="écart de score avec le morceau précédent · fin du précédent → début de celui-ci : ${formatDelta(s.seam)}">${s.position > 1 ? formatDelta(s.jump) : ""}</span>
   </li>`;
 }

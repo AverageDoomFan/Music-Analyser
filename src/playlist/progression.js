@@ -2,7 +2,9 @@
 // keeping transitions smooth. Not a plain sort(score):
 //   1. start from the score order (the global direction must stay monotonic),
 //   2. locally reorder tracks whose scores are close (within `tolerance`) to
-//      minimise a perceptual transition cost based on all sub-scores,
+//      minimise a perceptual transition cost: how the end of a track meets
+//      the start of the next one (from their intensity curves) and how
+//      different their sub-scores are,
 //   3. report the remaining big jumps so the user knows where tracks are missing.
 
 import { stageFor } from "../config.js";
@@ -10,7 +12,7 @@ import { stageFor } from "../config.js";
 const DIMS = ["energy", "tempo", "density", "brightness", "harshness", "pressure", "complexity", "noise"];
 
 /**
- * @param {{id:string, score:number, subscores:Object}[]} items
+ * @param {{id:string, score:number, start?:number, end?:number, subscores:Object}[]} items
  * @param {{tolerance?:number, jumpThreshold?:number}} options
  */
 export function buildProgression(items, { tolerance = 6, jumpThreshold = 12 } = {}) {
@@ -42,6 +44,7 @@ export function buildProgression(items, { tolerance = 6, jumpThreshold = 12 } = 
       position: i + 1,
       stage: stageFor(item.score).label,
       jump,
+      seam: prev ? Math.round(((item.start ?? item.score) - (prev.end ?? prev.score)) * 10) / 10 : 0,
       bigJump: prev ? Math.abs(jump) >= jumpThreshold : false,
       transition: prev ? Math.round(cost(prev, item) * 10) / 10 : 0,
     };
@@ -59,13 +62,17 @@ export function buildProgression(items, { tolerance = 6, jumpThreshold = 12 } = 
   };
 }
 
-/** Distance between two tracks: score step (backwards steps cost more) + timbre/rhythm difference. */
+/**
+ * Cost of playing b right after a: score step (backwards steps cost more),
+ * the jump between a's ending and b's opening, and timbre/rhythm difference.
+ */
 export function transitionCost(a, b) {
   const d = b.score - a.score;
   const scorePart = d >= 0 ? d : -2.5 * d;
+  const seam = Math.abs((b.start ?? b.score) - (a.end ?? a.score));
   let sq = 0;
   for (const k of DIMS) sq += ((a.subscores?.[k] ?? 0) - (b.subscores?.[k] ?? 0)) ** 2;
-  return scorePart + 0.35 * Math.sqrt(sq / DIMS.length);
+  return scorePart + 0.5 * seam + 0.35 * Math.sqrt(sq / DIMS.length);
 }
 
 function pathCost(order, from, to, cost) {

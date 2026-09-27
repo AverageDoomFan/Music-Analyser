@@ -1,7 +1,6 @@
-// Turns audio into the analysis input: mono Float32Array at ANALYSIS.sampleRate,
-// plus clipping measured on the original channels before the mixdown.
-//   decodeToMono(arrayBuffer)       – encoded files (mp3, wav, ogg, flac… per browser)
-//   pcmToMono(channels, sampleRate) – raw PCM, e.g. captured tab audio
+// Decodes encoded audio (mp3, wav, ogg, flac… whatever the browser supports)
+// to the analysis input: mono Float32Array at ANALYSIS.sampleRate, plus
+// clipping measured on the original channels before the mixdown.
 
 import { ANALYSIS } from "../config.js";
 import { measureClipping } from "./features.js";
@@ -19,21 +18,6 @@ export async function decodeToMono(arrayBuffer) {
     throw new Error("Format non décodable par ce navigateur.");
   }
   return audioBufferToMono(audio);
-}
-
-export async function pcmToMono(channels, sampleRate) {
-  if (sampleRate === ANALYSIS.sampleRate) return mixDown(channels, sampleRate);
-  const Ctx = OfflineCtx();
-  const length = channels[0].length;
-  const outLength = Math.ceil((length * ANALYSIS.sampleRate) / sampleRate);
-  const ctx = new Ctx(channels.length, outLength, ANALYSIS.sampleRate);
-  const buffer = ctx.createBuffer(channels.length, length, sampleRate);
-  channels.forEach((ch, i) => buffer.copyToChannel(ch, i));
-  const src = ctx.createBufferSource();
-  src.buffer = buffer;
-  src.connect(ctx.destination);
-  src.start();
-  return audioBufferToMono(await ctx.startRendering());
 }
 
 function audioBufferToMono(audio) {
