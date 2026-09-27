@@ -28,6 +28,8 @@ jobs:
       - run: npm test
       - name: Collect static site
         run: mkdir _site && cp -r index.html styles.css src .nojekyll _site/
+      - name: Version module URLs (cache busting)
+        run: node scripts/stamp-version.mjs _site "${GITHUB_SHA::8}"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
       - id: deployment

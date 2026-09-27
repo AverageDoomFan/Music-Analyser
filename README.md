@@ -35,8 +35,8 @@ Tests (Node ≥ 20) : `npm test` — extraction de caractéristiques et ordre de
 
 ## Déploiement GitHub Pages
 
-- **Option A** : Settings → Pages → Source « GitHub Actions ». Le workflow `.github/workflows/pages.yml` lance les tests puis déploie à chaque push sur `main`.
-- **Option B** : Settings → Pages → « Deploy from a branch », branche `main`, dossier `/ (root)`. Le site est servi tel quel.
+- **Option A** : Settings → Pages → Source « GitHub Actions ». Le workflow `.github/workflows/pages.yml` lance les tests puis déploie à chaque push sur `main`. Il ajoute aussi `?v=<commit>` à toutes les URL de modules (`scripts/stamp-version.mjs`) : après un déploiement, le navigateur ne peut pas mélanger une page neuve avec des modules restés en cache.
+- **Option B** : Settings → Pages → « Deploy from a branch », branche `main`, dossier `/ (root)`. Le site est servi tel quel, sans tests ni versionnage : après une mise à jour, un rechargement forcé (Ctrl+Maj+R) peut être nécessaire.
 
 ## Architecture
 
