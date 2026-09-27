@@ -9,6 +9,7 @@ import { initCorrection } from "./ui/correction.js";
 import { initSettings } from "./ui/settings.js";
 import { initProgression, renderProgression } from "./ui/progression.js";
 import { toast } from "./ui/toast.js";
+import { initRhythm, showRhythm } from "./ui/rhythm.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -71,7 +72,7 @@ async function filesFromDrop(dt) {
 }
 
 function initTabs() {
-  const tabs = [["tab-library", "panel-library"], ["tab-progression", "panel-progression"]];
+  const tabs = [["tab-library", "panel-library"], ["tab-progression", "panel-progression"], ["tab-rhythm", "panel-rhythm"]];
   for (const [tabId, panelId] of tabs) {
     $(tabId).addEventListener("click", () => {
       for (const [t, p] of tabs) {
@@ -80,6 +81,7 @@ function initTabs() {
       }
       state.ui.tab = tabId;
       notify();
+      if (tabId === "tab-rhythm") showRhythm();
     });
   }
 }
@@ -108,6 +110,7 @@ async function main() {
   initCorrection();
   initSettings();
   initProgression({ openDetail });
+  initRhythm();
   ctl.onToast(toast);
   $("rescore-all").addEventListener("click", async () => {
     const n = await ctl.recomputeAll();

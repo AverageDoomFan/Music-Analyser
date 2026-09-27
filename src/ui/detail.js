@@ -11,6 +11,7 @@ import { questionById } from "../scoring/correction.js";
 import { openCorrection } from "./correction.js";
 import { toast } from "./toast.js";
 import { player } from "./player.js";
+import { openInRhythm } from "./rhythm.js";
 
 const dialog = () => document.getElementById("detail-dialog");
 let currentId = null;
@@ -33,6 +34,7 @@ export function initDetail() {
       case "close": d.close(); break;
       case "mismatch": openCorrection(id); break;
       case "play": player.toggle(id); break;
+      case "rhythm": d.close(); openInRhythm(id); break;
       case "manual-save": {
         const v = Number(d.querySelector("#manual-score").value);
         if (!Number.isFinite(v) || v < 0 || v > 100) return toast("Score entre 0 et 100.", "error");
@@ -56,7 +58,12 @@ export function initDetail() {
     }
   });
   subscribe(() => { if (currentId && dialog().open) render(); });
-  player.onChange(() => { if (currentId && dialog().open) render(true); });
+  player.onChange(() => {
+    if (!currentId || !dialog().open) return;
+    const btn = dialog().querySelector("[data-action=play]");
+    if (btn) btn.textContent = player.isPlaying(currentId) ? "Pause" : "Écouter";
+    animatePlayhead(currentId);
+  });
 }
 
 export function openDetail(id) {
@@ -103,7 +110,7 @@ function render(force = false) {
         <div class="card">
           <div class="timeline-head">
             <select id="timeline-series" aria-label="Courbe affichée">${seriesFor(r).map((sr) => `<option value="${sr.key}" ${sr.key === seriesKey ? "selected" : ""}>${sr.label}</option>`).join("")}</select>
-            <span class="muted small">fenêtres de ${r.features?.timeline?.windowSeconds ?? "—"} s${r.features?.excerpted ? " · extraits répartis sur le morceau" : ""}</span>
+            <span class="muted small">fenêtres de ${r.features?.timeline?.windowSeconds ?? "—"} s${r.features?.excerpted ? " · extraits répartis sur le morceau" : ""}${canPlay ? " · clic sur la courbe : lire à partir de là, re-clic : stop" : ""}</span>
           </div>
           <div id="timeline-chart"></div>
           <div class="agg-stats" id="timeline-stats"></div>
@@ -129,6 +136,7 @@ function render(force = false) {
       <button class="btn danger" data-action="delete">Supprimer</button>
       <span class="spacer"></span>
       ${canPlay ? `<button class="btn" data-action="play">${player.isPlaying(r.id) ? "Pause" : "Écouter"}</button>` : ""}
+      ${canPlay || r.rhythm ? `<button class="btn" data-action="rhythm" title="Découper en notes pour une map de jeu de rythme">Rythme</button>` : ""}
       ${r.features ? `<button class="btn" data-action="recompute" title="Recalcule depuis les caractéristiques en cache, sans relire l'audio">Recalculer</button>` : ""}
       <button class="btn" data-action="reanalyze" title="Relit et réanalyse le fichier audio">Réanalyser l'audio</button>
       ${auto ? `<button class="btn primary" data-action="mismatch">Le score ne correspond pas</button>` : ""}
@@ -188,13 +196,32 @@ function renderTimelineSection(r) {
     bands: sr.key === "intensity",
     ref: sr.key === "intensity" ? r.auto.score : undefined,
     refLabel: sr.key === "intensity" ? `score auto · ${aggLabel}` : undefined,
+    duration: r.duration ?? undefined,
+    onSeek: state.files.has(r.id) ? (t) => {
+      if (player.isPlaying(r.id)) player.stop();
+      else player.playAt(r.id, t);
+    } : undefined,
   });
+  animatePlayhead(r.id);
   const keys = [...AGGREGATIONS.map((a) => a.key).filter((k) => sr.score || k !== "perceptual"), ...CURVE_STATS.map((c) => c.key)];
   const label = (k) => AGGREGATIONS.find((a) => a.key === k)?.label ?? CURVE_STATS.find((c) => c.key === k)?.label ?? k;
   const values = sr.values.map((v) => (v == null ? NaN : v));
   d.querySelector("#timeline-stats").innerHTML = values.some(Number.isFinite)
     ? keys.map((k) => `<div class="${sr.score && k === agg ? "active" : ""}" title="${escapeHtml(AGGREGATIONS.find((a) => a.key === k)?.hint ?? CURVE_STATS.find((c) => c.key === k)?.hint ?? "")}"><span>${label(k)}</span><b>${fmt(aggregate(values, k, times))}</b></div>`).join("")
     : `<p class="muted small">Pas de valeur fiable sur ce morceau.</p>`;
+}
+
+let rafId = 0;
+/** Moves the timeline playhead while this track plays. */
+function animatePlayhead(id) {
+  cancelAnimationFrame(rafId);
+  const step = () => {
+    const host = dialog().querySelector("#timeline-chart");
+    if (!host?.setPlayhead || currentId !== id) return;
+    host.setPlayhead(player.isPlaying(id) || player.position(id) ? player.position(id) : null);
+    if (player.isPlaying(id)) rafId = requestAnimationFrame(step);
+  };
+  step();
 }
 
 function scoreBlock(r, final) {

@@ -34,6 +34,30 @@ export const ANALYSIS = {
   concurrency: 2,           // files decoded/analysed in parallel
 };
 
+/** Rhythm map (note extraction) settings. */
+export const RHYTHM = {
+  fftSize: 2048,
+  hopSize: 256,             // ~5.8 ms timing resolution
+  attackPosition: 0.68,     // where in the window an attack peaks the flux (timing correction)
+  maxDurationSeconds: 20 * 60,
+  maxLanes: 8,              // the lane colours come from an 8-slot categorical palette
+};
+
+/** Default note-extraction parameters (all editable in the rhythm tab). */
+export const RHYTHM_DEFAULTS = Object.freeze({
+  bandsPerOctave: 6,   // heavy: needs a new spectral pass
+  fMin: 30,            // heavy
+  fMax: 16000,         // heavy
+  lanes: 6,            // maximum number of lanes (instrument groups)
+  groupingMode: "auto", // "auto" · "timbre": constant attack-strength ratio · "rhythm": simultaneous attacks
+  grouping: 0.45,      // keep merging neighbouring groups while their similarity is above this
+  boundaries: null,    // manual lanes: band index where each lane starts (null = automatic)
+  sensitivity: 0.5,    // 0 = only strong attacks, 1 = every small attack
+  minGapMs: 35,        // minimum time between two notes of the same lane (35 ms ≈ 28 notes/s)
+  dedupe: 0.35,        // echoes: drop simultaneous notes weaker than this × the strongest (0 = off)
+  mergeNeighbors: false, // keep one note when neighbouring lanes hit together
+});
+
 /**
  * Weights of each sub-score in the global intensity. Relative values matter,
  * not their sum. `noise` is not averaged with the others: it acts as an

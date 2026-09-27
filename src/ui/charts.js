@@ -112,7 +112,9 @@ function drawChart(container, points, { height = 200, onSelect, xLabel = "" }) {
  * Curve of one value over time (track timeline).
  * @param {HTMLElement} container
  * @param {{times:number[], values:(number|null)[], min?:number, max?:number, format?:(v:number)=>string,
- *          ref?:number, refLabel?:string, height?:number, bands?:boolean}} opts
+ *          ref?:number, refLabel?:string, height?:number, bands?:boolean, duration?:number,
+ *          onSeek?:(t:number)=>void}} opts   onSeek: click on the chart (e.g. play from there)
+ * The container gets `container.setPlayhead(t | null)` to show a moving playhead.
  */
 export function renderTimeline(container, opts) {
   container.classList.add("chart");
@@ -145,7 +147,7 @@ function mmss(t) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-function drawTimeline(container, { times, values, min, max, format = (v) => v.toFixed(0), ref, refLabel, height = 190, bands = false }) {
+function drawTimeline(container, { times, values, min, max, format = (v) => v.toFixed(0), ref, refLabel, height = 190, bands = false, duration, onSeek }) {
   container.innerHTML = "";
   const width = Math.max(280, container.clientWidth || 600);
   const m = { top: 10, right: 12, bottom: 22, left: 44 };
@@ -156,7 +158,7 @@ function drawTimeline(container, { times, values, min, max, format = (v) => v.to
   const [lo, hi] = niceRange(values, min, max);
   const y = (v) => h - ((v - lo) / (hi - lo)) * h;
   const t0 = 0;
-  const t1 = Math.max(times.at(-1) ?? 1, 1);
+  const t1 = Math.max(duration ?? times.at(-1) ?? 1, 1);
   const x = (t) => ((t - t0) / (t1 - t0)) * w;
 
   if (bands) {
@@ -199,9 +201,24 @@ function drawTimeline(container, { times, values, min, max, format = (v) => v.to
   el("path", { class: "line", d }, g);
   if (times.length <= 60) times.forEach((t, i) => { if (Number.isFinite(values[i])) el("circle", { class: "dot", cx: x(t), cy: y(values[i]), r: 3 }, g); });
 
+  const playhead = el("line", { class: "playhead", y1: 0, y2: h, visibility: "hidden" }, g);
+  container.setPlayhead = (t) => {
+    if (t == null || !Number.isFinite(t)) return playhead.setAttribute("visibility", "hidden");
+    playhead.setAttribute("x1", x(t));
+    playhead.setAttribute("x2", x(t));
+    playhead.setAttribute("visibility", "visible");
+  };
   const cross = el("line", { class: "crosshair", y1: 0, y2: h, visibility: "hidden" }, g);
   const focus = el("circle", { class: "dot", r: 5, visibility: "hidden" }, g);
   const hit = el("rect", { class: "hit", x: 0, y: 0, width: w, height: h }, g);
+  const timeAt = (evt) => {
+    const rect = svg.getBoundingClientRect();
+    return Math.max(0, Math.min(t1, ((evt.clientX - rect.left - m.left) / w) * (t1 - t0) + t0));
+  };
+  if (onSeek) {
+    hit.style.cursor = "pointer";
+    hit.addEventListener("click", (evt) => onSeek(timeAt(evt)));
+  }
   const tip = document.createElement("div");
   tip.className = "tooltip";
   tip.hidden = true;
@@ -221,7 +238,7 @@ function drawTimeline(container, { times, values, min, max, format = (v) => v.to
       focus.setAttribute("visibility", "visible");
     } else focus.setAttribute("visibility", "hidden");
     tip.hidden = false;
-    tip.innerHTML = `${mmss(times[i])} · <b>${Number.isFinite(v) ? escapeHtml(format(v)) : "—"}</b>`;
+    tip.innerHTML = `${mmss(times[i])} · <b>${Number.isFinite(v) ? escapeHtml(format(v)) : "—"}</b>${onSeek ? ` <span class="muted">· clic : lire / stop</span>` : ""}`;
     tip.style.left = `${Math.min(Math.max(m.left + x(times[i]), 60), width - 60)}px`;
     tip.style.top = `${m.top + (Number.isFinite(v) ? y(v) : h / 2)}px`;
   });

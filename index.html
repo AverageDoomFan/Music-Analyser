@@ -37,6 +37,7 @@
     <nav class="tabs" role="tablist">
       <button role="tab" id="tab-library" aria-selected="true" aria-controls="panel-library">Bibliothèque <span class="count" id="library-count">0</span></button>
       <button role="tab" id="tab-progression" aria-selected="false" aria-controls="panel-progression">Progression</button>
+      <button role="tab" id="tab-rhythm" aria-selected="false" aria-controls="panel-rhythm">Rythme</button>
     </nav>
 
     <section id="panel-library" role="tabpanel" aria-labelledby="tab-library">
@@ -93,6 +94,68 @@
         <button class="btn" id="export-txt" type="button" disabled>Exporter texte</button>
       </div>
       <div id="progression-output"><p class="empty">Clique sur « Créer une progression » pour ordonner les morceaux analysés.</p></div>
+    </section>
+    <section id="panel-rhythm" role="tabpanel" aria-labelledby="tab-rhythm" hidden>
+      <div class="toolbar">
+        <label class="inline">Morceau <select id="rh-track" aria-label="Morceau"></select></label>
+        <button class="btn primary" id="rh-extract" type="button">Extraire les notes</button>
+        <span class="muted small" id="rh-status" role="status"></span>
+      </div>
+      <div class="progress" id="rh-progress" hidden><div class="progress-bar" id="rh-progress-bar"></div></div>
+
+      <details class="card rh-params" id="rh-params">
+        <summary><strong>Paramètres de découpage</strong> <span class="muted small">— si la détection est mauvaise</span></summary>
+        <div class="rh-params-grid">
+          <label>Pistes max <input type="number" id="rh-lanes" min="1" max="8" step="1"></label>
+          <label>Regroupement
+            <select id="rh-mode">
+              <option value="auto">Auto — timbre ou attaques simultanées</option>
+            <option value="timbre">Timbre — même son (kick, caisse, charley…)</option>
+              <option value="rhythm">Rythme — attaques simultanées (mélodies)</option>
+            </select>
+          </label>
+          <label>Seuil de regroupement <input type="range" id="rh-grouping" min="0.05" max="0.95" step="0.05"><output></output></label>
+          <label>Sensibilité <input type="range" id="rh-sensitivity" min="0" max="1" step="0.05"><output></output></label>
+          <label>Écart min. entre notes (ms) <input type="number" id="rh-gap" min="10" max="500" step="5"></label>
+          <label title="Un son déborde dans les autres pistes (clic d'attaque, harmoniques). Parmi des notes simultanées de pistes différentes, celles plus faibles que ce rapport × la plus forte sont supprimées. 0 = désactivé.">Suppression des échos entre pistes <input type="range" id="rh-dedupe" min="0" max="0.9" step="0.05"><output></output></label>
+        <label class="check"><input type="checkbox" id="rh-merge"> Une seule note quand deux pistes voisines frappent ensemble</label>
+          <label>Bandes / octave <select id="rh-bpo"><option>4</option><option>6</option><option>8</option><option>12</option></select></label>
+          <label>Fréquence min. (Hz) <input type="number" id="rh-fmin" min="20" max="2000" step="5"></label>
+          <label>Fréquence max. (Hz) <input type="number" id="rh-fmax" min="2000" max="20000" step="100"></label>
+        </div>
+        <p class="muted small">Les trois derniers réglages relancent l'analyse spectrale (quelques secondes) ; les autres s'appliquent instantanément. <button class="link-btn" type="button" id="rh-reset">Valeurs par défaut</button> <span id="rh-manual-note"></span></p>
+      </details>
+
+      <div class="card rh-transport">
+        <button class="btn primary" id="rh-play" type="button" aria-label="Lecture">▶</button>
+        <span class="rh-time" id="rh-time">0:00.0</span>
+        <label class="inline">Écouter
+          <select id="rh-source"></select>
+        </label>
+        <label class="inline check"><input type="checkbox" id="rh-cues" checked> Cues</label>
+        <label class="inline">Musique <input type="range" id="rh-music-vol" min="0" max="1" step="0.05" value="0.8"></label>
+        <label class="inline">Cues <input type="range" id="rh-cue-vol" min="0" max="1" step="0.05" value="0.7"></label>
+        <label class="inline">Zoom <input type="range" id="rh-zoom" min="2" max="60" step="1" value="10"><output id="rh-zoom-value">10 s</output></label>
+      </div>
+
+      <div class="rh-matrix card" id="rh-matrix-card">
+        <div class="rh-lanes" id="rh-lanes-list"></div>
+        <div class="rh-canvas-wrap"><canvas id="rh-canvas" aria-label="Matrice des notes : clic pour lire à partir de ce moment, re-clic pour arrêter"></canvas></div>
+      </div>
+      <canvas id="rh-overview" class="rh-overview" aria-label="Vue d'ensemble : clic pour déplacer la vue"></canvas>
+      <p class="muted small">Coche les pistes qui forment la map : elles sonnent en cue et comptent dans les KPS et la difficulté. Clic sur la matrice ou sur une courbe : lecture depuis ce point, re-clic : stop. Espace : lecture / stop. Molette : défiler, Ctrl + molette : zoom.</p>
+
+      <div class="card">
+        <div class="timeline-head">
+          <select id="rh-curve" aria-label="Courbe">
+            <option value="kps">KPS (notes par seconde)</option>
+            <option value="difficulty">Difficulté (★)</option>
+          </select>
+          <span class="muted small">calculées sur les pistes cochées</span>
+        </div>
+        <div id="rh-curve-chart"></div>
+        <div class="agg-stats" id="rh-stats"></div>
+      </div>
     </section>
   </main>
 

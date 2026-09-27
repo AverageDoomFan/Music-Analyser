@@ -1,37 +1,29 @@
-// Single shared audio element to listen to session files while correcting.
+// Library / detail playback, on top of the shared Web Audio engine.
 import { state } from "../app/store.js";
-
-const audio = new Audio();
-let currentUrl = null;
-const listeners = new Set();
+import { engine } from "../audio/engine.js";
 
 export const player = {
-  current: null,
-  toggle(id) {
-    if (this.current === id && !audio.paused) {
-      audio.pause();
-      return;
-    }
-    if (this.current !== id) {
-      const file = state.files.get(id);
-      if (!file) return;
-      if (currentUrl) URL.revokeObjectURL(currentUrl);
-      currentUrl = URL.createObjectURL(file);
-      audio.src = currentUrl;
-      this.current = id;
-    }
-    audio.play().catch(() => {});
-  },
-  stop() {
-    audio.pause();
-    this.current = null;
-    emit();
-  },
-  isPlaying(id) { return this.current === id && !audio.paused; },
-  onChange(fn) { listeners.add(fn); },
-};
+  get current() { return engine.id; },
 
-function emit() { for (const fn of listeners) fn(); }
-audio.addEventListener("play", emit);
-audio.addEventListener("pause", emit);
-audio.addEventListener("ended", () => { player.current = null; emit(); });
+  /** Play / stop a track (resumes where it stopped). */
+  async toggle(id) {
+    if (engine.id === id && engine.playing) return engine.stop();
+    await this.playAt(id, engine.id === id ? engine.lastPosition : 0);
+  },
+
+  /** Play a track from a given time; returns false if its file is not in this session. */
+  async playAt(id, t) {
+    const file = state.files.get(id);
+    if (!file) return false;
+    await engine.load(id, file);
+    engine.set({ isolate: null, musicOn: true });
+    engine.cueSource = null;
+    await engine.play(t);
+    return true;
+  },
+
+  isPlaying(id) { return engine.id === id && engine.playing; },
+  position(id) { return engine.id === id ? engine.position : null; },
+  stop() { engine.stop(); },
+  onChange(fn) { engine.onChange(fn); },
+};
