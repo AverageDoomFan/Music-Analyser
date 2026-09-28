@@ -52,11 +52,13 @@ export function localInfo(record) {
     isrc: tags.isrc || null,
     durationMs: record.duration ? record.duration * 1000 : null,
     name: record.name ?? "",
+    spotifyId: record.source?.kind === "spotify" ? record.source.trackId : null,
   };
 }
 
 /** 0..1 confidence that a Spotify track and a local file are the same recording. */
 export function matchScore(track, local) {
+  if (local.spotifyId) return local.spotifyId === track.id ? 1 : 0; // captured from Spotify: exact identity only
   if (track.isrc && local.isrc && track.isrc.toUpperCase() === local.isrc.toUpperCase()) return 1;
   const title = Math.max(similarity(track.name, local.title), 0.9 * similarity(track.name, local.name));
   const artists = track.artists?.length ? track.artists : [""];
@@ -98,10 +100,11 @@ export function matchPlaylist(tracks, records, manual = {}) {
     for (const { r, info } of infos) {
       if (usedRecords.has(r.id)) continue;
       const s = matchScore(t, info);
-      if (s >= MIN_SCORE) pairs.push({ t: t.id, r: r.id, s });
+      if (s >= MIN_SCORE) pairs.push({ t: t.id, r: r.id, s, file: !info.spotifyId });
     }
   }
-  pairs.sort((a, b) => b.s - a.s);
+  // equal confidence: a local file (full analysis) wins over a capture
+  pairs.sort((a, b) => b.s - a.s || b.file - a.file);
   for (const p of pairs) {
     if (result.has(p.t) || usedRecords.has(p.r)) continue;
     result.set(p.t, { recordId: p.r, score: p.s, manual: false });

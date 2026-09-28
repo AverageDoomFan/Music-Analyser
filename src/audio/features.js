@@ -21,20 +21,28 @@ const BANDS = [
 /**
  * @param {Float32Array} mono  mono PCM, [-1, 1] (normalised in place)
  * @param {number} sampleRate
- * @param {object} [extra]     values measured elsewhere (e.g. per-channel clipping)
+ * @param {object} [extra]     values measured elsewhere (e.g. per-channel clipping), and for
+ *   captured audio: `segments` [{start, end, trackTime}] (sample ranges of `mono` holding
+ *   excerpts that start at `trackTime` seconds in the track), `duration` (track length),
+ *   `gainDb` / `referenceLoudness` (live analysis of a window: normalise with the loudness
+ *   of the track heard so far instead of the window's own)
  * @param {(p:number)=>void} [onProgress]
  * @returns global features + `timeline` (the same features per analysis window)
  */
 export function extractFeatures(mono, sampleRate, extra = {}, onProgress = () => {}) {
-  const segments = chooseSegments(mono.length, sampleRate);
+  const given = extra.segments?.length ? extra.segments : null;
+  const segments = given ? given.map((s) => [s.start, s.end]) : chooseSegments(mono.length, sampleRate);
+  // buffer time → track time, per segment
+  const offsets = given ? given.map((s) => s.trackTime - s.start / sampleRate) : segments.map(() => 0);
   const analyzedSamples = segments.reduce((a, [s, e]) => a + (e - s), 0);
 
   // --- loudness normalisation (in place: the caller hands over its buffer)
   const kChunks = kWeightedChunks(mono, sampleRate, segments);
-  const sourceLoud = loudnessFromChunks(kChunks.flat());
+  const sourceLoud = extra.referenceLoudness ?? loudnessFromChunks(kChunks.flat());
   let sourcePeak = 0;
   for (let i = 0; i < mono.length; i++) { const a = Math.abs(mono[i]); if (a > sourcePeak) sourcePeak = a; }
-  const gainDb = sourceLoud.integrated > -70 ? Math.max(-30, Math.min(50, ANALYSIS.referenceLufs - sourceLoud.integrated)) : 0;
+  const gainDb = Number.isFinite(extra.gainDb) ? extra.gainDb
+    : sourceLoud.integrated > -70 ? Math.max(-30, Math.min(50, ANALYSIS.referenceLufs - sourceLoud.integrated)) : 0;
   const gain = 10 ** (gainDb / 20);
   if (gain !== 1) for (let i = 0; i < mono.length; i++) mono[i] *= gain;
 
@@ -51,21 +59,22 @@ export function extractFeatures(mono, sampleRate, extra = {}, onProgress = () =>
   const winFrames = Math.round(ANALYSIS.windowSeconds * frames.frameRate);
   const hopFrames = Math.round(ANALYSIS.windowHopSeconds * frames.frameRate);
   const windows = [];
-  for (const sg of frames.segments) {
+  frames.segments.forEach((sg, si) => {
     const len = sg.end - sg.start;
+    if (len <= 0) return;
     if (len <= winFrames) {
-      windows.push([sg.start, sg.end]);
-      continue;
+      windows.push([sg.start, sg.end, si]);
+      return;
     }
-    for (let a = sg.start; a + winFrames <= sg.end; a += hopFrames) windows.push([a, a + winFrames]);
+    for (let a = sg.start; a + winFrames <= sg.end; a += hopFrames) windows.push([a, a + winFrames, si]);
     const last = windows.at(-1);
-    if (last[1] < sg.end - hopFrames / 2) windows.push([sg.end - winFrames, sg.end]);
-  }
+    if (last[1] < sg.end - hopFrames / 2) windows.push([sg.end - winFrames, sg.end, si]);
+  });
   const times = [];
   const series = {};
-  windows.forEach(([a, b], i) => {
+  windows.forEach(([a, b, si], i) => {
     const w = summarize(ctx, [[a, b]], false);
-    times.push(round4((frames.time[a] + frames.time[b - 1]) / 2 + ANALYSIS.fftSize / 2 / sampleRate));
+    times.push(round4((frames.time[a] + frames.time[b - 1]) / 2 + ANALYSIS.fftSize / 2 / sampleRate + offsets[si]));
     for (const key of TIMELINE_KEYS) (series[key] ??= []).push(round4(w[key] ?? 0));
     if (i % 8 === 0) onProgress(0.9 + (0.1 * i) / windows.length);
   });
@@ -74,9 +83,9 @@ export function extractFeatures(mono, sampleRate, extra = {}, onProgress = () =>
   return {
     featureVersion: FEATURE_VERSION,
     sampleRate,
-    duration: mono.length / sampleRate,
+    duration: extra.duration ?? mono.length / sampleRate,
     analyzedSeconds: analyzedSamples / sampleRate,
-    excerpted: segments.length > 1,
+    excerpted: segments.length > 1 || analyzedSamples / sampleRate < (extra.duration ?? 0) * 0.97,
     ...global,
     // general (level independent)
     loudnessRange: sourceLoud.range,
@@ -541,7 +550,7 @@ function loudnessFromChunks(chunks, withRange = true) {
   return { integrated, range, shortTermMax };
 }
 
-function biquad(type, fc, gainDb, q, rate) {
+export function biquad(type, fc, gainDb, q, rate) {
   const A = 10 ** (gainDb / 40);
   const w0 = (2 * Math.PI * fc) / rate;
   const cw = Math.cos(w0);

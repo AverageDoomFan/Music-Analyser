@@ -1,4 +1,4 @@
-// Spotify Web API calls used by the app (playlists only). Paths renamed in
+// Spotify Web API calls used by the app (playlists, and playback control for the live scan). Paths renamed in
 // 2026 (/items instead of /tracks, /me/playlists for creation) are tried
 // first, with a fallback to the older ones.
 
@@ -13,24 +13,30 @@ export class SpotifyError extends Error {
   }
 }
 
-async function request(method, url, body, attempt = 0) {
+const PLAYLIST_HINT = { 403: " (compte non autorisé dans le tableau de bord de l'application, ou playlist dont tu n'es ni propriétaire ni collaborateur)" };
+const PLAYER_HINT = {
+  403: " (contrôle de lecture refusé : Spotify Premium requis, ou reconnecte-toi pour autoriser le contrôle de lecture)",
+  404: " (aucun appareil Spotify actif : ouvre l'application Spotify sur ce PC et lance un titre une fois)",
+};
+
+async function request(method, url, body, attempt = 0, hints = PLAYLIST_HINT) {
   const token = await accessToken({ force: attempt === 1 });
   const res = await fetch(url.startsWith("http") ? url : BASE + url, {
     method,
     headers: { Authorization: `Bearer ${token}`, ...(body ? { "Content-Type": "application/json" } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (res.status === 401 && attempt === 0) return request(method, url, body, 1);
+  if (res.status === 401 && attempt === 0) return request(method, url, body, 1, hints);
   if (res.status === 429 && attempt < 3) {
     const wait = Math.min(15, Number(res.headers.get("Retry-After")) || 2);
     await new Promise((r) => setTimeout(r, wait * 1000));
-    return request(method, url, body, attempt + 1);
+    return request(method, url, body, attempt + 1, hints);
   }
-  if (res.status === 204) return null;
+  if (res.status === 204 || res.status === 202) return null;
   const json = await res.json().catch(() => null);
   if (!res.ok) {
     const msg = json?.error?.message || res.statusText || "erreur";
-    const hint = res.status === 403 ? " (compte non autorisé dans le tableau de bord de l'application, ou playlist dont tu n'es ni propriétaire ni collaborateur)" : "";
+    const hint = hints[res.status] ?? "";
     throw new SpotifyError(`Spotify ${res.status} : ${msg}${hint}`, res.status);
   }
   return json;
@@ -93,6 +99,8 @@ export async function playlistTracks(id) {
       isrc: t.external_ids?.isrc ?? null,
       url: t.external_urls?.spotify ?? null,
       isLocal: !!t.is_local,
+      image: t.album?.images?.at(-1)?.url ?? null,
+      imageLarge: t.album?.images?.[0]?.url ?? null,
     };
   };
   try {
@@ -119,3 +127,36 @@ export async function addTracks(playlistId, uris) {
     await withFallback("POST", [`/playlists/${playlistId}/items`, `/playlists/${playlistId}/tracks`], { uris: chunk });
   }
 }
+
+// ---------- playback control (live scan) ----------
+
+const player = (method, path, body) => request(method, path, body, 0, PLAYER_HINT);
+const withDevice = (path, deviceId) => (deviceId ? `${path}${path.includes("?") ? "&" : "?"}device_id=${encodeURIComponent(deviceId)}` : path);
+
+export async function devices() {
+  const res = await player("GET", "/me/player/devices");
+  return (res?.devices ?? []).map((d) => ({ id: d.id, name: d.name, type: d.type, active: d.is_active, restricted: d.is_restricted, volume: d.volume_percent }));
+}
+
+/** { itemId, isPlaying, progressMs, deviceId, name } or null when nothing is playing. */
+export async function playbackState() {
+  const res = await player("GET", "/me/player?additional_types=track");
+  if (!res) return null;
+  return {
+    itemId: res.item?.id ?? null, name: res.item?.name ?? null, isPlaying: !!res.is_playing,
+    progressMs: res.progress_ms ?? 0, deviceId: res.device?.id ?? null, deviceName: res.device?.name ?? null,
+    shuffle: res.shuffle_state, repeat: res.repeat_state,
+  };
+}
+
+export const transferPlayback = (deviceId) => player("PUT", "/me/player", { device_ids: [deviceId], play: false });
+export const play = (deviceId, uri, positionMs = 0) => player("PUT", withDevice("/me/player/play", deviceId), { uris: [uri], position_ms: Math.max(0, Math.round(positionMs)) });
+export async function pause(deviceId) {
+  try {
+    await player("PUT", withDevice("/me/player/pause", deviceId));
+  } catch (err) {
+    // already paused → 403 "Restriction violated" on some clients
+    if (err.status !== 403 && err.status !== 404) throw err;
+  }
+}
+export const setRepeat = (deviceId, mode = "off") => player("PUT", withDevice(`/me/player/repeat?state=${mode}`, deviceId));

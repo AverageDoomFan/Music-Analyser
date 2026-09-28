@@ -121,3 +121,8 @@ async function extract(decoded, onProgress) {
   await new Promise((r) => setTimeout(r, 0));
   return extractFeatures(decoded.mono, decoded.sampleRate, decoded.clipping, report);
 }
+
+/** Feature extraction of PCM already in memory (live captures). `mono` is transferred. */
+export function analyzePcm(mono, sampleRate, extra = {}, onProgress = () => {}) {
+  return withSlot(() => extract({ mono, sampleRate, clipping: extra }, onProgress));
+}

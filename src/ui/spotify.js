@@ -68,6 +68,7 @@ export async function initSpotify() {
   $("sp-preview").addEventListener("click", () => { buildOrder(); renderOrder(); });
   $("sp-unmatched").addEventListener("change", () => { if (sp.order) { buildOrder(); renderOrder(); } });
   $("sp-create").addEventListener("click", createSorted);
+  $("sp-go-live").addEventListener("click", () => $("tab-live").click());
 
   // library changes (new files, analyses) → re-match
   let lastKey = "";
@@ -218,7 +219,8 @@ function renderTracks() {
   const matched = tracks.filter((t) => sp.matches.has(t.id));
   const analysed = matched.filter((t) => state.records.get(sp.matches.get(t.id).recordId)?.finalScore != null);
   $("sp-title").innerHTML = `${escapeHtml(sp.playlist.name)}${sp.playlist.url ? ` · <a href="${escapeHtml(sp.playlist.url)}" target="_blank" rel="noopener">ouvrir dans Spotify</a>` : ""}`;
-  $("sp-summary").textContent = `${tracks.length} titres · ${matched.length} associés · ${analysed.length} analysés`;
+  const captured = matched.filter((t) => state.records.get(sp.matches.get(t.id).recordId)?.source?.kind === "spotify").length;
+  $("sp-summary").textContent = `${tracks.length} titres · ${matched.length - captured} fichiers associés · ${captured} captés en direct · ${analysed.length} analysés`;
   $("sp-tracks").innerHTML = tracks.map((t, i) => {
     const m = sp.matches.get(t.id);
     const rec = m ? state.records.get(m.recordId) : null;
@@ -230,7 +232,7 @@ function renderTracks() {
       <td class="num">${i + 1}</td>
       <td><div class="track-name">${t.url ? `<a href="${escapeHtml(t.url)}" target="_blank" rel="noopener">${escapeHtml(t.name)}</a>` : escapeHtml(t.name)}</div><div class="sp-artist">${escapeHtml(t.artists.join(", "))}${t.isLocal ? " · fichier local Spotify" : ""}</div></td>
       <td class="num hide-sm">${formatDuration(t.durationMs / 1000)}</td>
-      <td>${t.isLocal ? `<span class="muted small">non modifiable via l'API</span>` : `<select data-track="${escapeHtml(t.id)}" aria-label="Fichier local pour ${escapeHtml(t.name)}">${options}</select>`}</td>
+      <td>${t.isLocal ? `<span class="muted small">non modifiable via l'API</span>` : rec?.source?.kind === "spotify" ? `<span class="src-tag">Capté en direct · ${rec.source.mode === "full" ? "entier" : `${Math.round((rec.source.coverage ?? 0) * 100)} %`}</span>` : `<select data-track="${escapeHtml(t.id)}" aria-label="Fichier local pour ${escapeHtml(t.name)}">${options}</select>`}</td>
       <td class="num">${rec?.finalScore != null ? `<b>${formatScore(rec.finalScore)}</b>` : rec ? `<span class="sp-miss">analyse…</span>` : `<span class="sp-miss">—</span>`}</td>
     </tr>`;
   }).join("");

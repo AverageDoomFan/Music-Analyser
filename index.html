@@ -39,6 +39,7 @@
       <button role="tab" id="tab-progression" aria-selected="false" aria-controls="panel-progression">Progression</button>
       <button role="tab" id="tab-rhythm" aria-selected="false" aria-controls="panel-rhythm">Rythme</button>
       <button role="tab" id="tab-spotify" aria-selected="false" aria-controls="panel-spotify">Spotify</button>
+      <button role="tab" id="tab-live" aria-selected="false" aria-controls="panel-live"><span class="live-dot" id="live-tab-dot" aria-hidden="true"></span>Direct</button>
     </nav>
 
     <section id="panel-library" role="tabpanel" aria-labelledby="tab-library">
@@ -189,10 +190,11 @@
       <div id="sp-work" hidden>
         <div class="card">
           <div class="chart-title"><strong id="sp-title"></strong><span class="muted small" id="sp-summary"></span></div>
-          <p class="muted small">Dépose tes fichiers audio dans la zone d'import en haut de la page : ils sont associés automatiquement (ISRC, puis titre / artiste / durée). Corrige une association avec le menu de la ligne.</p>
+          <p class="muted small">Pas les fichiers ? <button class="btn small primary" type="button" id="sp-go-live">Scanner la playlist en direct</button> : l'onglet Direct fait jouer chaque titre sur ton Spotify et l'analyse en temps réel.</p>
+          <p class="muted small">Tu as les fichiers : dépose-les dans la zone d'import en haut de la page, ils sont associés automatiquement (ISRC, puis titre / artiste / durée). Corrige une association avec le menu de la ligne.</p>
           <div class="table-wrap">
             <table class="library sp-table">
-              <thead><tr><th class="num">#</th><th>Titre Spotify</th><th class="num hide-sm">Durée</th><th>Fichier local</th><th class="num">Score</th></tr></thead>
+              <thead><tr><th class="num">#</th><th>Titre Spotify</th><th class="num hide-sm">Durée</th><th>Source de l'analyse</th><th class="num">Score</th></tr></thead>
               <tbody id="sp-tracks"></tbody>
             </table>
           </div>
@@ -200,7 +202,7 @@
         <div class="card sp-create">
           <h3>Nouvelle playlist ordonnée</h3>
           <div class="sp-row">
-            <label class="inline">Titres sans fichier analysé
+            <label class="inline">Titres non analysés
               <select id="sp-unmatched"><option value="end">à la fin (ordre d'origine)</option><option value="exclude">exclus</option></select>
             </label>
             <label class="inline">Nom <input type="text" id="sp-name"></label>
@@ -211,6 +213,128 @@
           <p class="small" id="sp-result" role="status"></p>
         </div>
         <p class="muted small sp-attrib">Titres et métadonnées fournis par <a href="https://www.spotify.com" target="_blank" rel="noopener">Spotify</a>. Cette application n'est ni affiliée ni approuvée par Spotify.</p>
+      </div>
+    </section>
+    <section id="panel-live" role="tabpanel" aria-labelledby="tab-live" hidden>
+      <details class="card live-setup" id="lv-setup" open>
+        <summary><strong>Réglages du scan</strong> <span class="muted small" id="lv-setup-summary"></span></summary>
+        <div class="lv-setup-grid">
+          <fieldset class="lv-box">
+            <legend>1 · Capture du son</legend>
+            <label class="lv-radio"><input type="radio" name="lv-source" value="system" checked> Audio système <span class="muted small">(partage d'écran : « Écran entier » + « Partager l'audio du système »)</span></label>
+            <label class="lv-radio"><input type="radio" name="lv-source" value="device"> Entrée audio <span class="muted small">(VB-Cable : scan silencieux)</span></label>
+            <div class="lv-row" id="lv-device-row" hidden>
+              <select id="lv-device" aria-label="Entrée audio"></select>
+              <button class="btn small" id="lv-device-refresh" type="button">Lister</button>
+            </div>
+            <div class="lv-row">
+              <button class="btn" id="lv-capture" type="button">Activer la capture</button>
+              <span class="lv-chip" id="lv-capture-status">inactive</span>
+            </div>
+            <div class="lv-level" aria-hidden="true"><i id="lv-level-bar"></i></div>
+          </fieldset>
+          <fieldset class="lv-box">
+            <legend>2 · Spotify</legend>
+            <div class="lv-row">
+              <select id="lv-spdevice" aria-label="Appareil Spotify"><option value="">— appareil —</option></select>
+              <button class="btn small" id="lv-spdevice-refresh" type="button">Actualiser</button>
+            </div>
+            <p class="small muted" id="lv-playlist-info">Importe d'abord une playlist dans l'onglet Spotify.</p>
+            <p class="small lv-warn" id="lv-scope-warn" hidden>Autorisation de contrôle de lecture manquante. <button class="btn small" id="lv-reconnect" type="button">Reconnecter Spotify</button></p>
+          </fieldset>
+          <fieldset class="lv-box">
+            <legend>3 · Mode d'analyse</legend>
+            <div class="lv-modes" id="lv-modes" role="radiogroup" aria-label="Mode"></div>
+            <div class="lv-params" id="lv-params-fixed" hidden>
+              <label class="inline">Extraits <input type="number" id="lv-count" min="1" max="12" value="4"></label>
+              <label class="inline">de <input type="number" id="lv-length" min="6" max="60" value="12"> s</label>
+            </div>
+            <div class="lv-params" id="lv-params-adaptive">
+              <label class="inline">Budget <input type="number" id="lv-budget" min="30" max="240" value="75"> s / titre</label>
+              <label class="inline">Écart max entre sondes <input type="number" id="lv-gap" min="8" max="40" value="20"> s</label>
+            </div>
+            <label class="inline small"><input type="checkbox" id="lv-skip-files" checked> Ignorer les titres déjà analysés depuis un fichier</label>
+            <label class="inline small"><input type="checkbox" id="lv-rescan"> Réanalyser les titres déjà captés</label>
+            <p class="small muted" id="lv-estimate"></p>
+          </fieldset>
+        </div>
+        <details class="lv-tips small">
+          <summary>Avant de lancer (Windows)</summary>
+          <ul>
+            <li>Spotify › Paramètres › Lecture : désactive <b>Normaliser le volume</b> (le mode « Fort » compresse la dynamique) et le <b>fondu enchaîné</b>.</li>
+            <li>Audio système : rien d'autre ne doit jouer pendant le scan (vidéos, notifications). Le son doit rester audible.</li>
+            <li>Scan silencieux : installe VB-Cable, puis Paramètres Windows › Son › Mélangeur de volume › Spotify › Sortie = « CABLE Input ». Ici, choisis l'entrée « CABLE Output ».</li>
+            <li>L'audio n'est jamais enregistré : il est analysé en mémoire puis effacé, seules les mesures sont gardées.</li>
+          </ul>
+        </details>
+      </details>
+
+      <div class="lv-transport">
+        <button class="btn primary" id="lv-start" type="button">▶ Lancer le scan</button>
+        <button class="btn" id="lv-pause" type="button" disabled>❚❚ Pause</button>
+        <button class="btn" id="lv-skip" type="button" disabled>⏭ Passer</button>
+        <button class="btn danger" id="lv-stop" type="button" disabled>■ Arrêter</button>
+        <div class="lv-overall">
+          <div class="lv-overall-text" id="lv-overall-text">Prêt.</div>
+          <div class="progress"><div class="progress-bar" id="lv-overall-bar"></div></div>
+        </div>
+      </div>
+
+      <div class="lv-stage" id="lv-stage">
+        <div class="lv-hero">
+          <div class="lv-backdrop" id="lv-backdrop"></div>
+          <div class="lv-cover" id="lv-cover"><span>♪</span></div>
+          <div class="lv-now">
+            <div class="lv-phase"><span class="lv-pulse" id="lv-pulse"></span><span id="lv-phase">En attente</span></div>
+            <div class="lv-title" id="lv-title">Aucun titre</div>
+            <div class="lv-artist" id="lv-artist">Lance un scan pour analyser ta playlist en direct.</div>
+            <canvas class="lv-timeline" id="lv-timeline" height="46" aria-label="Parties du morceau écoutées"></canvas>
+            <div class="lv-times"><span id="lv-pos">0:00</span><span id="lv-heard" class="muted"></span><span id="lv-dur">0:00</span></div>
+          </div>
+          <div class="lv-gauge-wrap">
+            <canvas class="lv-gauge" id="lv-gauge" width="220" height="220" aria-label="Intensité"></canvas>
+          </div>
+        </div>
+
+        <div class="lv-grid">
+          <div class="lv-panel lv-wide">
+            <div class="lv-panel-head"><span>Courbe d'intensité</span><div class="lv-chips" id="lv-curve-chips"></div></div>
+            <canvas id="lv-curve" height="220"></canvas>
+          </div>
+          <div class="lv-panel">
+            <div class="lv-panel-head"><span>Profil</span><span class="muted small">fenêtre actuelle · morceau</span></div>
+            <canvas id="lv-radar" height="260"></canvas>
+          </div>
+          <div class="lv-panel lv-wide">
+            <div class="lv-panel-head"><span>Spectre</span><span class="muted small" id="lv-spec-info"></span></div>
+            <canvas id="lv-spectrum" height="160"></canvas>
+            <canvas id="lv-spectrogram" height="120"></canvas>
+          </div>
+          <div class="lv-panel">
+            <div class="lv-panel-head"><span>Loudness</span><span class="muted small">LUFS</span></div>
+            <div class="lv-loud">
+              <canvas id="lv-meters" width="120" height="220"></canvas>
+              <dl class="lv-loud-values" id="lv-loud-values"></dl>
+            </div>
+          </div>
+          <div class="lv-panel lv-full">
+            <div class="lv-panel-head"><span>Mesures en direct</span><span class="muted small" id="lv-window-info"></span></div>
+            <div class="lv-tiles" id="lv-tiles"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="lv-bottom">
+        <div class="card lv-queue-card">
+          <div class="chart-title"><strong>File du scan</strong><span class="muted small" id="lv-queue-summary"></span></div>
+          <ol class="lv-queue" id="lv-queue"></ol>
+        </div>
+        <div class="card lv-session">
+          <div class="chart-title"><strong>Session</strong><span class="muted small" id="lv-session-summary"></span></div>
+          <canvas id="lv-histogram" height="170"></canvas>
+          <div class="lv-session-stats" id="lv-session-stats"></div>
+          <p class="small muted">Les titres captés rejoignent la bibliothèque (tri, courbes, progression) et la playlist triée de l'onglet Spotify.</p>
+        </div>
       </div>
     </section>
   </main>

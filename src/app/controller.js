@@ -336,6 +336,33 @@ export function orderRecords(ids, tolerance = 6) {
   return buildOrder(items, { tolerance });
 }
 
+// ---------- live scan (audio captured from the Spotify app) ----------
+
+export const capturedId = (track) => `spotify:${track.id}`;
+
+/** Stores the features of a captured track as a library record. */
+export async function saveCaptured(track, features, info) {
+  const id = capturedId(track);
+  const name = `${track.artists?.join(", ") || "?"} - ${track.name}`;
+  const record = state.records.get(id) ?? createRecord({ id, hashAlgorithm: "spotify-id", name, size: null, type: "spotify", lastModified: null });
+  record.name = name;
+  record.source = {
+    kind: "spotify", trackId: track.id, uri: track.uri, url: track.url ?? null, image: track.image ?? null,
+    mode: info.mode, coverage: info.coverage, excerpts: info.excerpts, probes: info.probes, capturedAt: Date.now(),
+  };
+  record.tags = { title: track.name, artist: track.artists?.join(", ") ?? "", album: track.album ?? "", isrc: track.isrc ?? null, source: "spotify" };
+  state.records.set(id, record);
+  applyFeatures(record, features, scoring());
+  await save(record);
+  return record;
+}
+
+/** Captured record of a track, if it is analysed with the current extractor. */
+export function capturedRecord(track) {
+  const r = state.records.get(capturedId(track));
+  return r?.features && r.featureVersion === FEATURE_VERSION ? r : null;
+}
+
 // ---------- Spotify (stored locally, cleared on disconnect) ----------
 
 export const spotifyStore = {

@@ -71,6 +71,11 @@ src/
   rhythm/difficulty.js      KPS, difficulté (strain), statistiques de map
   rhythm/session.js         décodage partagé avec la lecture, cache des bandes pour la session
   audio/engine.js           lecture Web Audio : position, piste isolée, cues planifiés
+  spotify/                  PKCE, API (playlists, contrôle de lecture), association fichiers ↔ titres
+  live/capture.js           capture audio système / entrée audio (AudioWorklet, rééchantillonnage 44,1 kHz)
+  live/scanner.js           scan d'une playlist : pilotage Spotify, extraits, analyse live et finale
+  live/plan.js              modes (entier, extraits fixes, adaptatif : sondes puis écoute ciblée)
+  live/meter.js             loudness BS.1770 en continu (momentanée, court terme, intégrée, LRA)
   app/                      état et cas d'usage (contrôleur)
   ui/                       bibliothèque, détail, correction, paramètres, progression, graphiques
 ```
@@ -106,7 +111,7 @@ L'onglet importe la liste des titres d'une de tes playlists et l'associe à tes 
 
 **Sécurité et vie privée**
 - **Connexion** : OAuth 2.0 *Authorization Code + PKCE*, le flux prévu pour les applications sans serveur. Pas de secret, et un `state` protège contre les requêtes forgées.
-- **Droits demandés** : lire tes playlists privées et collaboratives, créer et modifier des playlists. Rien d'autre.
+- **Droits demandés** : lire tes playlists privées et collaboratives, créer et modifier des playlists, lire et piloter la lecture (onglet Direct). Rien d'autre.
 - **Jeton** : il reste dans ce navigateur (localStorage) et n'est envoyé qu'à `accounts.spotify.com` et `api.spotify.com`.
 - **Données conservées** : seule la liste de la dernière playlist importée et tes associations. « Déconnecter et effacer » supprime le jeton et ces données. Tu peux aussi révoquer l'accès sur [spotify.com/account/apps](https://www.spotify.com/account/apps).
 
@@ -116,6 +121,38 @@ L'onglet importe la liste des titres d'une de tes playlists et l'associe à tes 
 - l'application ne se présente pas comme un produit Spotify : le contenu est attribué et ramène vers Spotify par des liens.
 
 
+## Onglet Direct : analyser une playlist Spotify sans les fichiers
+
+L'onglet Direct fait jouer chaque titre de la playlist importée sur **ton application Spotify** (contrôle de lecture de l'API), capte le son qui sort du PC et l'analyse en temps réel avec le même extracteur que pour les fichiers. Les titres analysés rejoignent la bibliothèque (source « Spotify », avec la part du morceau écoutée) et comptent pour la playlist triée de l'onglet Spotify.
+
+**Capture (Windows)**
+- **Audio système** : Chrome ou Edge, « Écran entier » + « Partager l'audio du système ». Le son doit rester audible et rien d'autre ne doit jouer.
+- **Scan silencieux** : avec VB-Cable, envoie Spotify vers « CABLE Input » (Paramètres › Son › Mélangeur de volume), puis choisis l'entrée « CABLE Output » dans l'onglet.
+- Dans Spotify, désactive « Normaliser le volume » et le fondu enchaîné. L'application Spotify doit être ouverte sur le PC ; Premium est requis pour le contrôle de lecture.
+- Les connexions antérieures doivent être refaites une fois : l'onglet demande les droits `user-read-playback-state` et `user-modify-playback-state`.
+
+**Modes**
+- **Adaptatif** (par défaut) : des sondes de 3 s espacées d'au plus 20 s couvrent tout le morceau. Un refrain ou un drop dure plus longtemps que cet écart, donc au moins une sonde tombe dedans. Les sondes sont notées ensemble, puis le reste du budget par titre sert à écouter 18 s autour des plus intenses, en commençant un peu avant.
+- **Extraits fixes** : N extraits de L secondes répartis régulièrement.
+- **Morceau entier** : écoute complète, résultat identique à l'analyse d'un fichier.
+- Un titre déjà capté dans un mode au moins aussi complet n'est pas réécouté. Les titres associés à un fichier local analysé peuvent être ignorés.
+
+**Déroulement d'un extrait** : pause, attente du silence, lecture à la position voulue, puis le début de l'extrait est repéré dans le son (premier bloc de 10 ms au-dessus de -58 dBFS). Si le passage est silencieux, la position rapportée par Spotify sert de repère. Si Spotify joue un autre titre que celui demandé, le titre est marqué en erreur.
+
+**En direct** : toutes les 3 s, une fenêtre de 6 s est analysée. Elle est normalisée avec la loudness du morceau entendue jusque-là (mesure BS.1770 en continu) et notée par le modèle. L'écran affiche :
+- la jauge d'intensité, la courbe et les sous-scores, avec les sondes ;
+- les parties du morceau écoutées ;
+- le radar des 8 dimensions ;
+- le spectre et le spectrogramme ;
+- les vumètres L/R et la loudness momentanée, court terme, intégrée, la plage LRA et la crête ;
+- 17 mesures avec leur évolution ;
+- la file du scan et la répartition des scores par palier.
+
+À la fin de chaque titre, les extraits gardés en mémoire sont réanalysés d'un bloc (positions réelles dans le morceau), puis effacés.
+
+**Ce qui est conservé** : uniquement les caractéristiques, les courbes et la liste des extraits écoutés, jamais l'audio. Ces analyses ne servent qu'à trier ta propre playlist. Le contrôle de lecture et la capture du son restent une zone grise au regard des conditions de Spotify : c'est un outil d'usage personnel, pas un service à diffuser.
+
+## Onglet Rythme : créateur de map
 
 Choisis un morceau importé pendant la session (ou ouvre-le depuis son détail avec « Rythme »). Les notes sont extraites automatiquement.
 

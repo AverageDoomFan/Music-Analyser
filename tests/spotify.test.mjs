@@ -6,7 +6,8 @@ import { readTags, parseFileName } from "../src/util/tags.js";
 
 test("PKCE S256 challenge matches the RFC 7636 example", async () => {
   assert.equal(await s256("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"), "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
-  assert.ok(SCOPES.every((s) => s.startsWith("playlist-")), "playlist scopes only");
+  const allowed = ["user-read-playback-state", "user-modify-playback-state"];
+  assert.ok(SCOPES.every((s) => s.startsWith("playlist-") || allowed.includes(s)), "playlist + playback control scopes only");
 });
 
 test("title normalisation ignores decorations", () => {
@@ -88,4 +89,16 @@ test("tags: ID3v2.3 / v2.4 (UTF-8, UTF-16), FLAC, file name", () => {
   const n = readTags(new ArrayBuffer(16), "03 - Daft Punk - Aerodynamic.mp3");
   assert.deepEqual([n.artist, n.title, n.source], ["Daft Punk", "Aerodynamic", "filename"]);
   assert.deepEqual(parseFileName("Title only.wav"), { artist: null, title: "Title only" });
+});
+
+test("a captured record matches its own Spotify track only", () => {
+  const rec = { id: "spotify:t1", name: "A - B", duration: 200, source: { kind: "spotify", trackId: "t1" } };
+  const t1 = { id: "t1", name: "B", artists: ["A"], durationMs: 200000 };
+  const t2 = { id: "t2", name: "B", artists: ["A"], durationMs: 200000 };
+  assert.equal(matchScore(t1, localInfo(rec)), 1);
+  assert.equal(matchScore(t2, localInfo(rec)), 0);
+  // a local file with the same confidence wins over the capture
+  const file = { id: "f", name: "A - B.mp3", duration: 200, tags: { isrc: "X1" } };
+  const m = matchPlaylist([{ ...t1, isrc: "X1" }], [rec, file]);
+  assert.equal(m.get("t1").recordId, "f");
 });
