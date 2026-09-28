@@ -1,7 +1,7 @@
 // Track detail dialog: why a track got its score, manual edit, actions.
 
 import { DIMENSIONS, stageFor, ALGORITHM_VERSION, ANALYSIS, AGGREGATIONS, CURVE_STATS, LYRICS_MOODS, LYRICS_LEVELS } from "../config.js";
-import { moodLabel, lyricsEffect } from "../scoring/describe.js";
+import { moodLabel, lyricsEffect, dynamicsScore } from "../scoring/describe.js";
 import { aggregate } from "../scoring/aggregate.js";
 import { renderTimeline } from "./charts.js";
 import { state, subscribe } from "../app/store.js";
@@ -431,7 +431,7 @@ function featuresBlock(f) {
     [t("Estimated BPM"), f.bpm ? `${n(f.bpm)} (${t("rel. {n} %", { n: Math.round(f.bpmConfidence * 100) })})` : "—"],
     [t("Onsets / s"), n(f.onsetRate, 1)],
     [t("File loudness*"), n(f.sourceLoudnessLufs ?? f.loudnessLufs, 1, " LUFS")],
-    [t("Loudness range"), n(f.loudnessRange, 1, " LU")],
+    [t("Loudness range"), f.loudnessRange != null ? `${n(f.loudnessRange, 1, " LU")} (${t("dynamics {n}/100", { n: Math.round(dynamicsScore(f.loudnessRange)) })})` : "—"],
     [t("Crest factor"), n(f.crestDb, 1, " dB")],
     [t("Peak / loudness (PLR)"), n(f.plrDb, 1, " dB")],
     [t("Peak"), n(f.channelPeakDb, 1, " dBFS")],

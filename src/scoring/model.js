@@ -4,7 +4,7 @@
 // No genre rule anywhere: only audio features. To replace the model, write a
 // module exposing the same functions and point src/scoring/index.js to it.
 
-import { ALGORITHM_VERSION, CALIBRATION, DEFAULT_WEIGHTS, DEFAULT_AGGREGATION } from "../config.js";
+import { ALGORITHM_VERSION, CALIBRATION, DEFAULT_WEIGHTS, DEFAULT_AGGREGATION, SUBSCORE_SCALES } from "../config.js";
 import { aggregate, aggregateAll } from "./aggregate.js";
 import { describeMusic } from "./describe.js";
 
@@ -150,7 +150,7 @@ export function computeSubscores(features) {
     if (dim === "noise") value = value ** 1.2; // keep melodic music near zero
     // very fast kicks are fast whatever the (folded) BPM says
     if (dim === "tempo") value = Math.max(value, list.find(([label]) => label === "Kick speed")?.[1] ?? 0);
-    subscores[dim] = round1(value * 100);
+    subscores[dim] = round1(toDisplay(dim, value) * 100);
     confidences[dim] = round3(agreement(list));
     explain[dim] = list.map(([label, v, w]) => ({ label, value: round3(v), weight: w }));
   }
@@ -176,18 +176,42 @@ export function computeIntensity(subscores, weights = DEFAULT_WEIGHTS) {
 
 /** Intensity before calibration, 0..1. */
 export function rawIntensity(subscores, weights = DEFAULT_WEIGHTS) {
+  // the weights work on the model's internal scale, not the displayed one
+  const m = (dim) => toModel(dim, (subscores[dim] ?? 0) / 100);
   let s = 0, w = 0;
-  for (const [dim, value] of Object.entries(subscores)) {
+  for (const dim of Object.keys(subscores)) {
     if (dim === "noise") continue;
     const wi = Math.max(0, weights[dim] ?? 0);
-    s += wi * (value / 100);
+    s += wi * m(dim);
     w += wi;
   }
   const base = w ? s / w : 0;
-  const noise = (subscores.noise ?? 0) / 100;
-  const gate = smoothstep(0.35, 0.7, Math.max(base, 0.9 * (subscores.harshness ?? 0) / 100));
+  const noise = m("noise");
+  const gate = smoothstep(0.35, 0.7, Math.max(base, 0.9 * m("harshness")));
   const push = clamp01(Math.max(0, weights.noise ?? 0) * noise * gate);
   return base + (1 - base) * push;
+}
+
+/** Piecewise-linear interpolation through increasing points [[x, y], ...]. */
+function interp(points, x, from = 0, to = 1) {
+  if (x <= points[0][from]) return points[0][to];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1], b = points[i];
+    if (x <= b[from]) return a[to] + ((x - a[from]) / (b[from] - a[from])) * (b[to] - a[to]);
+  }
+  return points.at(-1)[to];
+}
+
+/** Internal sub-score (0..1) → displayed sub-score (0..1), see SUBSCORE_SCALES. */
+export function toDisplay(dim, v) {
+  const p = SUBSCORE_SCALES[dim];
+  return p ? interp(p, clamp01(v)) : clamp01(v);
+}
+
+/** Displayed sub-score (0..1) → internal sub-score (0..1). */
+export function toModel(dim, v) {
+  const p = SUBSCORE_SCALES[dim];
+  return p ? interp(p, clamp01(v), 1, 0) : clamp01(v);
 }
 
 export function calibrate(raw) {

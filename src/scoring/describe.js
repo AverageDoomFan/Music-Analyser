@@ -45,22 +45,39 @@ function edgeTempo(tl, which, fallback) {
 export function computeMood(f) {
   const hasKey = Number.isInteger(f.keyIndex) && f.keyIndex >= 0;
   const conf = clamp01(f.keyConfidence ?? 0);
-  const modeV = hasKey ? 0.5 + (f.keyIndex < 12 ? 0.5 : -0.5) * Math.sqrt(conf) : 0.5;
+  // distortion smears the chroma: a minor key heard through saturation still
+  // reads minor, even with a modest key confidence
+  const modeV = hasKey ? 0.5 + (f.keyIndex < 12 ? 0.5 : -0.5) * conf ** 0.25 : 0.5;
   const bpmConf = clamp01(f.bpmConfidence);
   const tempoV = f.bpm ? bpmConf * lin(f.bpm, 70, 150) + (1 - bpmConf) * lin(f.onsetRate, 1, 8) : lin(f.onsetRate, 1, 8);
+  // saturated mids (extractor 1.4+) sound dark and tense, whatever the key
+  const clean = f.midFlatnessMedian != null ? 1 - lin(db(f.midFlatnessMedian), -30, -10) : 1;
   const comps = [
     ["Major / minor mode", modeV, hasKey ? 0.4 : 0.1],
     ["Brightness", lin(f.centroidMean, 700, 4000), 0.2],
     ["Tempo", tempoV, 0.15],
-    ["Consonance (tonal spectrum)", 1 - lin(db(f.flatnessMedian), -40, -10), 0.15],
+    ["Consonance (tonal, clean spectrum)", Math.min(1 - lin(db(f.flatnessMedian), -40, -10), clean), 0.15],
     ["Unsaturated sound", lin(f.crestDb, 5, 14), 0.1],
   ];
   let s = 0, w = 0;
   for (const [, v, wi] of comps) { s += v * wi; w += wi; }
+  // perceptual stretch (2.1): the blend of cues stays near the middle, while a
+  // dark, slow, saturated minor track is felt as clearly dark (test bench)
+  const valence = clamp01(0.5 + (s / w - 0.5) * 1.2);
   return {
-    valence: Math.round((s / w) * 1000) / 10,
+    valence: Math.round(valence * 1000) / 10,
     explain: comps.map(([label, value, weight]) => ({ label, value: Math.round(value * 1000) / 1000, weight })),
   };
+}
+
+/**
+ * Dynamics on 0..100 from the loudness range (LU): 0 = constant level,
+ * ~40 = clear loud / soft contrasts, 70 = huge gaps (~22 LU). Concave: the
+ * first LU of contrast are the most audible.
+ */
+export function dynamicsScore(loudnessRange) {
+  if (!Number.isFinite(loudnessRange)) return null;
+  return Math.round(1000 * (1 - Math.exp(-Math.max(0, loudnessRange) / 18))) / 10;
 }
 
 /** Quadrant label from intensity and valence. */
@@ -97,6 +114,7 @@ export function describeMusic(f) {
     } : null,
     sections: f.sections?.map((x) => ({ ...x, label: LEGACY_SECTIONS[x.label] ?? x.label })) ?? null,
     mood: computeMood(f),
+    dynamics: dynamicsScore(f.loudnessRange),
   };
 }
 

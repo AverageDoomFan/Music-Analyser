@@ -466,7 +466,11 @@ table.library { width: 100%; border-collapse: collapse; }
 
 .lv-bottom { display: grid; grid-template-columns: 3fr 2fr; gap: 12px; }
 .lv-queue { list-style: none; margin: 0; padding: 0; max-height: 440px; overflow-y: auto; display: grid; gap: 2px; }
-.lv-queue li { display: grid; grid-template-columns: 22px 36px 1fr auto; gap: 10px; align-items: center; padding: 5px 6px; border-radius: 8px; }
+.lv-order { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 0 0 8px; }
+.lv-queue li { display: grid; grid-template-columns: 22px 36px 1fr auto auto; gap: 10px; align-items: center; padding: 5px 6px; border-radius: 8px; }
+.lv-queue li .lv-play { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface-2); color: inherit; cursor: pointer; font-size: 0.75rem; line-height: 1; padding: 0; }
+.lv-queue li .lv-play:hover { background: var(--accent-soft); }
+.lv-queue li .lv-play:disabled { visibility: hidden; }
 .lv-queue li.current { background: var(--accent-soft); }
 .lv-queue li .ico { text-align: center; color: var(--muted); font-size: 0.85rem; }
 .lv-queue li .thumb { width: 36px; height: 36px; border-radius: 5px; background: var(--surface-2); object-fit: cover; display: block; }

@@ -527,6 +527,11 @@
       <div class="lv-bottom">
         <div class="card lv-queue-card">
           <div class="chart-title"><strong>Scan queue</strong><span class="muted small" id="lv-queue-summary"></span></div>
+          <div class="lv-order">
+            <label class="inline small">Play order <select id="lv-order"></select></label>
+            <button class="btn small" id="lv-reshuffle" type="button" hidden>Reshuffle</button>
+            <span class="muted small">▶ on a track: analyse it now</span>
+          </div>
           <ol class="lv-queue" id="lv-queue"></ol>
         </div>
         <div class="card lv-session">

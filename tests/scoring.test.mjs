@@ -2,8 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { tracks, SR } from "./synth.mjs";
 import { extractFeatures, measureClipping } from "../src/audio/features.js";
-import { scoreFeatures, computeIntensity } from "../src/scoring/model.js";
-import { DEFAULT_WEIGHTS, ALGORITHM_VERSION } from "../src/config.js";
+import { scoreFeatures, computeIntensity, toDisplay, toModel } from "../src/scoring/model.js";
+import { DEFAULT_WEIGHTS, ALGORITHM_VERSION, SUBSCORE_SCALES } from "../src/config.js";
 
 const results = {};
 for (const [name, gen] of Object.entries(tracks)) {
@@ -109,4 +109,26 @@ test("long files are analysed through excerpts", () => {
   assert.ok(f.excerpted);
   assert.ok(f.analyzedSeconds < 13 * 60);
   assert.ok(Math.abs(f.bpm - 110) < 2);
+});
+
+test("perceptual sub-score scales: increasing, invertible, intensity computed on the model scale", () => {
+  for (const [dim, pts] of Object.entries(SUBSCORE_SCALES)) {
+    assert.deepEqual(pts[0], [0, 0], dim);
+    assert.deepEqual(pts.at(-1), [1, 1], dim);
+    for (let i = 1; i < pts.length; i++) assert.ok(pts[i][0] > pts[i - 1][0] && pts[i][1] > pts[i - 1][1], dim);
+    for (let x = 0; x <= 1; x += 0.05) assert.ok(Math.abs(toModel(dim, toDisplay(dim, x)) - x) < 1e-9, `${dim} ${x}`);
+  }
+  // the same internal values give the same intensity whether or not they are rescaled for display
+  const internal = { energy: 0.5, tempo: 0.4, density: 0.25, brightness: 0.2, harshness: 0.6, pressure: 0.5, complexity: 0.3, noise: 0.3 };
+  const shown = Object.fromEntries(Object.entries(internal).map(([d, v]) => [d, toDisplay(d, v) * 100]));
+  const plain = Object.fromEntries(Object.entries(internal).map(([d, v]) => [d, v * 100]));
+  assert.ok(shown.brightness > plain.brightness && shown.harshness > plain.harshness);
+  const scaled = computeIntensity(shown);
+  const saved = { ...SUBSCORE_SCALES };
+  for (const k of Object.keys(SUBSCORE_SCALES)) delete SUBSCORE_SCALES[k];
+  try {
+    assert.equal(scaled, computeIntensity(plain));
+  } finally {
+    Object.assign(SUBSCORE_SCALES, saved);
+  }
 });
