@@ -88,7 +88,34 @@ Le scoring, le stockage, l'import audio et l'interface sont indépendants : un n
 
 Les fichiers de plus de 12 minutes sont analysés sur 12 extraits de 45 s répartis sur toute la durée.
 
-## Onglet Rythme : créateur de map
+## Onglet Spotify : trier une de tes playlists
+
+L'onglet importe la liste des titres d'une de tes playlists et l'associe à tes fichiers audio locaux (analysés dans l'app), puis crée sur ton compte une **nouvelle** playlist, privée, ordonnée du plus calme au plus intense. La playlist d'origine n'est jamais modifiée.
+
+**Mise en place (une fois)**
+1. Sur [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard), crée une application. Depuis 2026, le compte propriétaire d'une application en mode développement doit être Premium. Ne mets pas « Spotify » dans son nom et coche *Web API*.
+2. *Redirect URIs* : ajoute l'adresse affichée dans l'onglet, par exemple `https://averagedoomfan.github.io/Music-Analyser/`. Pour un test en local, ajoute aussi `http://127.0.0.1:8000/` : Spotify n'accepte plus `localhost`, seulement l'IP de bouclage.
+3. *User Management* : ajoute l'e-mail de ton compte Spotify (mode développement : 5 comptes maximum).
+4. Copie le **Client ID**, qui est public. Le *Client secret* ne sert pas et ne doit jamais être mis dans l'app.
+5. Dans l'onglet Spotify : colle le Client ID, clique « Connecter mon compte Spotify », puis accepte les droits demandés.
+
+**Utilisation** : choisis une playlist dont tu es propriétaire ou collaborateur (règle du mode développement), puis « Importer les titres ». Dépose ensuite tes fichiers dans la zone d'import.
+- **Association automatique** : par ISRC lu dans les tags quand il existe, sinon par titre, artiste et durée. Les tags lus sont ID3 pour le MP3 et Vorbis pour le FLAC ; à défaut, le nom de fichier au format « Artiste - Titre ».
+- **Correction** : une association se corrige ligne par ligne.
+- **Création** : « Aperçu de l'ordre » puis « Créer la playlist sur Spotify ».
+
+**Sécurité et vie privée**
+- **Connexion** : OAuth 2.0 *Authorization Code + PKCE*, le flux prévu pour les applications sans serveur. Pas de secret, et un `state` protège contre les requêtes forgées.
+- **Droits demandés** : lire tes playlists privées et collaboratives, créer et modifier des playlists. Rien d'autre.
+- **Jeton** : il reste dans ce navigateur (localStorage) et n'est envoyé qu'à `accounts.spotify.com` et `api.spotify.com`.
+- **Données conservées** : seule la liste de la dernière playlist importée et tes associations. « Déconnecter et effacer » supprime le jeton et ces données. Tu peux aussi révoquer l'accès sur [spotify.com/account/apps](https://www.spotify.com/account/apps).
+
+**Cadre légal** (résumé, pas un avis juridique) : c'est un usage standard de l'API, la gestion de playlists pour son propre compte. Il reste dans les règles tant que :
+- l'audio analysé est celui de **tes propres fichiers**, achetés ou copiés depuis une source licite (copie privée). L'app ne télécharge rien depuis Spotify, et ce serait interdit ;
+- aucune donnée Spotify ne sert à entraîner un modèle d'IA, ni à produire des statistiques d'écoute (interdit par la *Developer Policy*). Ici, les métadonnées ne servent qu'à l'association et à la création de la playlist, et l'ajustement des pondérations n'utilise que tes corrections sur tes fichiers ;
+- l'application ne se présente pas comme un produit Spotify : le contenu est attribué et ramène vers Spotify par des liens.
+
+
 
 Choisis un morceau importé pendant la session (ou ouvre-le depuis son détail avec « Rythme »). Les notes sont extraites automatiquement.
 

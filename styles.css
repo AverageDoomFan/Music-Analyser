@@ -46,6 +46,8 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
+a { color: var(--accent); }
 input[type="range"] { accent-color: var(--accent); }
 html, body { margin: 0; }
 body {
@@ -116,7 +118,8 @@ input[type="search"], input[type="url"], input[type="number"], select {
 .progress-bar { height: 100%; width: 0; background: var(--accent); transition: width 0.2s; }
 
 /* Tabs */
-.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 14px; overflow-x: auto; scrollbar-width: none; }
+.tabs button { flex: 0 0 auto; }
 .tabs button {
   font: inherit; background: none; border: none; color: var(--text-2); cursor: pointer;
   padding: 9px 14px; border-bottom: 2px solid transparent; margin-bottom: -1px;
@@ -336,3 +339,22 @@ table.library { width: 100%; border-collapse: collapse; }
   .rh-lane { grid-template-columns: auto 8px 1fr; }
   .rh-lane .tools { display: none; }
 }
+
+/* Spotify */
+.sp-setup h2 { margin-bottom: 6px; }
+.sp-steps { padding-left: 20px; margin: 10px 0; display: grid; gap: 4px; }
+.sp-steps code { background: var(--surface-2); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+.sp-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+.sp-row .spacer { flex: 1; }
+.sp-row input[type="text"] { flex: 1 1 260px; font: inherit; font-size: 0.9rem; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; min-width: 0; }
+#sp-playlist { max-width: min(70vw, 420px); }
+.sp-table select { max-width: 100%; min-width: 0; width: 100%; }
+.sp-table td { vertical-align: middle; }
+.sp-table .sp-artist { color: var(--muted); font-size: 0.8rem; }
+.sp-table .sp-ok { color: var(--good); }
+.sp-table .sp-miss { color: var(--muted); }
+.sp-order { max-height: 320px; overflow: auto; padding-left: 28px; margin: 8px 0; }
+.sp-order li { padding: 2px 0; }
+.sp-order .muted { font-size: 0.8rem; }
+#panel-spotify .card { margin-bottom: 12px; }
+#sp-name { min-width: min(320px, 70vw); }
