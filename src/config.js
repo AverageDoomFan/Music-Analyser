@@ -6,7 +6,7 @@
  * Bump it whenever the scoring changes: stored tracks whose version differs are
  * re-scored automatically from their cached features, without re-decoding audio.
  */
-export const ALGORITHM_VERSION = "1.4";
+export const ALGORITHM_VERSION = "1.5";
 
 /**
  * Version of the feature extractor (audio -> raw features).
@@ -99,7 +99,7 @@ export const DIMENSIONS = [
   { key: "density", label: "Densité", hint: "Remplissage spectral et temporel, peu de silences." },
   { key: "brightness", label: "Brillance", hint: "Centre de gravité spectral, énergie dans les aigus." },
   { key: "harshness", label: "Dureté", hint: "Aigus bruités, transitoires, saturation : l'agressivité du timbre." },
-  { key: "pressure", label: "Pression", hint: "Kicks et basses : attaques dans le grave, poids, maintien et saturation du grave, écrasement. Indépendant du volume du fichier." },
+  { key: "pressure", label: "Pression", hint: "Kicks et basses qui frappent : attaques dans le grave, grave saturé ; un peu le poids du grave et l'écrasement. Indépendant du volume du fichier." },
   { key: "complexity", label: "Complexité", hint: "Imprévisibilité : rythme irrégulier, pulsation peu répétitive, timbre changeant." },
   { key: "noise", label: "Bruit", hint: "Caractère bruitiste / extrême : spectre plat, peu de tonalité." },
 ];

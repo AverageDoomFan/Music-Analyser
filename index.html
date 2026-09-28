@@ -97,7 +97,7 @@
         <button type="button" class="home-feature" data-home="tab-progression"><b>↗ Progression</b><span>La bibliothèque du plus calme au plus intense, transitions lissées, export M3U.</span></button>
         <button type="button" class="home-feature" data-home="tab-rhythm"><b>🥁 Rythme</b><span>Découpe un morceau en notes par instrument pour une map de jeu de rythme : KPS, difficulté, cues.</span></button>
         <button type="button" class="home-feature" data-home="tab-lab"><b>🧪 Banc d'essai</b><span>Vérifie que chaque mesure réagit du min au max avec des morceaux taillés pour l'algorithme.</span></button>
-        <button type="button" class="home-feature" data-home="settings"><b>⚙ Paramètres</b><span>Pondérations du score, apprentissage, recherche de paroles, modèles Essentia, sauvegarde JSON.</span></button>
+        <button type="button" class="home-feature" data-home="settings"><b>⚙ Paramètres</b><span>Pondérations du score, apprentissage, recherche de paroles, sauvegarde JSON, export de diagnostic.</span></button>
       </div>
       <p class="muted small">Tes fichiers ne quittent jamais ton navigateur : seules les mesures sont gardées (IndexedDB). Le score est un outil pratique de classement perceptif, pas une mesure scientifique.</p>
     </section>
@@ -109,7 +109,7 @@
         <button class="btn small primary" id="lyrics-rate" type="button">Noter les paroles</button>
       </div>
       <div class="toolbar">
-        <input type="search" id="search" placeholder="Rechercher…" aria-label="Rechercher">
+        <input type="search" id="search" placeholder="Rechercher (titre, artiste, genre)…" aria-label="Rechercher">
         <select id="filter-status" aria-label="Filtrer par statut">
           <option value="all">Tous les statuts</option>
           <option value="pending">Non analysés</option>
@@ -119,6 +119,12 @@
         </select>
         <select id="filter-stage" aria-label="Filtrer par niveau"></select>
         <select id="filter-genre" aria-label="Filtrer par genre"><option value="all">Genre : tous</option></select>
+        <select id="group-by" aria-label="Grouper">
+          <option value="none">Sans regroupement</option>
+          <option value="family">Grouper par famille (Électro, Rock…)</option>
+          <option value="style">Grouper par style (Électro › Hard dance…)</option>
+          <option value="genre">Grouper par genre exact</option>
+        </select>
         <select id="filter-vocals" aria-label="Filtrer par voix">
           <option value="all">Voix : tous</option>
           <option value="vocal">Chantés</option>
@@ -162,6 +168,9 @@
     <section id="panel-progression" role="tabpanel" aria-labelledby="tab-progression" hidden>
       <div class="toolbar">
         <button class="btn primary" id="build-progression" type="button">Créer une progression</button>
+        <label class="inline">Ordre
+          <select id="prog-mode"><option value="intensity">intensité croissante</option><option value="style">par style, puis intensité</option></select>
+        </label>
         <label class="inline">Souplesse
           <input type="range" id="tolerance" min="0" max="15" step="1" value="6" aria-describedby="tolerance-help">
           <output id="tolerance-value">6</output>
@@ -327,6 +336,13 @@
             </table>
           </div>
         </div>
+        <div class="card sp-genres">
+          <div class="sp-row">
+            <strong>Genres</strong>
+            <button class="btn small" type="button" id="sp-genres">Récupérer les genres Spotify</button>
+            <span class="muted small" id="sp-genres-status">Les genres des artistes servent au filtre, au regroupement par style et aux suggestions (tu peux toujours les corriger).</span>
+          </div>
+        </div>
         <div class="card sp-insights">
           <div class="chart-title">
             <strong>Carte de la playlist</strong>
@@ -339,6 +355,9 @@
         <div class="card sp-create">
           <h3>Nouvelle playlist ordonnée</h3>
           <div class="sp-row">
+            <label class="inline">Ordre
+              <select id="sp-order-mode"><option value="intensity">intensité croissante</option><option value="style">par style, puis intensité croissante</option></select>
+            </label>
             <label class="inline">Titres non analysés
               <select id="sp-unmatched"><option value="end">à la fin (ordre d'origine)</option><option value="exclude">exclus</option></select>
             </label>

@@ -62,7 +62,7 @@ export function mergeRecord(existing, incoming) {
   merged.lyrics = newer.lyrics ?? older.lyrics ?? null;
   merged.vocals = newer.vocals ?? older.vocals ?? null;
   merged.genre = newer.genre ?? older.genre ?? null;
-  merged.ml = newer.ml ?? older.ml ?? null;
+  merged.extGenres = newer.extGenres ?? older.extGenres ?? null;
   merged.features = newer.features ?? older.features ?? null;
   merged.featureVersion = newer.features ? newer.featureVersion : older.featureVersion;
   merged.initialAuto = existing.initialAuto ?? incoming.initialAuto ?? null;

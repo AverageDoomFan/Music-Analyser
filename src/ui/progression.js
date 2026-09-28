@@ -16,6 +16,7 @@ export function initProgression({ openDetail }) {
   tol.addEventListener("input", () => { $("tolerance-value").textContent = tol.value; });
   tol.addEventListener("change", () => { if (state.progression) build(); });
   $("build-progression").addEventListener("click", build);
+  $("prog-mode").addEventListener("change", () => { if (state.progression) build(); });
   $("export-m3u").addEventListener("click", () => download(toM3U(state.progression.steps), "progression.m3u", "audio/x-mpegurl"));
   $("export-txt").addEventListener("click", () => download(toText(state.progression.steps), "progression.txt", "text/plain"));
   $("progression-output").addEventListener("click", (e) => {
@@ -25,7 +26,7 @@ export function initProgression({ openDetail }) {
 }
 
 function build() {
-  const p = ctl.buildProgression(Number(document.getElementById("tolerance").value));
+  const p = ctl.buildProgression(Number(document.getElementById("tolerance").value), { byStyle: document.getElementById("prog-mode").value === "style" });
   if (!p.steps.length) toast("Aucun morceau analysé.", "error");
   renderProgression();
 }
@@ -54,7 +55,8 @@ export function renderProgression() {
   const totalDuration = p.steps.reduce((a, s) => a + (s.duration ?? 0), 0);
   const groups = [];
   for (const s of p.steps) {
-    if (!groups.length || groups.at(-1).stage !== s.stage) groups.push({ stage: s.stage, items: [] });
+    const g = p.byStyle ? s.group : s.stage;
+    if (!groups.length || groups.at(-1).stage !== g) groups.push({ stage: g, items: [] });
     groups.at(-1).items.push(s);
   }
   out.innerHTML = `
