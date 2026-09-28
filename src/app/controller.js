@@ -1,7 +1,7 @@
 // Use cases: import, cache lookup, analysis, rescoring, corrections, backup.
 // UI modules call these functions and re-render from the store.
 
-import { AUDIO_EXTENSIONS, DEFAULT_WEIGHTS, FEATURE_VERSION, AGGREGATIONS, DEFAULT_AGGREGATION } from "../config.js";
+import { AUDIO_EXTENSIONS, DEFAULT_WEIGHTS, FEATURE_VERSION, ALGORITHM_VERSION, AGGREGATIONS, DEFAULT_AGGREGATION } from "../config.js";
 import { state, notify } from "./store.js";
 import { db } from "../storage/db.js";
 import { buildExport, downloadJson, parseExport, mergeRecord } from "../storage/backup.js";
@@ -16,8 +16,10 @@ import { lookupLyrics } from "../util/lyrics.js";
 import { parseFileName } from "../util/tags.js";
 import { fingerprints, similarTo } from "../scoring/similarity.js";
 import { genrePath, normalizeGenre, genreVector, suggestGenres, SEP } from "../scoring/genres.js";
+import { mainGenre, hierarchyOf } from "../scoring/genre-map.js";
+import { matchPlaylist } from "../spotify/match.js";
 import { fitWeights, fitPairwise } from "../scoring/learning.js";
-import { buildProgression as buildOrder } from "../playlist/progression.js";
+import { buildProgression as buildOrder, buildGroupedProgression as buildGroupedOrder } from "../playlist/progression.js";
 
 const PIPELINE_CONCURRENCY = 2;
 let running = 0;
@@ -170,7 +172,6 @@ async function ingest({ identity, meta, sourceDesc, job, force, analyze }) {
     applyFeatures(record, features, scoring());
     await db.putTrack(record);
     lookupMissingLyrics();
-    if (state.files.has(record.id)) queueEssentia(record.id);
   } catch (err) {
     console.error(err);
     state.queue.errors++;
@@ -379,79 +380,6 @@ export function libraryFingerprints() {
 }
 export const similarTracks = (id, k = 5) => similarTo(id, libraryFingerprints(), k);
 
-// ---------- Essentia models (optional) ----------
-
-export const essentiaModels = async () => (await db.getSetting("essentiaModels").catch(() => null)) ?? [];
-export const essentiaAuto = async () => !!(await db.getSetting("essentiaAuto").catch(() => false));
-export const setEssentiaAuto = (on) => db.setSetting("essentiaAuto", !!on);
-
-export async function importEssentiaModels(files) {
-  const { importModels } = await import("../ml/essentia.js");
-  const added = await importModels(files);
-  const list = (await essentiaModels()).filter((m) => !added.some((a) => a.name === m.name));
-  await db.setSetting("essentiaModels", [...list, ...added]);
-  return added;
-}
-
-export async function removeEssentiaModel(name) {
-  const { removeModel } = await import("../ml/essentia.js");
-  await removeModel(name);
-  await db.setSetting("essentiaModels", (await essentiaModels()).filter((m) => m.name !== name));
-}
-
-/** Stores model predictions; the voice prediction only fills an unknown / non-user state. */
-async function storeMl(r, res) {
-  r.ml = res;
-  if (res.voice != null && r.vocals?.source !== "user") {
-    r.vocals = { state: res.voice >= 0.5 ? "vocal" : "instrumental", source: "essentia", at: Date.now() };
-    if (r.vocals.state === "instrumental" && r.lyrics) r.lyrics = null;
-  }
-  r.finalScore = computeFinalFor(r);
-  r.updatedAt = Date.now();
-  genreCache.key = "";
-  await save(r);
-}
-
-/** Essentia on a track whose file is in this session. */
-export async function runEssentia(id) {
-  const r = state.records.get(id);
-  const file = state.files.get(id);
-  if (!r || !file) throw new Error("Fichier non disponible dans cette session : réimporte-le.");
-  const models = await essentiaModels();
-  if (!models.length) throw new Error("Importe d'abord des modèles Essentia (Paramètres).");
-  const { analyzeWithModels } = await import("../ml/essentia.js");
-  const { decodeToMono } = await import("../audio/decoder.js");
-  const dec = await decodeToMono(await file.arrayBuffer());
-  await storeMl(r, await analyzeWithModels(dec.mono, dec.sampleRate, models));
-}
-
-/** Essentia on audio already in memory (live captures). */
-export async function runEssentiaOnPcm(id, mono, sampleRate) {
-  const r = state.records.get(id);
-  const models = await essentiaModels();
-  if (!r || !models.length) return;
-  const { analyzeWithModels } = await import("../ml/essentia.js");
-  await storeMl(r, await analyzeWithModels(mono, sampleRate, models));
-}
-
-const essentiaQueue = [];
-let essentiaBusy = false;
-/** Background runs after an analysis, when enabled. */
-export async function queueEssentia(id) {
-  if (!(await essentiaAuto()) || !(await essentiaModels()).length) return;
-  essentiaQueue.push(id);
-  if (essentiaBusy) return;
-  essentiaBusy = true;
-  try {
-    while (essentiaQueue.length) {
-      const next = essentiaQueue.shift();
-      try { await runEssentia(next); } catch (err) { console.warn("Essentia", err); }
-    }
-  } finally {
-    essentiaBusy = false;
-  }
-}
-
 // ---------- personal genres ----------
 
 /** Sets (or clears) the user's genre label; the user's label always wins. */
@@ -469,7 +397,7 @@ export async function setGenre(id, label) {
 export function allGenres() {
   const count = new Map();
   for (const r of state.records.values()) {
-    const g = r.genre?.label;
+    const g = r.genre?.label ?? spotifyMain(r);
     if (!g) continue;
     const path = genrePath(g);
     for (let i = 1; i <= path.length; i++) {
@@ -483,7 +411,7 @@ export function allGenres() {
 const genreCache = { key: "", map: new Map() };
 /** kNN suggestions for every unlabelled record (recomputed when labels or analyses change). */
 function genreSuggestions() {
-  const key = [...state.records.values()].map((r) => `${r.id}:${r.genre?.label ?? ""}:${r.featureVersion}:${Math.round(r.finalScore ?? -1)}`).join("|");
+  const key = [...state.records.values()].map((r) => `${r.id}:${r.genre?.label ?? ""}:${r.extGenres?.at ?? ""}:${r.featureVersion}:${Math.round(r.finalScore ?? -1)}`).join("|");
   if (key === genreCache.key) return genreCache.map;
   const fps = libraryFingerprints();
   const vecs = new Map();
@@ -491,7 +419,9 @@ function genreSuggestions() {
     const v = genreVector(r, fps.get(r.id));
     if (v) vecs.set(r.id, v);
   }
-  const labelled = [...state.records.values()].filter((r) => r.genre?.source === "user" && vecs.has(r.id)).map((r) => ({ id: r.id, label: r.genre.label, vec: vecs.get(r.id) }));
+  const labelled = [...state.records.values()]
+    .map((r) => ({ id: r.id, label: r.genre?.label ?? spotifyMain(r), vec: vecs.get(r.id) }))
+    .filter((l) => l.label && l.vec);
   const map = new Map();
   for (const [id, v] of vecs) {
     const others = labelled.filter((l) => l.id !== id);
@@ -503,16 +433,89 @@ function genreSuggestions() {
 }
 
 /**
- * Genre of a record: { label, source: "user" | "essentia" | "voisins", confidence, suggestions, ml }.
+ * Genre of a record: { label, source: "user" | "spotify" | "voisins", confidence, suggestions, spotify }.
  * Only the user's label is certain; the others are shown as suggestions.
  */
 export function genreInfo(r) {
-  const suggestions = genreSuggestions().get(r.id) ?? [];
-  const ml = r.ml?.genres ?? [];
-  if (r.genre?.label) return { label: r.genre.label, source: "user", confidence: 1, suggestions, ml };
-  if (ml[0] && ml[0].p >= 0.5) return { label: ml[0].label, source: "essentia", confidence: ml[0].p, suggestions, ml };
-  if (suggestions[0] && suggestions[0].confidence >= 0.45) return { label: suggestions[0].label, source: "voisins", confidence: suggestions[0].confidence, suggestions, ml };
-  return { label: null, source: null, confidence: 0, suggestions, ml };
+  const spotify = (r.extGenres?.genres ?? []).map((g) => ({ label: hierarchyOf(g), raw: g }));
+  // neighbours only matter for tracks without their own Spotify genres
+  const suggestions = spotify.length ? [] : genreSuggestions().get(r.id) ?? [];
+  const base = { suggestions, spotify };
+  if (r.genre?.label) return { ...base, label: r.genre.label, source: "user", confidence: 1 };
+  const sp = spotifyMain(r);
+  if (sp) return { ...base, label: sp, source: "spotify", confidence: 0.9 };
+  if (suggestions[0] && suggestions[0].confidence >= 0.45) return { ...base, label: suggestions[0].label, source: "voisins", confidence: suggestions[0].confidence };
+  return { ...base, label: null, source: null, confidence: 0 };
+}
+
+/** Main hierarchical label from the track's Spotify artist genres. */
+export function spotifyMain(r) {
+  return r.extGenres?.genres?.length ? mainGenre(r.extGenres.genres) : null;
+}
+
+// ---------- Spotify artist genres ----------
+
+const artistCache = () => spotifyStore.get("artistGenres").then((c) => c ?? {}).catch(() => ({}));
+
+/** Genres of the track's artists (primary artist first), from the cache. */
+function genresFor(artistIds, cache) {
+  const out = [];
+  for (const id of artistIds ?? []) for (const g of cache[id]?.genres ?? []) if (!out.includes(g)) out.push(g);
+  return out;
+}
+
+/**
+ * Fetches the artist genres of every imported playlist and attaches them to
+ * the matching records (captured tracks and associated files).
+ * @returns {Promise<{tracks:number, artists:number, fieldMissing:boolean}>}
+ */
+export async function fetchSpotifyGenres(onProgress = () => {}) {
+  const api = await import("../spotify/api.js");
+  const playlists = await importedPlaylists();
+  // playlists imported before artist ids were kept: read them again
+  for (const pl of playlists) {
+    if (pl.tracks.some((t) => !t.isLocal && !t.artistIds)) {
+      pl.tracks = await api.playlistTracks(pl.id);
+      await rememberPlaylist(pl);
+      const cur = await spotifyStore.get("playlist").catch(() => null);
+      if (cur?.id === pl.id) await spotifyStore.set("playlist", pl);
+    }
+  }
+  const cache = await artistCache();
+  const month = 30 * 24 * 3600e3;
+  const ids = [...new Set(playlists.flatMap((pl) => pl.tracks.flatMap((t) => t.artistIds ?? [])))];
+  const todo = ids.filter((id) => !cache[id] || Date.now() - cache[id].at > month);
+  let fieldMissing = false;
+  if (todo.length) {
+    const res = await api.artistGenres(todo, onProgress);
+    fieldMissing = res.fieldMissing;
+    for (const [id, genres] of res.genres) cache[id] = { genres, at: Date.now() };
+    await spotifyStore.set("artistGenres", cache);
+  }
+  // attach to records
+  const records = [...state.records.values()];
+  const manual = (await spotifyStore.get("matches").catch(() => null)) ?? {};
+  const changed = new Set();
+  for (const pl of playlists) {
+    const m = matchPlaylist(pl.tracks, records, manual);
+    for (const t of pl.tracks) {
+      const r = state.records.get(m.get(t.id)?.recordId);
+      if (!r) continue;
+      const genres = genresFor(t.artistIds, cache);
+      if (!genres.length) continue;
+      r.extGenres = { source: "spotify", genres, artists: t.artistIds, at: Date.now() };
+      changed.add(r);
+    }
+  }
+  if (changed.size) await db.putTracks([...changed]);
+  genreCache.key = "";
+  notify();
+  return { tracks: changed.size, artists: ids.length, fieldMissing };
+}
+
+async function attachCachedGenres(record, artistIds) {
+  const genres = genresFor(artistIds, await artistCache());
+  if (genres.length) record.extGenres = { source: "spotify", genres, artists: artistIds, at: Date.now() };
 }
 
 /** Stores a track's rhythm map (lanes, notes, parameters, selection). */
@@ -577,6 +580,54 @@ export function proposeWeights() {
   return fitWeights(samples, state.weights);
 }
 
+// ---------- diagnostic export (compact, to tune the model on a real library) ----------
+
+export async function exportDiagnostic() {
+  const r3 = (x) => (Number.isFinite(x) ? Number(x.toPrecision(3)) : null);
+  const db10 = (x) => (Number.isFinite(x) ? r3(10 * Math.log10(Math.max(x, 1e-12))) : null);
+  const recs = [...state.records.values()].filter((r) => r.auto && r.features);
+  const index = new Map(recs.map((r, i) => [r.id, i]));
+  const tracks = recs.map((r) => {
+    const f = r.features;
+    const src = r.source ?? {};
+    return {
+      n: r.name,
+      g: genreInfo(r).label,
+      sg: (r.extGenres?.genres ?? []).slice(0, 5),
+      src: src.kind === "spotify" || src.kind === "test" ? `${src.kind}:${src.mode ?? "file"}:${Math.round((src.coverage ?? 1) * 100)}` : src.kind ?? "local",
+      s: r3(r.finalScore), a: r3(r.auto.score),
+      u: {
+        ...(r.manual ? { m: r.manual.score } : {}),
+        ...(r.correction ? { c: r3(r.correction.score), q: r.correction.answers } : {}),
+        ...(r.lyrics ? { ly: `${r.lyrics.mood}:${r.lyrics.strength}` } : {}),
+        ...(r.vocals ? { vo: r.vocals.state } : {}),
+      },
+      sub: Object.fromEntries(Object.entries(r.auto.subscores).map(([k, v]) => [k, Math.round(v)])),
+      st: { top: r3(r.auto.stats?.topMean), mean: r3(r.auto.stats?.mean), var: r3(r.auto.stats?.variability) },
+      f: {
+        bpm: r3(f.bpm), bc: r3(f.bpmConfidence), on: r3(f.onsetRate), oe: r3(f.onsetEnvMean), io: r3(f.ioiCv),
+        lr: r3(f.loudnessRange), plr: r3(f.plrDb), cr: r3(f.crestDb), clip: r3(f.clippingRatio), src: r3(f.sourceLoudnessLufs),
+        bass: r3(f.bassRatio), sub: r3(f.bandSub), lp: r3(f.lowPulse), lstd: r3(f.lowBandDbStd), lfl: db10(f.lowFlatnessMedian),
+        kick: r3(f.kickRate), kp: r3(f.kickPunch),
+        cen: r3(f.centroidMean), cstd: r3(f.centroidStd), roll: r3(f.rolloffMean), bw: r3(f.bandwidthMean),
+        flat: db10(f.flatnessMedian), fill: r3(f.spectralFill), flux: r3(f.fluxMean), fstd: r3(f.fluxStd), crest: r3(f.spectralCrestMean),
+        hi: r3(f.highRatio), sil: r3(f.silenceRatio), dur: Math.round(f.duration ?? 0), an: Math.round(f.analyzedSeconds ?? 0),
+      },
+      v: r3(r.valence), k: r.auto.music?.key?.name ?? null,
+    };
+  });
+  const duels = (await getComparisons())
+    .filter((c) => index.has(c.a) && index.has(c.b))
+    .map((c) => [index.get(c.a), index.get(c.b), c.winner]);
+  const data = {
+    app: "mea-diagnostic", algorithm: ALGORITHM_VERSION, extractor: FEATURE_VERSION,
+    weights: state.weights, aggregation: state.aggregation, exportedAt: new Date().toISOString(),
+    count: tracks.length, tracks, duels,
+  };
+  downloadJson(data, "music-analyser-diagnostic.json");
+  return tracks.length;
+}
+
 // ---------- backup ----------
 
 export async function exportDatabase() {
@@ -625,17 +676,25 @@ export function progressionItem(r) {
   };
 }
 
-export function buildProgression(tolerance) {
-  const items = [...state.records.values()].map(progressionItem).filter(Boolean);
-  state.progression = { ...buildOrder(items, { tolerance }), tolerance, builtAt: Date.now() };
+export function buildProgression(tolerance, { byStyle = false } = {}) {
+  const ids = [...state.records.values()].filter((r) => progressionItem(r)).map((r) => r.id);
+  const res = orderRecords(ids, tolerance, { byStyle });
+  const base = buildOrder(ids.map((id) => progressionItem(state.records.get(id))), { tolerance });
+  // stats of the plain order; steps of the chosen one
+  state.progression = { ...base, steps: res.steps, byStyle, tolerance, builtAt: Date.now() };
   notify();
   return state.progression;
 }
 
 /** Orders any subset of records (e.g. the files matched with a Spotify playlist). */
-export function orderRecords(ids, tolerance = 6) {
+export function orderRecords(ids, tolerance = 6, { byStyle = false } = {}) {
   const items = ids.map((id) => progressionItem(state.records.get(id))).filter(Boolean);
-  return buildOrder(items, { tolerance });
+  if (!byStyle) return buildOrder(items, { tolerance });
+  // style = top two levels of the genre (e.g. "Électro › Hard dance")
+  return buildGroupedOrder(items, (it) => {
+    const g = genreInfo(state.records.get(it.id)).label;
+    return g ? genrePath(g).slice(0, 2).join(SEP) : null;
+  }, { tolerance });
 }
 
 // ---------- set generator ----------
@@ -677,6 +736,10 @@ export async function saveCaptured(track, features, info) {
     mode: info.mode, coverage: info.coverage, excerpts: info.excerpts, probes: info.probes, capturedAt: Date.now(),
   };
   if (track.demo) record.name = `Démo · ${track.name}`;
+  if (track.artistIds?.length) {
+    record.source.artistIds = track.artistIds;
+    await attachCachedGenres(record, track.artistIds);
+  }
   record.tags = { title: track.name, artist: track.artists?.join(", ") ?? "", album: track.album ?? "", isrc: track.isrc ?? null, source: "spotify" };
   state.records.set(id, record);
   applyFeatures(record, features, scoring());

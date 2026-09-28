@@ -89,6 +89,31 @@ function reverse(arr, i, j) {
   }
 }
 
+/**
+ * Grouped by style, then calm → intense inside each group; groups are
+ * played from the calmest (median score) to the most intense.
+ * @param {(item)=>string|null} groupOf  style of an item (null → "Autres")
+ */
+export function buildGroupedProgression(items, groupOf, options = {}) {
+  const groups = new Map();
+  for (const it of items) {
+    const g = groupOf(it) || "Autres";
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(it);
+  }
+  const median = (list) => {
+    const v = list.map((x) => x.score).sort((a, b) => a - b);
+    return v[v.length >> 1];
+  };
+  const ordered = [...groups.entries()].sort((a, b) => median(a[1]) - median(b[1]));
+  const steps = [];
+  for (const [group, list] of ordered) {
+    for (const s of buildProgression(list, options).steps) steps.push({ ...s, group });
+  }
+  steps.forEach((s, i) => { s.position = i + 1; });
+  return { steps, groups: ordered.map(([g, list]) => ({ group: g, count: list.length, median: median(list) })) };
+}
+
 /** Extended M3U playlist (file names only: the app never knows local paths). */
 export function toM3U(steps) {
   const lines = ["#EXTM3U", "#PLAYLIST:Progression d'intensité"];

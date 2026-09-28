@@ -349,19 +349,9 @@ async function startScan() {
   const o = options();
   lv.scanner = new Scanner({
     player,
-    analyze: (mono, sr, extra) => {
-      // keep a copy for the optional Essentia models (the buffer goes to the worker)
-      lv.lastPcm = { mono: mono.slice(), sr };
-      return analyzePcm(mono, sr, extra);
-    },
+    analyze: (mono, sr, extra) => analyzePcm(mono, sr, extra),
     analyzeLive: (mono, sr, extra) => analyzePcm(mono, sr, extra),
-    save: async (track, features, info) => {
-      const rec = await ctl.saveCaptured(track, features, info);
-      const pcm = lv.lastPcm;
-      lv.lastPcm = null;
-      if (pcm && (await ctl.essentiaAuto())) ctl.runEssentiaOnPcm(rec.id, pcm.mono, pcm.sr).catch((err) => console.warn("Essentia", err));
-      return rec;
-    },
+    save: (track, features, info) => ctl.saveCaptured(track, features, info),
     scoring: ctl.scoring,
     onUpdate: (s) => { lv.status = s; lv.lastUpdate = performance.now(); lv.dirty = true; },
   });

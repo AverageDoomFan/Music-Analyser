@@ -6,7 +6,7 @@ import * as auth from "../spotify/auth.js";
 import { escapeHtml } from "../util/format.js";
 
 const $ = (id) => document.getElementById(id);
-let extra = { playlists: 0, models: 0 };
+let extra = { playlists: 0 };
 
 export function initHome() {
   $("panel-home").addEventListener("click", (e) => {
@@ -23,7 +23,6 @@ export function initHome() {
 export async function showHome() {
   extra = {
     playlists: (await ctl.importedPlaylists().catch(() => [])).length,
-    models: (await ctl.essentiaModels().catch(() => [])).length,
   };
   render();
 }
@@ -41,7 +40,6 @@ function render() {
     ["Spotify", auth.isLoggedIn() ? "connecté" : "non connecté", `${extra.playlists} playlist${extra.playlists > 1 ? "s" : ""} importée${extra.playlists > 1 ? "s" : ""} · ${captured} titre${captured > 1 ? "s" : ""} capté${captured > 1 ? "s" : ""}`, "tab-spotify"],
     ["Paroles à noter", toRate, toRate ? "morceaux chantés sans note" : "rien en attente", "tab-library"],
     ["Genres étiquetés", labelled, labelled ? "les autres reçoivent des suggestions" : "étiquette quelques morceaux (bouton Genres)", "tab-library"],
-    ["Modèles Essentia", extra.models, extra.models ? "genre, voix, humeurs" : "optionnel (Paramètres)", "settings"],
   ];
   $("home-status").innerHTML = items.map(([k, v, sub, t]) => `<button type="button" class="home-stat" data-home="${t}"><span>${escapeHtml(k)}</span><b>${escapeHtml(String(v))}</b><small>${escapeHtml(sub)}</small></button>`).join("");
 }

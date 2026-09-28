@@ -59,7 +59,6 @@
         <li><a href="#progression">Progression</a></li>
         <li><a href="#rythme">Rythme</a></li>
         <li><a href="#banc">Banc d'essai</a></li>
-        <li><a href="#essentia">Modèles Essentia</a></li>
         <li><a href="#donnees">Données et sauvegarde</a></li>
         <li><a href="#faq">Dépannage</a></li>
       </ol>
@@ -164,7 +163,15 @@
           <li>Les autres morceaux reçoivent une <b>suggestion</b> (en italique, suivie d'un « ? ») d'après les morceaux étiquetés les plus proches : timbre, intensité, ambiance, tempo. Si les voisins hésitent entre deux sous-genres, la suggestion remonte au genre parent.</li>
           <li>Une suggestion fausse ? Tape le bon genre, ou clique une autre suggestion : <b>ton étiquette prime toujours</b>. « ✓ C'est ça » valide une suggestion juste.</li>
         </ol>
-        <p>Avec les <a href="#essentia">modèles Essentia</a>, des suggestions de genre, de voix et d'humeur s'ajoutent. Elles se corrigent de la même façon. Les genres servent au filtre et au tri de la bibliothèque, et au découpage en playlists dans l'onglet Set.</p>
+        <h3>Genres Spotify</h3>
+        <p>Pour les titres d'une playlist Spotify importée (captés en direct ou associés à un fichier), l'app récupère les <b>genres des artistes</b> (onglet Spotify › « Récupérer les genres Spotify », fait aussi automatiquement à l'import). Les micro-genres sont rangés dans une hiérarchie : « rawstyle » devient Électro › Hard dance › Rawstyle, « roots reggae » devient Reggae › Roots Reggae. Ils servent de genre par défaut et de modèles pour les suggestions des autres morceaux. Spotify attache les genres à l'artiste, pas au titre : corrige un morceau atypique d'un clic, ton étiquette prime toujours.</p>
+        <h3>Chercher et regrouper par style</h3>
+        <ul>
+          <li>La recherche de la bibliothèque porte aussi sur les genres (ex. « reggae », « hard dance »).</li>
+          <li>« Grouper par famille / style / genre exact » : la bibliothèque en sections, des styles les plus calmes aux plus intenses.</li>
+          <li>Ordre « par style, puis intensité croissante » : dans l'onglet Progression et pour la playlist créée sur Spotify.</li>
+          <li>Découpage en playlists par genre dans l'onglet Set.</li>
+        </ul>
       </section>
 
       <section id="spotify">
@@ -182,7 +189,8 @@
           <li><b>Réimporter</b> une playlist montre les titres ajoutés et retirés depuis la dernière fois, avec un bouton pour scanner les nouveaux.</li>
           <li><b>Association</b> : tes fichiers sont associés aux titres (ISRC, puis titre, artiste et durée). Les titres captés dans l'onglet Direct sont reconnus directement.</li>
           <li><b>Carte</b> : chaque morceau selon son intensité et son ambiance. <b>Comparer avec</b> superpose une autre playlist et affiche un tableau de statistiques.</li>
-          <li><b>Nouvelle playlist ordonnée</b> : crée une playlist privée triée par intensité (la playlist d'origine n'est jamais modifiée). Pour une courbe sur mesure, utilise l'onglet <a href="#set">Set</a>.</li>
+          <li><b>Genres</b> : les genres des artistes sont récupérés à l'import (voir <a href="#genres">Genres</a>).</li>
+          <li><b>Nouvelle playlist ordonnée</b> : crée une playlist privée triée par intensité, ou par style puis intensité (la playlist d'origine n'est jamais modifiée). Les titres non analysés ou sans fichier associé sont ajoutés à la fin, dans l'ordre d'origine, ou exclus. Pour une courbe sur mesure, utilise l'onglet <a href="#set">Set</a>.</li>
         </ul>
       </section>
 
@@ -239,24 +247,12 @@
         <div class="warn">Ce sont des caricatures : elles vérifient que chaque mesure réagit dans le bon sens et sur toute sa plage, pas que le score est juste sur de la vraie musique.</div>
       </section>
 
-      <section id="essentia">
-        <h2>Modèles Essentia (IA, optionnel)</h2>
-        <p>Des réseaux pré-entraînés du MTG (Universitat Pompeu Fabra) proposent un genre, la présence de voix, des humeurs (joyeux, triste, agressif, détendu…) et la dansabilité. Tout tourne dans ton navigateur.</p>
-        <ol class="steps">
-          <li>Sur <a href="https://essentia.upf.edu/models.html" target="_blank" rel="noopener">essentia.upf.edu/models</a>, télécharge des classifieurs <b>MusiCNN (msd)</b> au format <b>TensorFlow.js</b> : genre_dortmund, genre_electronic, voice_instrumental, mood_happy, mood_sad, mood_aggressive, mood_relaxed, danceability… Garde le fichier .json de métadonnées de chaque modèle.</li>
-          <li>Décompresse-les dans un dossier, avec un sous-dossier par modèle (model.json et ses fichiers .bin).</li>
-          <li>Paramètres › Modèles Essentia › « Importer un dossier de modèles ». Ils sont copiés dans le navigateur, une fois pour toutes.</li>
-          <li>Lance l'analyse depuis la fiche d'un morceau, pour tous les fichiers de la session, ou automatiquement à chaque nouveau morceau (fichiers et titres captés en direct).</li>
-        </ol>
-        <p>Les résultats sont des <b>suggestions corrigeables</b> : genre dans le bloc Genre, voix avec un lien pour corriger. Ton choix prime toujours.</p>
-        <div class="warn">Licences : modèles CC BY-NC-ND 4.0 (usage non commercial), essentia.js AGPL-3.0. Les bibliothèques ne sont chargées depuis jsDelivr que si tu utilises cette fonction. Sur les sous-genres, attends-toi plutôt à « le bon genre est dans les premières suggestions » qu'à une réponse toujours juste.</div>
-      </section>
-
       <section id="donnees">
         <h2>Données et sauvegarde</h2>
         <ul>
           <li>Les mesures, scores, corrections, genres et notes sont stockés dans ce navigateur (IndexedDB). Un fichier réimporté est reconnu par son empreinte et n'est pas réanalysé.</li>
           <li>Paramètres › <b>Exporter la base (JSON)</b> : une sauvegarde complète, sans audio. L'import fusionne sans perdre tes corrections.</li>
+          <li>Paramètres › <b>Exporter le diagnostic</b> : un fichier compact (scores, mesures, genres, corrections, duels ; ni audio ni chemins) pour analyser et améliorer le modèle sur ta bibliothèque.</li>
           <li>Quand l'algorithme change de version, les scores sont recalculés depuis les mesures en cache, sans relire l'audio. Quand les mesures elles-mêmes changent, la fiche conseille une réanalyse.</li>
         </ul>
       </section>
@@ -267,7 +263,6 @@
         <details class="faq"><summary>Direct : « Aucun son capté »</summary><p>Vérifie que Spotify joue bien sur ce PC, que tu as coché « Partager l'audio du système » (écran entier) ou choisi l'entrée « CABLE Output », et que rien d'autre ne joue. Pour vérifier la chaîne sans Spotify, utilise le mode démo.</p></details>
         <details class="faq"><summary>Spotify 403 ou 404</summary><p>Erreur 403 : compte non ajouté dans <i>User Management</i>, pas de Premium, ou droits de contrôle de lecture manquants (reconnecte-toi). Erreur 404 : aucun appareil Spotify actif ; ouvre l'application Spotify sur le PC et lance un titre une fois.</p></details>
         <details class="faq"><summary>La tonalité ou le BPM semble faux</summary><p>La fiabilité est indiquée à côté. Un BPM à la moitié ou au double est une ambiguïté fréquente (l'octave alternative est affichée). Une tonalité peu fiable signale une harmonie ambiguë ou très bruitée.</p></details>
-        <details class="faq"><summary>Essentia ne se charge pas</summary><p>Il faut accès à jsDelivr (cdn.jsdelivr.net) pour les bibliothèques, et des modèles au format TensorFlow.js (model.json et fichiers .bin). « Tester le chargement » dans les Paramètres affiche l'erreur exacte.</p></details>
         <details class="faq"><summary>Repartir de zéro</summary><p>Paramètres › « Effacer les données locales », après un export JSON si tu veux garder tes corrections.</p></details>
       </section>
     </main>

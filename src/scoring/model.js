@@ -71,12 +71,14 @@ function components(raw) {
       ["Clipping", clip, 0.1],
       ["Saturation / compression", 1 - lin(f.crestDb, 4, 14), 0.1],
     ],
+    // what makes a track "heavy": kick / bass attacks and a saturated low end.
+    // A strong low end, a sustained bass line or a loud master alone are
+    // common to almost every modern mix (calm ones included): they weigh little.
     pressure: [
-      ["Attaques dans le grave (kicks)", lowPunch, 0.3],
-      ["Poids du grave", lin(f.bassRatio, 0.15, 0.85), 0.2],
-      ["Grave soutenu", (1 - lin(f.lowBandDbStd, 1.5, 12)) * bassPresence, 0.15],
-      ["Saturation du grave", lin(db(f.lowFlatnessMedian), -30, -5) * bassPresence, 0.15],
-      ["Écrasement (PLR faible)", squash, 0.2],
+      ["Attaques dans le grave (kicks)", lin(f.lowPulse, 0.04, 0.24) * bassPresence, 0.5],
+      ["Saturation du grave", lin(db(f.lowFlatnessMedian), -18, -4) * bassPresence, 0.25],
+      ["Poids du grave", lin(f.bassRatio, 0.4, 0.85), 0.15],
+      ["Écrasement (PLR faible)", 1 - lin(f.plrDb, 6, 12), 0.1],
     ],
     complexity: [
       // unpredictability, not busyness: a dense but perfectly regular loop is simple

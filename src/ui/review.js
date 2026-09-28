@@ -97,7 +97,7 @@ function genreCard() {
   const r = state.records.get(queue[pos]);
   if (!r) return "<p>Terminé.</p>";
   const g = ctl.genreInfo(r);
-  const chips = [...g.suggestions.map((s) => [s.label, `proches · ${Math.round(s.confidence * 100)} %`]), ...g.ml.slice(0, 3).map((m) => [m.label, `Essentia · ${Math.round(m.p * 100)} %`])]
+  const chips = [...(g.source === "spotify" ? [[g.label, "Spotify (genre principal)"]] : []), ...g.suggestions.map((s) => [s.label, `proches · ${Math.round(s.confidence * 100)} %`]), ...g.spotify.map((x) => [x.label, `Spotify · ${x.raw}`])]
     .filter((c, i, arr) => arr.findIndex((x) => x[0] === c[0]) === i);
   return `<div class="review-track">
     ${trackHead(r)}

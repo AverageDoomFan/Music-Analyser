@@ -73,6 +73,8 @@ export async function initSpotify() {
   });
   $("sp-preview").addEventListener("click", () => { buildOrder(); renderOrder(); });
   $("sp-unmatched").addEventListener("change", () => { if (sp.order) { buildOrder(); renderOrder(); } });
+  $("sp-order-mode").addEventListener("change", () => { if (sp.order) { buildOrder(); renderOrder(); } });
+  $("sp-genres").addEventListener("click", () => fetchGenres(true));
   $("sp-create").addEventListener("click", createSorted);
   $("sp-go-live").addEventListener("click", () => $("tab-live").click());
   $("sp-switch").addEventListener("click", switchPlaylist);
@@ -153,6 +155,7 @@ async function importPlaylist() {
     $("sp-name").value = `${sp.playlist.name} · progression d'intensité`;
     sp.order = null;
     rematch();
+    fetchGenres(false);
   } catch (err) {
     $("sp-import-status").textContent = "";
     toast(err.message, "error");
@@ -176,8 +179,9 @@ function buildOrder() {
     const m = sp.matches.get(t.id);
     if (m && state.records.get(m.recordId)?.finalScore != null) byRecord.set(m.recordId, t);
   }
-  const ordered = ctl.orderRecords([...byRecord.keys()]).steps.map((s) => ({ track: byRecord.get(s.id), score: s.score, stage: s.stage }));
-  const rest = $("sp-unmatched").value === "end" ? tracks.filter((t) => ![...byRecord.values()].includes(t)).map((track) => ({ track, score: null })) : [];
+  const byStyle = $("sp-order-mode").value === "style";
+  const ordered = ctl.orderRecords([...byRecord.keys()], 6, { byStyle }).steps.map((s) => ({ track: byRecord.get(s.id), score: s.score, stage: s.stage, group: s.group }));
+  const rest = $("sp-unmatched").value === "end" ? tracks.filter((t) => ![...byRecord.values()].includes(t)).map((track) => ({ track, score: null, rest: true })) : [];
   sp.order = [...ordered, ...rest];
 }
 
@@ -214,6 +218,29 @@ function renderAll() {
   renderImported();
   renderDiff();
   renderInsights();
+}
+
+// ---------- genres ----------
+
+async function fetchGenres(verbose) {
+  const st = $("sp-genres-status");
+  const btn = $("sp-genres");
+  btn.disabled = true;
+  st.textContent = "Récupération des genres des artistes…";
+  try {
+    const res = await ctl.fetchSpotifyGenres((d, n) => { st.textContent = `Genres des artistes… ${d}/${n}`; });
+    if (res.fieldMissing) {
+      st.textContent = "Spotify ne renvoie pas de genres pour ces artistes (champ absent pour cette application). Les genres restent à étiqueter à la main.";
+    } else {
+      st.textContent = `${res.tracks} morceau${res.tracks > 1 ? "x" : ""} analysé${res.tracks > 1 ? "s" : ""} avec des genres (${res.artists} artistes). Filtre et regroupement par style dans la bibliothèque.`;
+      if (verbose) toast("Genres Spotify récupérés.");
+    }
+    rematch();
+  } catch (err) {
+    st.textContent = `Échec : ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ---------- imported playlists, changes since last import, map ----------
@@ -351,5 +378,15 @@ function renderOrder() {
     list.innerHTML = "";
     return;
   }
-  list.innerHTML = sp.order.map((o) => `<li>${escapeHtml(o.track.name)} <span class="muted">— ${escapeHtml(o.track.artists.join(", "))} · ${o.score != null ? `${formatScore(o.score)} · ${escapeHtml(o.stage)}` : "non analysé"}</span></li>`).join("");
+  let html = "", group = null, restShown = false;
+  for (const o of sp.order) {
+    if (o.group && o.group !== group) { group = o.group; html += `<li class="sp-order-group">${escapeHtml(group)}</li>`; }
+    if (o.rest && !restShown) {
+      restShown = true;
+      const n = sp.order.filter((x) => x.rest).length;
+      html += `<li class="sp-order-group rest">Non analysés ou sans fichier associé (${n}) : ajoutés à la fin dans l'ordre d'origine</li>`;
+    }
+    html += `<li>${escapeHtml(o.track.name)} <span class="muted">— ${escapeHtml(o.track.artists.join(", "))} · ${o.score != null ? `${formatScore(o.score)} · ${escapeHtml(o.stage)}` : "non analysé"}</span></li>`;
+  }
+  list.innerHTML = html;
 }

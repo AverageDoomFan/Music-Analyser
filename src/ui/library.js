@@ -31,6 +31,7 @@ export function initLibrary({ openDetail }) {
   $("filter-vocals").addEventListener("change", (e) => { state.ui.vocals = e.target.value; notify(); });
   $("hide-tests").addEventListener("change", (e) => { state.ui.hideTests = e.target.checked; notify(); });
   $("filter-genre").addEventListener("change", (e) => { state.ui.genre = e.target.value; notify(); });
+  $("group-by").addEventListener("change", (e) => { state.ui.group = e.target.value; notify(); });
   $("aggregation").innerHTML = AGGREGATIONS.map((a) => `<option value="${a.key}" title="${a.hint}">${a.label}</option>`).join("");
   $("aggregation").addEventListener("change", (e) => ctl.setAggregation(e.target.value));
   $("sort-key").innerHTML = SORT_KEYS.map((k) => `<option value="${k.key}" title="${k.hint ?? ""}">${k.label}</option>`).join("");
@@ -115,7 +116,7 @@ function filterSort(rows) {
   const q = state.ui.search.trim().toLowerCase();
   const stageIdx = state.ui.stage === "all" ? null : Number(state.ui.stage);
   let out = rows.filter((row) => {
-    if (q && !row.name.toLowerCase().includes(q)) return false;
+    if (q && !searchText(row).includes(q)) return false;
     if (state.ui.status !== "all" && rowStatus(row) !== state.ui.status) return false;
     if (state.ui.hideTests && row.record?.source?.kind === "test") return false;
     const gf = state.ui.genre ?? "all";
@@ -170,7 +171,7 @@ export function renderLibrary() {
   renderGenreFilter();
   const visible = filterSort(rows);
   const body = document.getElementById("library-body");
-  body.innerHTML = visible.map(rowHtml).join("");
+  body.innerHTML = state.ui.group && state.ui.group !== "none" ? groupedHtml(visible) : visible.map(rowHtml).join("");
   const empty = document.getElementById("library-empty");
   empty.hidden = visible.length > 0;
   empty.textContent = rows.length ? "Aucun morceau ne correspond aux filtres." : "Aucun morceau pour l'instant. Importe des fichiers pour commencer.";
@@ -221,6 +222,39 @@ function rowHtml(row) {
     <td>${statusHtml}</td>
     <td class="num hide-sm">${row.id && r ? `<button class="btn small" type="button">Détails</button>` : ""}</td>
   </tr>`;
+}
+
+/** Name + genres (label and Spotify genres): what the search box looks into. */
+function searchText(row) {
+  const r = row.record;
+  if (!r?.auto) return row.name.toLowerCase();
+  const g = ctl.genreInfo(r);
+  return [row.name, g.label ?? "", ...(r.extGenres?.genres ?? [])].join(" ").toLowerCase();
+}
+
+const GROUP_LEVEL = { family: 1, style: 2, genre: 9 };
+
+/** Rows grouped by style: groups from calmest (median score) to most intense, the current sort inside. */
+function groupedHtml(rows) {
+  const depth = GROUP_LEVEL[state.ui.group] ?? 2;
+  const groups = new Map();
+  for (const row of rows) {
+    const label = row.record?.auto ? ctl.genreInfo(row.record).label : null;
+    const key = label ? label.split(" › ").slice(0, depth).join(" › ") : "Sans genre";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  const med = (list) => {
+    const v = list.map((r) => r.record?.finalScore).filter((x) => x != null).sort((a, b) => a - b);
+    return v.length ? v[v.length >> 1] : 999;
+  };
+  return [...groups.entries()]
+    .sort((a, b) => (a[0] === "Sans genre") - (b[0] === "Sans genre") || med(a[1]) - med(b[1]))
+    .map(([key, list]) => {
+      const m = med(list);
+      const subs = new Set(list.map((r) => r.record?.auto && ctl.genreInfo(r.record).label).filter((l) => l && l !== key).map((l) => l.split(" › ").slice(depth).join(" › ")).filter(Boolean));
+      return `<tr class="group-row"><td colspan="9"><b>${escapeHtml(key)}</b> <span class="muted small">${list.length} morceau${list.length > 1 ? "x" : ""}${m !== 999 ? ` · intensité médiane ${Math.round(m)}` : ""}${subs.size ? ` · ${escapeHtml([...subs].slice(0, 6).join(", "))}${subs.size > 6 ? "…" : ""}` : ""}</span></td></tr>` + list.map(rowHtml).join("");
+    }).join("");
 }
 
 let genreKey = "";

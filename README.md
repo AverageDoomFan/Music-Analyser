@@ -89,7 +89,7 @@ src/
   testlab/synth.js          générateur paramétrique de morceaux de test (worker : testlab.worker.js)
   testlab/suite.js          banc d'essai : min / moyen / max par variable, balayages, évaluation
   live/demo.js              mode démo du scan en direct (faux Spotify → MediaStream)
-  ml/essentia.js            modèles Essentia.js optionnels (genre, voix, humeurs, dansabilité)
+  scoring/genre-map.js      micro-genres Spotify → hiérarchie (Électro › Hard dance › Rawstyle)
   app/                      état et cas d'usage (contrôleur)
   ui/                       bibliothèque, détail, correction, paramètres, progression, graphiques
 ```
@@ -141,13 +141,21 @@ En option (Paramètres), l'app interroge **LRCLIB** (lrclib.net, base de paroles
 - Un assistant d'étiquetage présente d'abord les morceaux les plus incertains.
 - Les genres servent au filtre et au tri de la bibliothèque, et au découpage en playlists dans l'onglet Set.
 
-**Modèles Essentia (optionnel).** Les classifieurs MusiCNN d'Essentia.js proposent genre, voix / instrumental, humeurs et dansabilité.
-- **Code** : essentia.js 0.1.3 et TensorFlow.js 3.21 sont chargés depuis jsDelivr, seulement quand la fonction est utilisée.
-- **Modèles** : au format TensorFlow.js, importés par l'utilisateur depuis un dossier (métadonnées `.json` avec les classes), puis gardés dans IndexedDB.
-- **Calcul** : audio rééchantillonné à 16 kHz, au plus 60 s prises au milieu du morceau, moyenne des prédictions par tranche.
-- **Résultats** : des suggestions corrigeables. La voix prédite ne remplace jamais une réponse de l'utilisateur.
-- **Licences** : modèles CC BY-NC-ND 4.0 (usage non commercial), essentia.js AGPL-3.0.
-- **Tests** : la chaîne a été testée dans Chromium avec les vraies bibliothèques et des modèles simulés. Les vrais modèles n'ont pas pu être téléchargés depuis l'environnement de développement.
+**Genres Spotify.**
+- **Source** : les genres des artistes, lus dans l'API Spotify par lots de 50 (un par un si le lot n'est pas autorisé), avec un cache de 30 jours.
+- **Attribution** : ils sont attachés aux titres d'une playlist importée qui sont captés en direct ou associés à un fichier.
+- **Hiérarchie** : des règles de mots-clés rangent chaque micro-genre dans une famille (`src/scoring/genre-map.js`).
+- **Usage** : ils servent de genre par défaut et d'exemples pour les suggestions par voisins. L'étiquette de l'utilisateur prime toujours.
+- **Limite** : si Spotify ne renvoie plus le champ `genres` pour l'application, l'interface le signale.
+
+**Par style.**
+- La recherche porte aussi sur les genres.
+- La bibliothèque se regroupe par famille, par style ou par genre exact, des groupes les plus calmes aux plus intenses.
+- L'ordre « par style, puis intensité » est disponible dans l'onglet Progression et pour la playlist Spotify triée.
+
+**Export de diagnostic** (Paramètres) : un JSON compact par morceau, pour recalibrer le modèle sur une vraie bibliothèque. Il contient les scores et sous-scores, les mesures qui composent chaque dimension, les genres, les corrections, les notes de paroles et les duels.
+
+**Pression recentrée (algorithme 1.5).** Elle repose maintenant sur les attaques du grave et sa saturation. Avant, le poids du grave, la basse soutenue et le master fort la faisaient plafonner au-dessus de 50, même pour des morceaux calmes : ces traits sont communs à presque tous les mixes modernes.
 
 ## Onglet Set : générateur de set
 
