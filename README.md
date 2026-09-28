@@ -43,7 +43,7 @@ python3 -m http.server 8000   # or any static server
 
 (A server is needed: ES modules and workers do not load from `file://`.)
 
-Tests (Node ≥ 20): `npm test` — feature extraction and score ordering on synthetic signals, the full test bench (min / mid / max of every variable), corrections, versioning, export / import, progression, set, live scan, genres, Spotify helpers.
+Tests (Node ≥ 20): `npm test` — feature extraction and score ordering on synthetic signals, the full test bench (min / mid / max of every variable, and the values rated by ear), tempo octave, corrections, versioning, export / import, progression, set, live scan (and ▶ jump), play orders, genres, Spotify helpers.
 
 ## GitHub Pages deployment
 
@@ -55,7 +55,7 @@ Tests (Node ≥ 20): `npm test` — feature extraction and score ordering on syn
 ```
 index.html, guide.html, styles.css
 src/
-  config.js                 ALGORITHM_VERSION, FEATURE_VERSION, weights, calibration, levels
+  config.js                 ALGORITHM_VERSION, FEATURE_VERSION, weights, sub-score scales, calibration, levels
   i18n/index.js             t() / tn(), language choice, translation of the static markup
   i18n/fr.js                French strings, keyed by the English text
   audio/
@@ -87,6 +87,7 @@ src/
   live/capture.js           system audio / audio input capture (AudioWorklet, resampling to 44.1 kHz)
   live/scanner.js           playlist scan: Spotify control, excerpts, live and final analysis
   live/plan.js              modes (whole, fixed excerpts, adaptive: probes then focused listening)
+  live/order.js             play orders of the scan (playlist, random, title, artist, duration, score…)
   live/meter.js             continuous BS.1770 loudness (momentary, short term, integrated, LRA)
   live/demo.js              live scan demo mode (fake Spotify → MediaStream)
   testlab/                  parametric test track generator and test bench evaluation

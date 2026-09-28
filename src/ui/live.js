@@ -11,6 +11,7 @@ import { startCapture, audioInputs, captureSupport } from "../live/capture.js";
 import { Scanner } from "../live/scanner.js";
 import { createDemo } from "../live/demo.js";
 import { SCAN_MODES, SCAN_DEFAULTS, MODE_RANK, estimateTrackSeconds, coveredSeconds } from "../live/plan.js";
+import { PLAY_ORDERS, orderTracks } from "../live/order.js";
 import { DIMENSIONS, stageFor, LYRICS_MOODS, LYRICS_LEVELS } from "../config.js";
 import { t, tn } from "../i18n/index.js";
 import { escapeHtml, formatDuration } from "../util/format.js";
@@ -31,6 +32,8 @@ const lv = {
   playlist: null,
   devices: [],
   mode: SCAN_DEFAULTS.mode,
+  order: "playlist",
+  seed: 1,             // random order, kept until "Reshuffle"
   enabled: new Set(["intensity"]),
   gauge: { shown: null },
   lastUpdate: 0,
@@ -51,6 +54,7 @@ export function initLive({ openDetail }) {
   lv.openDetail = openDetail;
   restoreOptions();
   buildModes();
+  buildOrders();
   buildChips();
   const sup = captureSupport();
   if (!sup.system) document.querySelector('input[name="lv-source"][value="system"]').disabled = true;
@@ -75,6 +79,8 @@ export function initLive({ openDetail }) {
   $("lv-stop").addEventListener("click", () => lv.scanner?.stop());
   $("lv-lyrics").addEventListener("click", (e) => onLyricsClick(e).catch(showError));
   $("lv-queue").addEventListener("click", (e) => {
+    const play = e.target.closest("button[data-play]");
+    if (play) return playNow(play.dataset.play).catch(showError);
     const li = e.target.closest("li[data-record]");
     if (li) lv.openDetail(li.dataset.record);
   });
@@ -145,7 +151,7 @@ function options() {
 
 function saveOptions() {
   try {
-    localStorage.setItem(OPTS_KEY, JSON.stringify({ ...options(), source: source(), device: $("lv-device").value }));
+    localStorage.setItem(OPTS_KEY, JSON.stringify({ ...options(), source: source(), device: $("lv-device").value, order: lv.order, seed: lv.seed }));
   } catch { /* storage blocked */ }
 }
 
@@ -154,6 +160,8 @@ function restoreOptions() {
   try { o = JSON.parse(localStorage.getItem(OPTS_KEY)); } catch { /* ignore */ }
   if (!o) return;
   if (SCAN_MODES.some((m) => m.key === o.mode)) lv.mode = o.mode;
+  if (PLAY_ORDERS.some((m) => m.key === o.order)) lv.order = o.order;
+  if (Number.isFinite(o.seed)) lv.seed = o.seed;
   for (const [id, k] of [["lv-count", "count"], ["lv-length", "length"], ["lv-budget", "budget"], ["lv-gap", "maxGap"]]) if (o[k] != null) $(id).value = o[k];
   $("lv-rescan").checked = !!o.rescan;
   $("lv-skip-files").checked = o.skipFiles !== false;
@@ -180,6 +188,34 @@ function renderModes() {
   document.querySelectorAll("#lv-modes button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.mode === lv.mode)));
   $("lv-params-fixed").hidden = lv.mode !== "fixed";
   $("lv-params-adaptive").hidden = lv.mode !== "adaptive";
+}
+
+function buildOrders() {
+  const sel = $("lv-order");
+  sel.innerHTML = PLAY_ORDERS.map((o) => `<option value="${o.key}">${escapeHtml(o.label)}</option>`).join("");
+  sel.value = lv.order;
+  $("lv-reshuffle").hidden = lv.order !== "random";
+  sel.addEventListener("change", () => {
+    lv.order = sel.value;
+    if (lv.order === "random") lv.seed = newSeed();
+    $("lv-reshuffle").hidden = lv.order !== "random";
+    saveOptions();
+    renderQueue(true);
+    renderEstimate();
+    if (lv.status?.running) toast(t("The new order applies to the next scan."));
+  });
+  $("lv-reshuffle").addEventListener("click", () => {
+    lv.seed = newSeed();
+    saveOptions();
+    renderQueue(true);
+  });
+}
+
+const newSeed = () => Math.floor(Math.random() * 2 ** 31) + 1;
+
+/** Playlist tracks in the chosen play order. */
+function ordered(tracks) {
+  return orderTracks(tracks, lv.order, { seed: lv.seed, scoreOf: (track) => recordFor(track)?.finalScore ?? null });
 }
 
 function buildChips() {
@@ -245,7 +281,7 @@ function scanList() {
   const files = [...state.records.values()].filter((r) => r.source?.kind !== "spotify");
   const manual = {};
   const matches = o.skipFiles ? matchPlaylist(pl.tracks, files, manual) : new Map();
-  const todo = pl.tracks.filter((t) => !t.isLocal && !isDone(t, o, matches));
+  const todo = ordered(pl.tracks).filter((t) => !t.isLocal && !isDone(t, o, matches));
   return { tracks: pl.tracks, todo, matches };
 }
 
@@ -323,7 +359,18 @@ function renderCapture() {
 
 // ------------------------------------------------------------------ scan
 
-async function startScan() {
+/** ▶ on a queue row: analyse that track now (then the rest, in the play order). */
+async function playNow(trackId) {
+  const track = lv.playlist?.tracks.find((x) => x.id === trackId);
+  if (!track) return;
+  if (lv.status?.running) {
+    if (!lv.scanner?.jumpTo(track)) toast(t("This track cannot be played through the Spotify API."), "error");
+    return;
+  }
+  await startScan(track);
+}
+
+async function startScan(first = null) {
   if (lv.status?.running) return;
   const demo = demoOn();
   if (demo && !lv.demo) await toggleDemo();
@@ -335,8 +382,10 @@ async function startScan() {
     }
   }
   lv.playlist = demo ? demoPlaylist() : await ctl.spotifyStore.get("playlist").catch(() => null);
-  const { todo } = scanList();
   if (!lv.playlist) throw new Error(t("Import a playlist in the Spotify tab first."));
+  let { todo } = scanList();
+  // a track asked for with ▶ goes first, even if it was already analysed
+  if (first) todo = [lv.playlist.tracks.find((x) => x.id === first.id) ?? first, ...todo.filter((x) => x.id !== first.id)];
   if (!todo.length) return toast(t("Every track is already analysed with this mode (tick “Re-analyse” to start again)."));
   await beginCapture();
   let player;
@@ -600,8 +649,8 @@ const STATE_ICON = { pending: "·", current: "●", done: "✓", cached: "✓", 
 
 function renderQueue(force = false) {
   const s = lv.status;
-  const items = s?.queue?.length ? s.queue : (lv.playlist?.tracks ?? []).map((track) => ({ track, state: "pending" }));
-  const key = items.map((q) => `${q.track.id}:${q.state}:${q.score ?? ""}`).join("|") + (s?.index ?? "");
+  const items = s?.queue?.length ? s.queue : ordered(lv.playlist?.tracks ?? []).map((track) => ({ track, state: "pending" }));
+  const key = items.map((q) => `${q.track.id}:${q.state}:${q.score ?? ""}`).join("|") + (s?.index ?? "") + (s?.running ? "r" : "");
   if (!force && key === lv.queueKey) return;
   lv.queueKey = key;
   const html = items.map((q, i) => {
@@ -614,6 +663,7 @@ function renderQueue(force = false) {
       ${q.track.image ? `<img class="thumb" src="${escapeHtml(q.track.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="thumb"></span>`}
       <div class="nm"><div>${i + 1}. ${escapeHtml(q.track.name)}</div><div class="sub">${escapeHtml(sub)}</div></div>
       ${score != null ? `<span class="lv-pill" style="background:${intensityColor(score)}">${Math.round(score)}</span>` : `<span class="lv-pill none">${st === "current" ? "…" : "—"}</span>`}
+      <button type="button" class="lv-play" data-play="${escapeHtml(q.track.id)}" title="${escapeHtml(t("Analyse this track now"))}" aria-label="${escapeHtml(t("Analyse this track now"))}" ${playable(q.track) && st !== "current" ? "" : "disabled"}>▶</button>
     </li>`;
   }).join("");
   const list = $("lv-queue");
@@ -630,6 +680,8 @@ function renderQueue(force = false) {
     }
   }
 }
+
+const playable = (track) => !track.isLocal && !!track.uri?.startsWith("spotify:track:") && !!track.durationMs;
 
 function recordFor(track) {
   const cap = state.records.get(ctl.capturedId(track));

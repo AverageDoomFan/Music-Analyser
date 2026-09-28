@@ -8,7 +8,7 @@ import { t } from "./i18n/index.js";
  * Bump it whenever the scoring changes: stored tracks whose version differs are
  * re-scored automatically from their cached features, without re-decoding audio.
  */
-export const ALGORITHM_VERSION = "2.0";
+export const ALGORITHM_VERSION = "2.1";
 
 /**
  * Version of the feature extractor (audio -> raw features).
@@ -16,7 +16,7 @@ export const ALGORITHM_VERSION = "2.0";
  * file again. Tracks with an older feature version are flagged "re-analysis
  * advised" but keep their scores and corrections.
  */
-export const FEATURE_VERSION = "1.4";
+export const FEATURE_VERSION = "1.5";
 
 /** Schema version of the JSON export. */
 export const EXPORT_SCHEMA_VERSION = 1;
@@ -107,9 +107,26 @@ export const DIMENSIONS = [
 ]
 
 /**
+ * Perceptual scale of each sub-score: piecewise-linear map from the model's
+ * internal value (0..1, what the weights and the calibration were fitted on)
+ * to the displayed value (0..1). Fitted on the test bench as rated by ear
+ * (algorithm 2.1): e.g. the "very bright" track reads 80, not 43; the wall of
+ * noise 97, not 85. Strictly increasing, so the global intensity (computed on
+ * the internal values) and every ranking are unchanged. Missing = identity.
+ */
+export const SUBSCORE_SCALES = {
+  brightness: [[0, 0], [0.13, 0.3], [0.43, 0.8], [1, 1]],
+  pressure: [[0, 0], [0.18, 0.2], [0.59, 0.67], [1, 1]],
+  harshness: [[0, 0], [0.35, 0.35], [0.75, 0.9], [1, 1]],
+  noise: [[0, 0], [0.05, 0.05], [0.15, 0.4], [0.85, 0.97], [1, 1]],
+  density: [[0, 0], [0.22, 0.1], [0.3, 0.3], [1, 1]],
+  complexity: [[0, 0], [0.2, 0.08], [0.32, 0.32], [0.4, 0.55], [0.6, 0.8], [1, 1]],
+};
+
+/**
  * Piecewise-linear calibration from the raw model output (0..1) to the
  * displayed score (0..100). Fitted (algorithm 2.0) on a real 100-track
- * library rated by ear, from ambient piano to extratone.
+ * library rated by ear, from ambient piano to extratone; top end raised in 2.1.
  */
 export const CALIBRATION = [
   [0.0, 0],
@@ -119,7 +136,8 @@ export const CALIBRATION = [
   [0.5, 58],
   [0.6, 71],
   [0.7, 82],
-  [0.8, 90],
+  [0.78, 90],
+  [0.85, 100],   // 2.1: the most extreme sounds (test bench "extreme noise") reach 100
   [1.0, 100],
 ];
 

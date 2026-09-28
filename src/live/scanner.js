@@ -122,6 +122,37 @@ export class Scanner {
     if (this.status.paused) this.resume();
   }
 
+  /**
+   * Analyses `track` right now (even if it was already analysed): it moves
+   * just after the current track, which is interrupted and goes back in the
+   * queue right after it. A track missing from the queue is added.
+   * @returns {boolean} false when no scan is running or the track is not playable
+   */
+  jumpTo(track) {
+    const s = this.status;
+    if (!s.running || !track.uri?.startsWith("spotify:track:") || !track.durationMs) return false;
+    let idx = s.queue.findIndex((q) => q.track.id === track.id);
+    if (idx >= 0 && s.queue[idx].state === "current") return true;
+    if (idx < 0) idx = s.queue.push({ track, state: "pending", score: null, message: "" }) - 1;
+    const q = s.queue[idx];
+    s.queue.splice(idx, 1);
+    const cur = s.queue.findIndex((x) => x.state === "current");
+    // between two tracks: right after the last one handled
+    const anchor = cur >= 0 ? cur : (s.index ?? -1) - (idx <= (s.index ?? -1) ? 1 : 0);
+    Object.assign(q, { state: "pending", message: "", score: null });
+    s.queue.splice(anchor + 1, 0, q);
+    this.jumpTarget = q;
+    if (cur >= 0) {
+      this.jumpRequested = true;
+      this.skipRequested = true;
+      this.abortWait?.("jump");
+    }
+    if (s.paused) this.resume();
+    this.updateEta();
+    this.emit();
+    return true;
+  }
+
   stop() {
     this.stopRequested = true;
     this.abortWait?.("stop");
@@ -155,23 +186,40 @@ export class Scanner {
     this.emit();
     try {
       for (let i = 0; i < queue.length && !this.stopRequested; i++) {
+        // a track asked for with jumpTo() comes first
+        if (this.jumpTarget) {
+          if (this.jumpTarget.state === "pending") i = queue.indexOf(this.jumpTarget);
+          this.jumpTarget = null;
+        }
         const q = queue[i];
         if (q.state !== "pending") continue;
         this.status.index = i;
         this.skipRequested = false;
+        this.jumpRequested = false;
         q.state = "current";
+        // a jump interrupts the current track: it goes back just after the requested one
+        const requeue = () => {
+          q.state = "pending";
+          q.message = "";
+          queue.splice(queue.indexOf(q), 1);
+          queue.splice(queue.indexOf(this.jumpTarget) + 1, 0, q);
+        };
         try {
           const res = await this.scanTrack(q.track, opts);
           if (res) {
             q.state = "done";
             q.score = res.score;
             q.coverage = res.coverage;
+          } else if (this.jumpRequested && !this.stopRequested) {
+            requeue();
           } else {
             q.state = this.stopRequested ? "pending" : "skipped";
             q.message = this.stopRequested ? "" : t("skipped");
           }
         } catch (err) {
-          if (err instanceof Abort) {
+          if (err instanceof Abort && this.jumpRequested && !this.stopRequested) {
+            requeue();
+          } else if (err instanceof Abort) {
             q.state = err.reason === "stop" ? "pending" : "skipped";
           } else {
             q.state = "error";

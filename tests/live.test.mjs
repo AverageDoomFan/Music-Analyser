@@ -153,3 +153,53 @@ test("fixed excerpts and skip of already analysed tracks", async () => {
   assert.equal(saved[0].info.excerpts.length, 3);
   assert.equal(player.calls.filter((c) => c[0] === "play").length, 3);
 });
+
+test("▶ on a queued track: it is analysed now, the interrupted one right after", async () => {
+  const audio = { a: tracks.ambient(), b: tracks.hardstyle(), c: tracks.ambient() };
+  const player = {
+    item: null, playing: false, pos: 0, delay: 0, played: [],
+    async play(uri, ms) { this.item = uri.split(":").pop(); this.played.push(this.item); this.playing = true; this.pos = Math.round((ms / 1000) * SR); this.delay = Math.round(0.3 * SR); },
+    async pause() { this.playing = false; },
+    async state() { return { itemId: this.item, isPlaying: this.playing, progressMs: (this.pos / SR) * 1000 }; },
+  };
+  const saved = [];
+  let jumped = false;
+  const list = ["a", "b", "c"].map((id) => ({ id, uri: `spotify:track:${id}`, name: id, artists: ["X"], durationMs: (audio[id].length / SR) * 1000 }));
+  const scanner = new Scanner({
+    player,
+    analyze: async (mono, sr, extra) => extractFeatures(mono, sr, extra),
+    save: async (track) => { saved.push(track.id); },
+    scoring,
+    onUpdate: (s) => {
+      // as soon as "a" is being listened to, ask for "c"
+      if (!jumped && s.current?.track.id === "a" && s.current.plan.some((g) => g.state === "recording")) {
+        jumped = true;
+        assert.equal(scanner.jumpTo(list[2]), true);
+      }
+    },
+    clock: () => performance.now(),
+  });
+  let stop = false;
+  const tick = () => {
+    if (stop) return;
+    const block = new Float32Array(2048);
+    const x = audio[player.item];
+    if (player.playing && x) {
+      for (let i = 0; i < block.length; i++) {
+        if (player.delay > 0) { player.delay--; continue; }
+        block[i] = player.pos < x.length ? x[player.pos] : 0;
+        player.pos++;
+      }
+    }
+    scanner.feed(block);
+    setImmediate(tick);
+  };
+  tick();
+  const status = await scanner.run(list, { mode: "fixed", count: 1, length: 6 });
+  stop = true;
+  assert.ok(jumped);
+  assert.deepEqual(saved, ["c", "a", "b"]);
+  assert.deepEqual(status.queue.map((q) => q.track.id), ["c", "a", "b"]);
+  assert.ok(status.queue.every((q) => q.state === "done"));
+  assert.equal(scanner.jumpTo(list[0]), false, "no scan running");
+});

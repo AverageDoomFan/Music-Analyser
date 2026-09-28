@@ -4,6 +4,7 @@
 
 import { renderTrack, renderSong } from "./synth.js";
 import { DIMENSIONS } from "../config.js";
+import { dynamicsScore } from "../scoring/describe.js";
 import { t } from "../i18n/index.js";
 
 const LEVELS = ["min", "mid", "max"];
@@ -15,6 +16,7 @@ export const MEASURES = {
   key: { label: t("Key"), get: (r) => r.auto?.music?.key?.name ?? null, fmt: (v) => v },
   valence: { label: t("Mood"), get: (r) => r.valence ?? r.auto?.music?.mood?.valence },
   loudnessRange: { label: t("Loudness range (LU)"), get: (r) => r.features?.loudnessRange, fmt: (v) => v.toFixed(1) },
+  dynamics: { label: t("Dynamics"), get: (r) => dynamicsScore(r.features?.loudnessRange) },
   centroid: { label: t("Centroid (Hz)"), get: (r) => r.features?.centroidMean, fmt: (v) => `${Math.round(v)}` },
 };
 for (const d of DIMENSIONS) {
@@ -28,7 +30,7 @@ for (const d of DIMENSIONS) {
  */
 export const VARIABLES = [
   { key: "tempo", label: "Tempo", measure: "bpm", also: "sub:tempo", hint: t("60, 120 and 175 BPM, same sound."),
-    levels: [{ bpm: 60 }, { bpm: 120 }, { bpm: 175 }], expect: [{ near: 60, tol: 0.06, octave: true }, { near: 120, tol: 0.06, octave: true }, { near: 175, tol: 0.06, octave: true }] },
+    levels: [{ bpm: 60 }, { bpm: 120 }, { bpm: 175 }], expect: [{ near: 60, tol: 0.06 }, { near: 120, tol: 0.06 }, { near: 175, tol: 0.06 }] },
   { key: "brightness", label: t("Brightness"), measure: "sub:brightness", also: "centroid", hint: t("Muffled (600 Hz low-pass), normal, very bright (rich harmonics, loud hi-hats)."),
     levels: [{ cutoff: 600, bright: 0.2, hats: 0.03 }, {}, { bright: 0.85, hats: 0.35, hatDiv: 4 }], expect: "increasing", margin: 8 },
   { key: "pressure", label: t("Pressure"), measure: "sub:pressure", hint: t("No kick or bass, clean kick, saturated kick and long sub."),
@@ -41,8 +43,8 @@ export const VARIABLES = [
     levels: [{ snare: 0, hats: 0, bass: 0, chords: 0.3 }, {}, { arp: 0.2, lead: 0.12, hats: 0.2, hatDiv: 4, bass: 0.35 }], expect: "increasing", margin: 6 },
   { key: "complexity", label: t("Complexity"), measure: "sub:complexity", hint: t("Perfectly regular loop, a few variations, unpredictable rhythm and timbres."),
     levels: [{}, { irregular: 0.6, arp: 0.15 }, { irregular: 1, arp: 0.2 }], expect: "increasing", margin: 4 },
-  { key: "dynamics", label: t("Dynamics"), measure: "loudnessRange", hint: t("Constant level, medium contrast, big loud / soft gaps."),
-    levels: [{}, { swell: 0.35 }, { swell: 0.9 }], expect: "increasing", margin: 1.5 },
+  { key: "dynamics", label: t("Dynamics"), measure: "dynamics", also: "loudnessRange", hint: t("Constant level, medium contrast, big loud / soft gaps."),
+    levels: [{}, { swell: 0.35 }, { swell: 0.9 }], expect: "increasing", margin: 10 },
   { key: "key", label: t("Key"), measure: "key", hint: t("C major, A minor, F# major."),
     levels: [{ key: 0, mode: "major" }, { key: 9, mode: "minor" }, { key: 6, mode: "major" }], expect: [{ equals: "C" }, { equals: "Am" }, { equals: "F#" }] },
   { key: "mood", label: t("Mood"), measure: "valence", hint: t("Minor, slow, dark and saturated; clean minor; major, fast, bright and clean."),

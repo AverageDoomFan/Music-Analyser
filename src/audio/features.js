@@ -151,6 +151,7 @@ function analyzeFrames(mono, sampleRate, segments, onProgress) {
   const kHi = bin(Math.min(16000, nyquist - binHz));
   const kFlatLo = bin(60);
   const kKickLo = bin(40), kKickHi = bin(150);
+  const kBodyHi = bin(2500);  // drum "body" (kick, snare, toms): no hi-hats
   const kLowFlatLo = bin(30), kLowFlatHi = bin(500);
   const bandRanges = BANDS.map(([name, lo, hi]) => [name, bin(lo), bin(Math.min(hi, nyquist))]);
   const frameRate = sampleRate / H;
@@ -213,10 +214,10 @@ function analyzeFrames(mono, sampleRate, segments, onProgress) {
       fft.magnitudes(mono, off, mag);
 
       // onset envelopes: broadband and low band (kicks), log-compressed flux
-      let od = 0, lod = 0, lowP = 0;
+      let od = 0, lod = 0, bod = 0, lowP = 0;
       for (let k = kLo; k <= kHi; k++) {
         const l = Math.log1p(1000 * mag[k]);
-        if (havePrev) { const d = l - prevLog[k]; if (d > 0) od += d; }
+        if (havePrev) { const d = l - prevLog[k]; if (d > 0) { od += d; if (k <= kBodyHi) bod += d; } }
         prevLog[k] = l;
       }
       for (let k = kKickLo; k <= kKickHi; k++) {
@@ -227,6 +228,7 @@ function analyzeFrames(mono, sampleRate, segments, onProgress) {
       }
       cols.od[f] = havePrev ? od / (kHi - kLo + 1) : 0;
       cols.lowOd[f] = havePrev ? lod / (kKickHi - kKickLo + 1) : 0;
+      cols.bodyOd[f] = havePrev ? bod / (kBodyHi - kLo + 1) : 0;
       cols.lowDb[f] = 10 * Math.log10(lowP + EPS);
       let midP = 0;
       for (let k = kMidLo; k <= kMidHi; k++) midP += mag[k] * mag[k];
@@ -373,7 +375,7 @@ const MFCC_EVERY = 2;      // frames
 const CHROMA_COLS = Array.from({ length: 12 }, (_, i) => `chroma_${i}`);
 const MFCC_COLS = Array.from({ length: MFCC_N }, (_, i) => `mfcc_${i + 1}`);
 const FRAME_COLUMNS = [
-  "time", "sumSq", "peak", "rmsDb", "zcr", "od", "lowOd", "lowDb", "midDb",
+  "time", "sumSq", "peak", "rmsDb", "zcr", "od", "lowOd", "bodyOd", "lowDb", "midDb",
   "centroid", "bandwidth", "rolloff", "flatness", "crest", "fill", "lowFlat", "midFlat", "flux",
   ...BANDS.map(([n]) => `band_${n}`), ...CHROMA_COLS, ...MFCC_COLS,
 ];
@@ -431,6 +433,8 @@ function summarize(ctx, ranges, isGlobal) {
     acSum.lagMin = ac.lagMin;
   }
   const tempo = estimateTempo(acSum, acWeight, frameRate);
+  const pulse = lowPulseRate(ranges, F.lowOd, frameRate);
+  if (tempo.bpm) tempo.bpm = beatLevel(tempo.bpm, ranges, F.bodyOd, frameRate, pulse);
   // a periodicity made of barely audible fluctuations is not a reliable beat
   tempo.confidence = Math.round(tempo.confidence * clamp01(mean(onsetPeaks) / 0.05) * 1000) / 1000;
   if (onsets.length < 4) tempo.confidence = 0;
@@ -497,7 +501,6 @@ function summarize(ctx, ranges, isGlobal) {
 
   // voice cues: syllable-rate (3–8 Hz) modulation of the 300–3400 Hz band,
   // and how much of it is shared with the low band (drums move both)
-  const pulse = lowPulseRate(ranges, F.lowOd, frameRate);
   out.pulseRate = pulse.rate;
   out.pulseStrength = pulse.strength;
   const mod = modulation(ranges, F.midDb, F.lowDb, frameRate);
@@ -510,6 +513,47 @@ function summarize(ctx, ranges, isGlobal) {
     out.mfccStd = MFCC_COLS.map((c) => round4(std(pick(F[c]))));
   }
   return out;
+}
+
+/**
+ * Picks the metrical level of the beat among bpm / 2, bpm and bpm × 2. The
+ * broadband onset envelope is dominated by hi-hats, so its autocorrelation
+ * often lands an octave off (8th-note hats at 60 BPM read as 120; a backbeat
+ * at 175 read as 88). The beat is the fastest level carried by the drum
+ * bodies (kick, snare: onsets below 2.5 kHz) within 55–200 BPM. Above 200
+ * (hardcore, speedcore) only when the kick itself hits regularly at that rate.
+ */
+function beatLevel(bpm, ranges, body, frameRate, pulse) {
+  let ac = null, w = 0;
+  for (const [a, b] of ranges) {
+    const r = onsetAutocorrelation(body.subarray(a, b), frameRate);
+    if (!r) continue;
+    ac ??= { values: new Float64Array(r.values.length), lagMin: r.lagMin };
+    for (let i = 0; i < r.values.length; i++) ac.values[i] += r.values[i] * (b - a);
+    w += b - a;
+  }
+  if (!ac) return bpm;
+  const at = (c) => {
+    const lag = (60 * frameRate) / c - ac.lagMin;
+    const i = Math.round(lag);
+    let v = -Infinity;
+    for (let j = i - 1; j <= i + 1; j++) if (j >= 0 && j < ac.values.length) v = Math.max(v, ac.values[j] / w);
+    return v;
+  };
+  const cands = [bpm / 2, bpm, bpm * 2].filter((c) => c >= 55 && c <= 200);
+  if (!cands.includes(bpm)) cands.push(bpm);
+  const vals = cands.map(at);
+  const top = Math.max(...vals.filter(Number.isFinite));
+  let best = bpm;
+  if (top > 0.05) {
+    // fastest well-supported level
+    const ok = cands.map((c, i) => [c, vals[i]]).filter(([, v]) => Number.isFinite(v) && v >= 0.6 * top).sort((x, y) => y[0] - x[0]);
+    if (ok.length) best = ok[0][0];
+  }
+  const fast = best * 2;
+  const kickBpm = pulse.rate * 60;
+  if (fast > 200 && fast <= 320 && pulse.strength >= 0.45 && Math.abs(kickBpm / fast - 1) <= 0.04) best = fast;
+  return Math.round(best * 10) / 10;
 }
 
 /** Octave-folded window tempi, share of confident windows within ±4 % of the global tempo, alternative octave. */

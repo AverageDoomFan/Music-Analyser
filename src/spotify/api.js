@@ -103,6 +103,7 @@ export async function playlistTracks(id) {
       isLocal: !!t.is_local,
       image: t.album?.images?.at(-1)?.url ?? null,
       imageLarge: t.album?.images?.[0]?.url ?? null,
+      addedAt: entry?.added_at ?? null,
     };
   };
   try {
