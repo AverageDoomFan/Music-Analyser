@@ -10,7 +10,7 @@ import { analyzeAudio } from "../audio/analyzer.js";
 import { readTags } from "../util/tags.js";
 import {
   createRecord, applyFeatures, rescore, commitCorrection, clearCorrection, setManualScore,
-  setLyricsRating, setVocals, computeFinal as computeFinalFor,
+  setLyricsRating, setVocals,
 } from "../core/track.js";
 import { lookupLyrics } from "../util/lyrics.js";
 import { parseFileName } from "../util/tags.js";
@@ -20,6 +20,7 @@ import { mainGenre, hierarchyOf } from "../scoring/genre-map.js";
 import { matchPlaylist } from "../spotify/match.js";
 import { fitWeights, fitPairwise } from "../scoring/learning.js";
 import { buildProgression as buildOrder, buildGroupedProgression as buildGroupedOrder } from "../playlist/progression.js";
+import { t } from "../i18n/index.js";
 
 const PIPELINE_CONCURRENCY = 2;
 let running = 0;
@@ -45,13 +46,13 @@ export async function init() {
 }
 
 /** Keeps only known dimensions (a dimension may be renamed between versions). */
-export function sanitizeWeights(weights) {
+function sanitizeWeights(weights) {
   const out = { ...DEFAULT_WEIGHTS };
   for (const k of Object.keys(DEFAULT_WEIGHTS)) if (Number.isFinite(weights?.[k])) out[k] = weights[k];
   return out;
 }
 
-export function isAudioFile(file) {
+function isAudioFile(file) {
   const ext = file.name.split(".").pop()?.toLowerCase();
   return file.type.startsWith("audio/") || AUDIO_EXTENSIONS.includes(ext);
 }
@@ -80,7 +81,7 @@ export async function deleteTestTracks() {
   return ids.length;
 }
 
-export function enqueue(source, { force = false } = {}) {
+function enqueue(source, { force = false } = {}) {
   const key = `job-${++jobSeq}`;
   const job = { key, id: null, name: source.file?.name ?? "…", size: source.file?.size ?? null, stage: "queued", progress: 0 };
   state.jobs.set(key, job);
@@ -91,7 +92,7 @@ export function enqueue(source, { force = false } = {}) {
     state.queue.errors++;
     state.queue.done++;
     state.jobs.delete(job.key);
-    toastHook(`${job.name} : ${err.message || err}`, "error");
+    toastHook(`${job.name}: ${t(err.message || String(err))}`, "error");
     notify();
   }));
   pump();
@@ -168,7 +169,7 @@ async function ingest({ identity, meta, sourceDesc, job, force, analyze }) {
       job.progress = p;
       notify();
     });
-    if (features.sourceLoudnessLufs <= -69) throw new Error("Audio silencieux : rien à analyser.");
+    if (features.sourceLoudnessLufs <= -69) throw new Error(t("Silent audio: nothing to analyse."));
     applyFeatures(record, features, scoring());
     await db.putTrack(record);
     lookupMissingLyrics();
@@ -180,7 +181,7 @@ async function ingest({ identity, meta, sourceDesc, job, force, analyze }) {
       record.updatedAt = Date.now();
       await db.putTrack(record).catch(() => {});
     } else {
-      toastHook(`${job.name} : ${err.message || err}`, "error");
+      toastHook(`${job.name}: ${t(err.message || String(err))}`, "error");
     }
   } finally {
     state.queue.done++;
@@ -205,7 +206,7 @@ export async function recompute(id) {
   const r = state.records.get(id);
   if (!r) return;
   r.auto = null;
-  rescore(r, scoring(), "recalcul");
+  rescore(r, scoring(), "recompute");
   await save(r);
 }
 
@@ -214,7 +215,7 @@ export async function recomputeAll() {
   for (const r of state.records.values()) {
     if (!r.features) continue;
     r.auto = null;
-    rescore(r, scoring(), "recalcul");
+    rescore(r, scoring(), "recompute");
     changed.push(r);
   }
   await db.putTracks(changed);
@@ -258,7 +259,7 @@ export async function setVocalState(id, value) {
 }
 
 /** Artist / title of a record for lookups (tags, then file name). */
-export function trackMeta(r) {
+function trackMeta(r) {
   const fromName = parseFileName((r.name ?? "").replace(/\.[a-z0-9]{2,4}$/i, ""));
   return {
     artist: r.tags?.artist || fromName.artist || "",
@@ -366,14 +367,14 @@ export async function proposeFromDuels() {
     .map((c) => ({ a: state.records.get(c.a), b: state.records.get(c.b), winner: c.winner }))
     .filter((p) => p.a?.auto?.curves && p.b?.auto?.curves)
     .map((p) => ({ a: windowsOf(p.a), b: windowsOf(p.b), winner: p.winner }));
-  if (pairs.filter((p) => p.winner !== "tie").length < 6) return { error: "Il faut au moins 6 duels tranchés.", n: pairs.length };
+  if (pairs.filter((p) => p.winner !== "tie").length < 6) return { error: t("At least 6 decided duels are needed."), n: pairs.length };
   return fitPairwise(pairs, state.weights);
 }
 
 // ---------- similarity ----------
 
 let fpCache = { key: "", fps: new Map() };
-export function libraryFingerprints() {
+function libraryFingerprints() {
   const key = [...state.records.values()].map((r) => `${r.id}:${r.featureVersion}`).join("|");
   if (key !== fpCache.key) fpCache = { key, fps: fingerprints([...state.records.values()]) };
   return fpCache.fps;
@@ -433,7 +434,7 @@ function genreSuggestions() {
 }
 
 /**
- * Genre of a record: { label, source: "user" | "spotify" | "voisins", confidence, suggestions, spotify }.
+ * Genre of a record: { label, source: "user" | "spotify" | "musicbrainz" | "neighbours", confidence, suggestions, spotify }.
  * Only the user's label is certain; the others are shown as suggestions.
  */
 export function genreInfo(r) {
@@ -443,13 +444,13 @@ export function genreInfo(r) {
   const base = { suggestions, spotify };
   if (r.genre?.label) return { ...base, label: r.genre.label, source: "user", confidence: 1 };
   const sp = spotifyMain(r);
-  if (sp) return { ...base, label: sp, source: "spotify", confidence: 0.9 };
-  if (suggestions[0] && suggestions[0].confidence >= 0.45) return { ...base, label: suggestions[0].label, source: "voisins", confidence: suggestions[0].confidence };
+  if (sp) return { ...base, label: sp, source: r.extGenres.source ?? "spotify", confidence: 0.9 };
+  if (suggestions[0] && suggestions[0].confidence >= 0.45) return { ...base, label: suggestions[0].label, source: "neighbours", confidence: suggestions[0].confidence };
   return { ...base, label: null, source: null, confidence: 0 };
 }
 
 /** Main hierarchical label from the track's Spotify artist genres. */
-export function spotifyMain(r) {
+function spotifyMain(r) {
   return r.extGenres?.genres?.length ? mainGenre(r.extGenres.genres) : null;
 }
 
@@ -465,8 +466,8 @@ function genresFor(artistIds, cache) {
 }
 
 /**
- * Fetches the artist genres of every imported playlist and attaches them to
- * the matching records (captured tracks and associated files).
+ * Fetches the artist genres of every imported playlist and of every captured
+ * track, and attaches them to the records (captured tracks and associated files).
  * @returns {Promise<{tracks:number, artists:number, fieldMissing:boolean}>}
  */
 export async function fetchSpotifyGenres(onProgress = () => {}) {
@@ -481,9 +482,14 @@ export async function fetchSpotifyGenres(onProgress = () => {}) {
       if (cur?.id === pl.id) await spotifyStore.set("playlist", pl);
     }
   }
+  const records = [...state.records.values()];
+  const captured = records.filter((r) => r.source?.kind === "spotify" && r.source.artistIds?.length);
   const cache = await artistCache();
   const month = 30 * 24 * 3600e3;
-  const ids = [...new Set(playlists.flatMap((pl) => pl.tracks.flatMap((t) => t.artistIds ?? [])))];
+  const ids = [...new Set([
+    ...playlists.flatMap((pl) => pl.tracks.flatMap((t) => t.artistIds ?? [])),
+    ...captured.flatMap((r) => r.source.artistIds),
+  ])];
   const todo = ids.filter((id) => !cache[id] || Date.now() - cache[id].at > month);
   let fieldMissing = false;
   if (todo.length) {
@@ -492,25 +498,93 @@ export async function fetchSpotifyGenres(onProgress = () => {}) {
     for (const [id, genres] of res.genres) cache[id] = { genres, at: Date.now() };
     await spotifyStore.set("artistGenres", cache);
   }
-  // attach to records
-  const records = [...state.records.values()];
+  // attach to records: the capture itself, and the file matched to each playlist track
   const manual = (await spotifyStore.get("matches").catch(() => null)) ?? {};
   const changed = new Set();
+  const attach = (r, artistIds) => {
+    const genres = genresFor(artistIds, cache);
+    if (!r || !genres.length || r.extGenres?.source === "user") return;
+    r.extGenres = { source: "spotify", genres, artists: artistIds, at: Date.now() };
+    changed.add(r);
+  };
+  for (const r of captured) attach(r, r.source.artistIds);
   for (const pl of playlists) {
     const m = matchPlaylist(pl.tracks, records, manual);
     for (const t of pl.tracks) {
-      const r = state.records.get(m.get(t.id)?.recordId);
-      if (!r) continue;
-      const genres = genresFor(t.artistIds, cache);
-      if (!genres.length) continue;
-      r.extGenres = { source: "spotify", genres, artists: t.artistIds, at: Date.now() };
-      changed.add(r);
+      attach(state.records.get(m.get(t.id)?.recordId), t.artistIds);
+      attach(state.records.get(capturedId(t)), t.artistIds);
     }
   }
   if (changed.size) await db.putTracks([...changed]);
+  const withGenres = records.filter((r) => r.extGenres?.genres?.length).length;
+  await spotifyStore.set("genresRun", { at: Date.now(), tracks: changed.size, artists: ids.length, fieldMissing, withGenres });
   genreCache.key = "";
   notify();
   return { tracks: changed.size, artists: ids.length, fieldMissing };
+}
+
+/** Automatic genre fetch at startup: once a day, or when tracks still lack genres. */
+export async function autoFetchGenres() {
+  const run = await spotifyStore.get("genresRun").catch(() => null);
+  const missing = [...state.records.values()].some((r) => r.auto && !r.extGenres?.genres?.length && r.source?.kind === "spotify");
+  if (run && Date.now() - run.at < 24 * 3600e3 && !(missing && !run.fieldMissing && Date.now() - run.at > 3600e3)) return null;
+  return fetchSpotifyGenres();
+}
+
+/** Where the genres come from, for the status lines of the library / home / Spotify tab. */
+export async function genreStatus() {
+  const analysed = [...state.records.values()].filter((r) => r.auto);
+  const count = (src) => analysed.filter((r) => r.extGenres?.source === src && r.extGenres.genres?.length).length;
+  return {
+    analysed: analysed.length,
+    spotify: count("spotify"),
+    musicbrainz: count("musicbrainz"),
+    user: analysed.filter((r) => r.genre?.label).length,
+    labelled: analysed.filter((r) => genreInfo(r).label).length,
+    run: await spotifyStore.get("genresRun").catch(() => null),
+  };
+}
+
+/**
+ * Fallback when Spotify gives no genres: artist tags from MusicBrainz, an
+ * open music database. Only the artist name is sent; one request per second
+ * (their rate limit); results cached. Never overrides Spotify genres.
+ */
+export async function fetchMusicBrainzGenres(onProgress = () => {}) {
+  const cache = (await db.getSetting("mbArtistTags").catch(() => null)) ?? {};
+  const artistOf = (r) => (r.tags?.artist || trackMeta(r).artist || "").split(/,\s*|\s+feat\.?\s+|\s+&\s+/i)[0].trim();
+  const targets = [...state.records.values()].filter((r) => r.auto && !r.extGenres?.genres?.length && artistOf(r));
+  const names = [...new Set(targets.map((r) => artistOf(r).toLowerCase()))].filter((n) => !cache[n]);
+  let done = 0;
+  for (const name of names) {
+    onProgress(done, names.length);
+    try {
+      const url = `https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(`artist:"${name}"`)}&limit=1&fmt=json`;
+      const res = await fetch(url, { headers: { Accept: "application/json" } });
+      if (res.status === 503) { await new Promise((r) => setTimeout(r, 3000)); continue; }
+      const data = await res.json();
+      const a = data.artists?.[0];
+      const tags = a && a.score >= 90 ? (a.tags ?? []).filter((x) => x.count > 0).sort((x, y) => y.count - x.count).slice(0, 6).map((x) => x.name) : [];
+      cache[name] = { tags, at: Date.now() };
+    } catch {
+      cache[name] = { tags: [], at: Date.now(), error: true };
+    }
+    done++;
+    if (done % 10 === 0) await db.setSetting("mbArtistTags", cache);
+    await new Promise((r) => setTimeout(r, 1100));
+  }
+  await db.setSetting("mbArtistTags", cache);
+  const changed = [];
+  for (const r of targets) {
+    const tags = cache[artistOf(r).toLowerCase()]?.tags ?? [];
+    if (!tags.length) continue;
+    r.extGenres = { source: "musicbrainz", genres: tags, artists: [artistOf(r)], at: Date.now() };
+    changed.push(r);
+  }
+  if (changed.length) await db.putTracks(changed);
+  genreCache.key = "";
+  notify();
+  return { tracks: changed.length, artists: names.length };
 }
 
 async function attachCachedGenres(record, artistIds) {
@@ -544,7 +618,7 @@ export async function setWeights(weights) {
   state.weights = sanitizeWeights(weights);
   await db.setSetting("weights", state.weights);
   const changed = [];
-  for (const r of state.records.values()) if (rescore(r, scoring(), "pondérations")) changed.push(r);
+  for (const r of state.records.values()) if (rescore(r, scoring(), "weights")) changed.push(r);
   await db.putTracks(changed);
   notify();
 }
@@ -558,7 +632,7 @@ export async function setAggregation(aggregation) {
   state.aggregation = aggregation;
   await db.setSetting("aggregation", aggregation);
   const changed = [];
-  for (const r of state.records.values()) if (rescore(r, scoring(), "agrégation")) changed.push(r);
+  for (const r of state.records.values()) if (rescore(r, scoring(), "aggregation")) changed.push(r);
   await db.putTracks(changed);
   notify();
 }
@@ -576,7 +650,7 @@ export function correctionSamples() {
 /** Proposes weights fitted on the user's corrections (not applied). */
 export function proposeWeights() {
   const samples = correctionSamples();
-  if (samples.length < 3) return { error: "Il faut au moins 3 morceaux corrigés.", n: samples.length };
+  if (samples.length < 3) return { error: t("At least 3 corrected tracks are needed."), n: samples.length };
   return fitWeights(samples, state.weights);
 }
 
@@ -628,6 +702,62 @@ export async function exportDiagnostic() {
   return tracks.length;
 }
 
+// ---------- reports for analysis ----------
+
+const REPORTS_KEY = "reports";
+
+export async function getReports() {
+  return (await db.getSetting(REPORTS_KEY).catch(() => null)) ?? [];
+}
+
+/**
+ * Saves a detailed snapshot of one track for a closer look at the model:
+ * every measure (and their curves), sub-scores and how they are built, the
+ * user's rating, expected score and comment. No audio, no file path.
+ */
+export async function reportTrack(id, { comment = "", expected = null } = {}) {
+  const r = state.records.get(id);
+  if (!r?.auto) throw new Error("Track not analysed.");
+  const src = r.source ?? {};
+  const report = {
+    id,
+    at: new Date().toISOString(),
+    algorithm: ALGORITHM_VERSION,
+    extractor: r.featureVersion,
+    name: r.name,
+    source: { kind: src.kind ?? "local", mode: src.mode ?? null, coverage: src.coverage ?? null, excerpts: src.excerpts ?? null, uri: src.uri ?? null },
+    genre: genreInfo(r).label,
+    externalGenres: r.extGenres ?? null,
+    expected: Number.isFinite(expected) ? expected : null,
+    comment: String(comment ?? "").slice(0, 2000),
+    finalScore: r.finalScore,
+    user: { manual: r.manual ?? null, correction: r.correction ?? null, lyrics: r.lyrics ?? null, vocals: r.vocals ?? null },
+    auto: {
+      score: r.auto.score, aggregation: r.auto.aggregation, subscores: r.auto.subscores, confidences: r.auto.confidences,
+      stats: r.auto.stats, explain: r.auto.explain, curves: r.auto.curves, music: r.auto.music,
+    },
+    weights: state.weights,
+    features: r.features,
+  };
+  const list = (await getReports()).filter((x) => x.id !== id);
+  list.push(report);
+  await db.setSetting(REPORTS_KEY, list.slice(-60));
+  return list.length;
+}
+
+/** Downloads the saved reports (all, or the given track ids). */
+export async function exportReports(ids = null) {
+  const all = await getReports();
+  const reports = ids ? all.filter((x) => ids.includes(x.id)) : all;
+  downloadJson({ app: "mea-reports", exportedAt: new Date().toISOString(), count: reports.length, reports },
+    reports.length === 1 ? `music-analyser-report-${reports[0].name.replace(/[^\p{L}\p{N}]+/gu, "-").slice(0, 60)}.json` : "music-analyser-reports.json");
+  return reports.length;
+}
+
+export async function clearReports() {
+  await db.setSetting(REPORTS_KEY, []);
+}
+
 // ---------- backup ----------
 
 export async function exportDatabase() {
@@ -663,7 +793,7 @@ export async function clearAllData() {
 // ---------- progression ----------
 
 /** Progression input for one analysed record (null if not analysed). */
-export function progressionItem(r) {
+function progressionItem(r) {
   if (r?.finalScore == null || !r.auto) return null;
   // a correction shifts the whole curve: apply the same offset to its start / end
   const offset = r.finalScore - r.auto.score;
@@ -690,7 +820,7 @@ export function buildProgression(tolerance, { byStyle = false } = {}) {
 export function orderRecords(ids, tolerance = 6, { byStyle = false } = {}) {
   const items = ids.map((id) => progressionItem(state.records.get(id))).filter(Boolean);
   if (!byStyle) return buildOrder(items, { tolerance });
-  // style = top two levels of the genre (e.g. "Électro › Hard dance")
+  // style = top two levels of the genre (e.g. "Electronic › Hard dance")
   return buildGroupedOrder(items, (it) => {
     const g = genreInfo(state.records.get(it.id)).label;
     return g ? genrePath(g).slice(0, 2).join(SEP) : null;
@@ -735,7 +865,7 @@ export async function saveCaptured(track, features, info) {
     trackId: track.id, uri: track.uri, url: track.url ?? null, image: track.image ?? null,
     mode: info.mode, coverage: info.coverage, excerpts: info.excerpts, probes: info.probes, capturedAt: Date.now(),
   };
-  if (track.demo) record.name = `Démo · ${track.name}`;
+  if (track.demo) record.name = `${t("Demo")} · ${track.name}`;
   if (track.artistIds?.length) {
     record.source.artistIds = track.artistIds;
     await attachCachedGenres(record, track.artistIds);

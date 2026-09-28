@@ -47,7 +47,7 @@ test("weight fitting reduces the error on corrections", () => {
   const samples = [];
   for (let i = 0; i < 12; i++) {
     const windows = [0, 1, 2].map((k) => ({ energy: 50, tempo: 50, density: 50, brightness: 50, harshness: (i * 9 + k * 5) % 100, pressure: 50, complexity: 50, noise: 5 }));
-    const target = mean(windows.map((w) => computeIntensity(w, { ...DEFAULT_WEIGHTS, harshness: 3 })));
+    const target = mean(windows.map((w) => computeIntensity(w, { ...DEFAULT_WEIGHTS, harshness: 6 })));
     samples.push({ windows, aggregation: "mean", target });
   }
   const r = fitWeights(samples, DEFAULT_WEIGHTS);
@@ -70,7 +70,7 @@ test("pairwise fit learns that pressure matters more", async () => {
   const mk = (pressure, brightness, harshness) => ({ windows: [{ energy: 50, tempo: 50, density: 50, brightness, harshness, pressure, complexity: 50, noise: 10 }], times: [3], aggregation: "topMean" });
   // the user feels the heavy, dark track as more intense than the bright, harsh one
   const pairs = [];
-  for (let i = 0; i < 12; i++) pairs.push({ a: mk(70 + i, 10, 45), b: mk(40, 90, 55 - i), winner: "a" });
+  for (let i = 0; i < 12; i++) pairs.push({ a: mk(70 + i, 10, 45), b: mk(40, 90, 75 - i), winner: "a" });
   const res = fitPairwise(pairs, { ...DEFAULT_WEIGHTS });
   assert.ok(!res.unchanged);
   assert.ok(res.agreementAfter > res.agreementBefore, `${res.agreementBefore} → ${res.agreementAfter}`);

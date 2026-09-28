@@ -7,6 +7,7 @@
 
 import { ANALYSIS } from "../config.js";
 import { StreamResampler } from "./resample.js";
+import { t } from "../i18n/index.js";
 
 const RAW = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
 
@@ -23,7 +24,7 @@ export async function audioInputs({ ask = false } = {}) {
     s.getTracks().forEach((t) => t.stop());
   }
   const list = await navigator.mediaDevices.enumerateDevices();
-  return list.filter((d) => d.kind === "audioinput").map((d) => ({ id: d.deviceId, label: d.label || "Entrée audio", virtual: /cable|vb-audio|voicemeeter|blackhole|loopback|stereo mix|mixage stéréo/i.test(d.label) }));
+  return list.filter((d) => d.kind === "audioinput").map((d) => ({ id: d.deviceId, label: d.label || t("Audio input"), virtual: /cable|vb-audio|voicemeeter|blackhole|loopback|stereo mix|mixage stéréo/i.test(d.label) }));
 }
 
 /**
@@ -44,7 +45,7 @@ export async function startCapture({ source, deviceId, stream: given, onData, on
     });
     if (!stream.getAudioTracks().length) {
       stream.getTracks().forEach((t) => t.stop());
-      throw new Error("Aucun son partagé : choisis « Écran entier » et coche « Partager aussi l'audio du système ».");
+      throw new Error(t("No shared sound: choose “Entire screen” and tick “Also share system audio”."));
     }
   } else {
     stream = await navigator.mediaDevices.getUserMedia({ audio: { ...RAW, channelCount: 2, ...(deviceId ? { deviceId: { exact: deviceId } } : {}) } });
@@ -118,7 +119,7 @@ export async function startCapture({ source, deviceId, stream: given, onData, on
     if (!stopped) { stop(); onEnded(); }
   });
   return {
-    label: source === "stream" ? "Démo (morceaux de synthèse)" : source === "system" ? "Audio système (partage d'écran)" : audioTrack.label || "Entrée audio",
+    label: source === "stream" ? t("Demo (synthetic tracks)") : source === "system" ? t("System audio (screen sharing)") : audioTrack.label || t("Audio input"),
     contextRate: ctx.sampleRate,
     analyser, left, right,
     stop,

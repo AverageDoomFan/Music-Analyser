@@ -6,43 +6,44 @@
 
 import { computeIntensity } from "./model.js";
 import { DEFAULT_WEIGHTS } from "../config.js";
+import { t } from "../i18n/index.js";
 
 export const QUESTIONS = [
   {
     id: "overall",
-    text: "Comment ressens-tu l'intensité générale ?",
-    options: ["Très calme", "Calme", "Moyenne", "Intense", "Très intense", "Extrême"],
+    text: t("How intense does it feel overall?"),
+    options: [t("Very calm"), t("Calm"), t("Medium"), t("Intense"), t("Very intense"), t("Extreme")],
     // target score for each option; the corrected score is kept within ±BAND
     targets: [6, 22, 45, 64, 80, 94],
     dims: [],
   },
   {
     id: "aggression",
-    text: "Le morceau est-il agressif / brutal ?",
-    options: ["Pas du tout", "Peu", "Modérément", "Beaucoup", "Extrêmement"],
+    text: t("Is the track aggressive / brutal?"),
+    options: [t("Not at all"), t("A little"), t("Moderately"), t("A lot"), t("Extremely")],
     targets: [5, 25, 50, 75, 95],
     dims: ["harshness"],
     secondary: { energy: 0.4 },
   },
   {
     id: "density",
-    text: "Quelle est sa densité sonore ?",
-    options: ["Très aérée", "Aérée", "Moyenne", "Dense", "Très dense"],
+    text: t("How dense is the sound?"),
+    options: [t("Very airy"), t("Airy"), t("Medium"), t("Dense"), t("Very dense")],
     targets: [8, 28, 50, 72, 94],
     dims: ["density"],
   },
   {
     id: "noise",
-    text: "À quel point le son est-il bruitiste / saturé ?",
-    options: ["Très propre", "Plutôt propre", "Mixte", "Bruitiste", "Extrêmement bruitiste"],
+    text: t("How noisy / saturated is the sound?"),
+    options: [t("Very clean"), t("Rather clean"), t("Mixed"), t("Noisy"), t("Extremely noisy")],
     targets: [2, 15, 40, 70, 96],
     dims: ["noise"],
     secondary: { harshness: 0.35 },
   },
   {
     id: "speed",
-    text: "À quel point les rythmes / transitions sont-ils rapides ?",
-    options: ["Très lents", "Lents", "Moyens", "Rapides", "Extrêmement rapides"],
+    text: t("How fast are the rhythms / transitions?"),
+    options: [t("Very slow"), t("Slow"), t("Moderate"), t("Fast"), t("Extremely fast")],
     targets: [6, 28, 50, 74, 95],
     dims: ["tempo"],
     secondary: { complexity: 0.3 },

@@ -3,14 +3,15 @@
 // the whole live flow (modes, charts, final analysis) without Spotify.
 
 import { suiteTracks } from "../testlab/suite.js";
+import { t } from "../i18n/index.js";
 
 const DEMO = [
-  { id: "structure", name: "Structure complète (intro, drop, break…)", artist: "Banc d'essai" },
-  { id: "intensity-min", name: "Nappe calme", artist: "Banc d'essai" },
-  { id: "mood-max", name: "Majeur, rapide et lumineux", artist: "Banc d'essai" },
-  { id: "sweep-noise", name: "Le bruit arrive", artist: "Banc d'essai" },
-  { id: "intensity-max", name: "Extrême bruitiste", artist: "Banc d'essai" },
-  { id: "sweep-tempo", name: "Tempo 80 → 170 BPM", artist: "Banc d'essai" },
+  { id: "structure", name: t("Full structure (intro, drop, break…)"), artist: t("Test bench") },
+  { id: "intensity-min", name: t("Calm pad"), artist: t("Test bench") },
+  { id: "mood-max", name: t("Major, fast and bright"), artist: t("Test bench") },
+  { id: "sweep-noise", name: t("The noise comes in"), artist: t("Test bench") },
+  { id: "intensity-max", name: t("Extreme noise"), artist: t("Test bench") },
+  { id: "sweep-tempo", name: "Tempo 80 → 170 BPM", artist: t("Test bench") },
 ];
 
 function wavToFloat(buf) {
@@ -36,7 +37,7 @@ export async function createDemo({ audible = true, onProgress = () => {} } = {})
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("worker timeout")), 8000);
     worker.onmessage = (e) => { if (e.data?.ready) { clearTimeout(timer); resolve(); } };
-    worker.onerror = (e) => { e.preventDefault?.(); clearTimeout(timer); reject(new Error("Démo indisponible (worker).")); };
+    worker.onerror = (e) => { e.preventDefault?.(); clearTimeout(timer); reject(new Error(t("Demo unavailable (worker)."))); };
   });
   const known = new Set(suiteTracks(20).map((t) => t.id));
   const buffers = new Map();
@@ -57,7 +58,7 @@ export async function createDemo({ audible = true, onProgress = () => {} } = {})
   worker.terminate();
 
   const tracks = DEMO.filter((d) => buffers.has(d.id)).map((d) => ({
-    id: `demo-${d.id}`, uri: `spotify:track:demo-${d.id}`, name: d.name, artists: [d.artist], album: "Démo",
+    id: `demo-${d.id}`, uri: `spotify:track:demo-${d.id}`, name: d.name, artists: [d.artist], album: t("Demo"),
     durationMs: Math.round(buffers.get(d.id).duration * 1000), isrc: null, url: null, isLocal: false, image: null, demo: true,
   }));
 
@@ -73,7 +74,7 @@ export async function createDemo({ audible = true, onProgress = () => {} } = {})
       if (ctx.state === "suspended") await ctx.resume();
       const id = uri.replace("spotify:track:demo-", "");
       const b = buffers.get(id);
-      if (!b) { const e = new Error("Titre de démo inconnu."); e.status = 404; throw e; }
+      if (!b) { const e = new Error(t("Unknown demo track.")); e.status = 404; throw e; }
       src = ctx.createBufferSource();
       src.buffer = b;
       src.connect(dest);

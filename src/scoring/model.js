@@ -1,4 +1,4 @@
-// Intensity model v1.0: raw features -> 8 interpretable sub-scores -> 0..100.
+// Intensity model: raw features -> 8 interpretable sub-scores -> 0..100.
 //
 // The score is a practical perceptual ranking tool, not a scientific measure.
 // No genre rule anywhere: only audio features. To replace the model, write a
@@ -28,71 +28,82 @@ function components(raw) {
   const flatDb = db(f.flatnessMedian);
   // Everything below is level independent: the extractor normalises each
   // file to a reference loudness, so the mastering level never counts.
-  const squash = 1 - lin(f.plrDb, 5, 16);              // peak-to-loudness ratio: limiter / clipping
-  const steady = 1 - lin(f.loudnessRange, 3, 16);
+  // Ranges follow real libraries (not theoretical extremes): a loud, dense
+  // modern pop mix must not max out what a metal or hardcore track reaches.
+  // a low peak-to-loudness ratio (limiter, clipping) or a steady level only
+  // mean "crushed" when there are attacks: a sustained pad has both naturally
+  const active = lin(f.onsetRate, 0.5, 3);
+  const squash = (1 - lin(f.plrDb, 7, 14)) * active;
+  const steady = (1 - lin(f.loudnessRange, 3, 16)) * active;
   const onsets = lin(f.onsetRate, 0.5, 12);
-  const motion = lin(f.onsetEnvMean, 0.005, 0.2);
+  const motion = lin(f.onsetEnvMean, 0.05, 0.17);
   const clip = lin(Math.log10(f.clippingRatio + 1e-6), -5, -1.5);
   const conf = clamp01(f.bpmConfidence);
   const bpmNorm = f.bpm ? lin(f.bpm, 60, 180) : onsets;
   const bassPresence = lin(f.bassRatio, 0.05, 0.35);  // low-end measures only count if there is a low end
-  const lowPunch = lin(f.lowPulse, 0.02, 0.25) * bassPresence;
+  const kicks = lin(f.lowPulse, 0.13, 0.28) * bassPresence;
+  // kicks per second, never folded (speedcore, extratone); only when the low
+  // end has a clear regular pulse. Extractor 1.4+.
+  const kickSpeed = f.pulseRate != null
+    ? lin(f.pulseRate, 2.5, 9) * lin(f.pulseStrength, 0.3, 0.5) * lin(f.lowPulse, 0.06, 0.12) * bassPresence
+    : null;
+  // distortion: flatness of the mids (extractor 1.4+), else the whole spectrum
+  const distortion = f.midFlatnessMedian != null ? lin(db(f.midFlatnessMedian), -30, -10) : lin(flatDb, -34, -10);
 
   return {
     energy: [
-      ["Mouvement spectral", motion, 0.35],
-      ["Densité d'attaques", lin(f.onsetRate, 0.5, 8), 0.2],
-      ["Dynamique resserrée", steady, 0.15],
-      ["Attaques dans le grave", lowPunch, 0.15],
-      ["Écrasement", squash, 0.15],
+      ["Spectral motion", motion, 0.35],
+      ["Attack density", lin(f.onsetRate, 1, 8), 0.15],
+      ["Low-end attacks", kicks, 0.2],
+      ["Crushed master", squash, 0.2],
+      ["Tight dynamics", steady, 0.1],
     ],
     tempo: [
       ["Onsets / s", onsets, 0.55],
-      ["BPM (pondéré par la fiabilité)", conf * bpmNorm + (1 - conf) * onsets, 0.45],
+      ["BPM (weighted by reliability)", conf * bpmNorm + (1 - conf) * onsets, 0.45],
+      ...(kickSpeed != null ? [["Kick speed", kickSpeed, 0]] : []),
     ],
     density: [
-      ["Remplissage spectral", lin(f.spectralFill, 0.05, 0.6), 0.35],
-      ["Largeur de bande", lin(f.bandwidthMean, 500, 4500), 0.2],
-      ["Densité d'attaques", lin(f.onsetRate, 0.5, 10), 0.2],
-      ["Dynamique resserrée", steady, 0.15],
-      ["Peu de silences", lin(1 - f.silenceRatio, 0.7, 1), 0.1],
+      ["Spectral fill", lin(f.spectralFill, 0.13, 0.65), 0.4],
+      ["Bandwidth", lin(f.bandwidthMean, 1000, 4500), 0.25],
+      ["Attack density", lin(f.onsetRate, 1, 10), 0.2],
+      ["Tight dynamics", steady, 0.15],
     ],
     brightness: [
-      ["Centroïde", lin(f.centroidMean, 500, 5000), 0.4],
+      ["Centroid", lin(f.centroidMean, 500, 5000), 0.4],
       ["Rolloff", lin(f.rolloffMean, 1500, 12000), 0.3],
-      ["Énergie > 2 kHz", lin(hf, 0.01, 0.3), 0.3],
+      ["Energy > 2 kHz", lin(hf, 0.01, 0.3), 0.3],
     ],
     harshness: [
-      ["Planéité spectrale", lin(flatDb, -40, -8), 0.25],
-      ["Énergie aiguë", lin(hf, 0.02, 0.35), 0.15],
-      ["Centroïde", lin(f.centroidMean, 800, 5000), 0.15],
-      ["Flux spectral", lin(f.fluxMean, 0.05, 0.22), 0.15],
-      ["Transitoires", motion, 0.1],
+      ["Distortion", distortion, 0.35],
+      ["High-frequency energy", lin(hf, 0.02, 0.35), 0.1],
+      ["Centroid", lin(f.centroidMean, 1500, 4500), 0.15],
+      ["Spectral flux", lin(f.fluxMean, 0.15, 0.23), 0.15],
       ["Clipping", clip, 0.1],
-      ["Saturation / compression", 1 - lin(f.crestDb, 4, 14), 0.1],
+      ["Saturation / compression", (1 - lin(f.crestDb, 7, 13)) * active, 0.15],
     ],
-    // what makes a track "heavy": kick / bass attacks and a saturated low end.
-    // A strong low end, a sustained bass line or a loud master alone are
-    // common to almost every modern mix (calm ones included): they weigh little.
+    // what makes a track "heavy": kick / bass attacks, hard-hitting kicks and
+    // a crushed master. A strong low end alone is common to almost every
+    // modern mix (calm ones included): it weighs little.
     pressure: [
-      ["Attaques dans le grave (kicks)", lin(f.lowPulse, 0.04, 0.24) * bassPresence, 0.5],
-      ["Saturation du grave", lin(db(f.lowFlatnessMedian), -18, -4) * bassPresence, 0.25],
-      ["Poids du grave", lin(f.bassRatio, 0.4, 0.85), 0.15],
-      ["Écrasement (PLR faible)", 1 - lin(f.plrDb, 6, 12), 0.1],
+      ["Low-end attacks (kicks)", kicks, 0.45],
+      ["Kick punch", lin(f.kickPunch, 0.6, 1.1) * bassPresence, 0.15],
+      ["Crushed master (low PLR)", squash * bassPresence, 0.25],
+      ["Low-end weight", lin(f.bassRatio, 0.4, 0.9), 0.15],
     ],
     complexity: [
       // unpredictability, not busyness: a dense but perfectly regular loop is simple
-      ["Rythme irrégulier", lin(f.ioiCv, 0.2, 0.65) * lin(f.onsetRate, 0.5, 3), 0.35],
-      ["Pulsation peu répétitive", (1 - clamp01(f.bpmConfidence)) * lin(f.onsetRate, 0.5, 3), 0.25],
-      ["Variation du centroïde", lin(f.centroidStd, 300, 2000), 0.2],
-      ["Variation du flux", lin(f.fluxStd, 0.03, 0.12), 0.2],
+      ["Irregular rhythm", lin(f.ioiCv, 0.2, 0.65) * lin(f.onsetRate, 0.5, 3), 0.35],
+      ["Non-repetitive pulse", (1 - conf) * lin(f.onsetRate, 0.5, 3), 0.25],
+      ["Centroid variation", lin(f.centroidStd, 300, 2000), 0.2],
+      ["Flux variation", lin(f.fluxStd, 0.03, 0.12), 0.2],
     ],
     noise: [
-      ["Planéité spectrale", lin(flatDb, -25, -3), 0.45],
-      ["Spectre rempli", lin(f.spectralFill, 0.3, 0.95), 0.2],
-      ["Peu de pics tonals", 1 - lin(f.spectralCrestMean, 5, 60), 0.15],
+      ["Spectral flatness", lin(flatDb, -25, -3), 0.45],
+      ["Full spectrum", lin(f.spectralFill, 0.3, 0.95), 0.2],
+      ["Few tonal peaks", 1 - lin(f.spectralCrestMean, 5, 60), 0.15],
       ["Clipping", clip, 0.1],
-      ["Écrasement (crest faible)", 1 - lin(f.crestDb, 3, 10), 0.1],
+      ["Crushed (low crest)", 1 - lin(f.crestDb, 3, 10), 0.1],
     ],
   };
 }
@@ -137,6 +148,8 @@ export function computeSubscores(features) {
   for (const [dim, list] of Object.entries(comps)) {
     let value = blend(list);
     if (dim === "noise") value = value ** 1.2; // keep melodic music near zero
+    // very fast kicks are fast whatever the (folded) BPM says
+    if (dim === "tempo") value = Math.max(value, list.find(([label]) => label === "Kick speed")?.[1] ?? 0);
     subscores[dim] = round1(value * 100);
     confidences[dim] = round3(agreement(list));
     explain[dim] = list.map(([label, v, w]) => ({ label, value: round3(v), weight: w }));
@@ -154,10 +167,15 @@ export function computeSubscores(features) {
 /**
  * Global intensity from sub-scores (0..100) and weights. The weighted mean of
  * the "musical" dimensions gives the base; `noise` then pushes the score
- * towards 100, but only once the base is already intense, so a noisy yet
- * quiet texture is not ranked as extreme.
+ * towards 100, but only once the track is already intense or harsh, so a
+ * noisy yet soft texture (rain, tape hiss) is not ranked as extreme.
  */
 export function computeIntensity(subscores, weights = DEFAULT_WEIGHTS) {
+  return round1(calibrate(rawIntensity(subscores, weights)));
+}
+
+/** Intensity before calibration, 0..1. */
+export function rawIntensity(subscores, weights = DEFAULT_WEIGHTS) {
   let s = 0, w = 0;
   for (const [dim, value] of Object.entries(subscores)) {
     if (dim === "noise") continue;
@@ -167,10 +185,9 @@ export function computeIntensity(subscores, weights = DEFAULT_WEIGHTS) {
   }
   const base = w ? s / w : 0;
   const noise = (subscores.noise ?? 0) / 100;
-  const gate = smoothstep(0.35, 0.7, base);
+  const gate = smoothstep(0.35, 0.7, Math.max(base, 0.9 * (subscores.harshness ?? 0) / 100));
   const push = clamp01(Math.max(0, weights.noise ?? 0) * noise * gate);
-  const raw = base + (1 - base) * push;
-  return round1(calibrate(raw));
+  return base + (1 - base) * push;
 }
 
 export function calibrate(raw) {

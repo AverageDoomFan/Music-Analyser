@@ -8,6 +8,7 @@ import * as ctl from "../app/controller.js";
 import { escapeHtml, formatScore, formatDuration } from "../util/format.js";
 import { player } from "./player.js";
 import { toast } from "./toast.js";
+import { t, tn } from "../i18n/index.js";
 
 const dialog = () => document.getElementById("review-dialog");
 let mode = null;          // "lyrics" | "duels" | "genres"
@@ -37,9 +38,9 @@ function renderBanner() {
   bar.hidden = !toRate && !unknown;
   if (bar.hidden) return;
   const parts = [];
-  if (toRate) parts.push(`${toRate} morceau${toRate > 1 ? "x" : ""} chanté${toRate > 1 ? "s" : ""} sans note de paroles`);
-  if (unknown) parts.push(`${unknown} dont on ne sait pas s'ils sont chantés`);
-  document.getElementById("lyrics-banner-text").textContent = `${parts.join(" · ")}. Les paroles changent la perception : note-les en quelques clics.`;
+  if (toRate) parts.push(tn(toRate, "{n} sung track without a lyrics rating", "{n} sung tracks without a lyrics rating"));
+  if (unknown) parts.push(tn(unknown, "{n} not known to be sung or not", "{n} not known to be sung or not"));
+  document.getElementById("lyrics-banner-text").textContent = `${parts.join(" · ")}. ${t("Lyrics change how a track feels: rate them in a few clicks.")}`;
 }
 
 // ------------------------------------------------------------------ lyrics
@@ -48,7 +49,7 @@ export function openLyricsReview() {
   const sung = ctl.lyricsToRate();
   const unknown = [...state.records.values()].filter((r) => r.auto && !r.vocals);
   queue = [...sung, ...unknown].map((r) => r.id);
-  if (!queue.length) return toast("Rien à noter pour l'instant.");
+  if (!queue.length) return toast(t("Nothing to rate for now."));
   mode = "lyrics";
   pos = 0;
   strength = 2;
@@ -58,20 +59,20 @@ export function openLyricsReview() {
 
 function lyricsCard() {
   const r = state.records.get(queue[pos]);
-  if (!r) return `<p>Terminé.</p>`;
+  if (!r) return `<p>${t("Done.")}</p>`;
   const hint = r.lyricsHint?.suggestion;
   const hintMood = hint && LYRICS_MOODS.find((m) => m.key === hint.mood);
   return `
     <div class="review-track">
       ${trackHead(r)}
-      <p class="small muted">${r.vocals?.state === "vocal" ? "Morceau chanté" : "Chanté ou instrumental ?"}${hintMood ? ` · suggestion d'après les paroles : <b>${escapeHtml(hintMood.label)}</b>` : ""}</p>
+      <p class="small muted">${r.vocals?.state === "vocal" ? t("Sung track") : t("Sung or instrumental?")}${hintMood ? ` · ${t("suggestion from the lyrics:")} <b>${escapeHtml(hintMood.label)}</b>` : ""}</p>
       <div class="review-moods">
         ${LYRICS_MOODS.map((m, i) => `<button type="button" class="review-mood ${hint?.mood === m.key ? "hinted" : ""}" data-act="mood" data-mood="${m.key}"><span class="k">${i + 1}</span><span class="ic">${m.icon}</span>${m.label}</button>`).join("")}
       </div>
-      <div class="lyrics-row"><span class="small">Force :</span>${[1, 2, 3].map((l) => `<button type="button" class="chip-btn" data-act="level" data-level="${l}" aria-pressed="${strength === l}">${LYRICS_LEVELS[l]}</button>`).join("")}</div>
+      <div class="lyrics-row"><span class="small">${t("Strength:")}</span>${[1, 2, 3].map((l) => `<button type="button" class="chip-btn" data-act="level" data-level="${l}" aria-pressed="${strength === l}">${LYRICS_LEVELS[l]}</button>`).join("")}</div>
       <div class="lyrics-row">
-        <button type="button" class="btn" data-act="instrumental">Instrumental <kbd>I</kbd></button>
-        <button type="button" class="btn ghost" data-act="skip">Passer <kbd>→</kbd></button>
+        <button type="button" class="btn" data-act="instrumental">${t("Instrumental")} <kbd>I</kbd></button>
+        <button type="button" class="btn ghost" data-act="skip">${t("Skip")} <kbd>→</kbd></button>
         <span class="spacer"></span>
         <span class="muted small">${pos + 1} / ${queue.length}</span>
       </div>
@@ -83,7 +84,7 @@ function lyricsCard() {
 /** Unlabelled tracks, the most uncertain suggestions first (the answers that teach the most). */
 export function openGenres() {
   const list = [...state.records.values()].filter((r) => r.auto && !r.genre);
-  if (!list.length) return toast("Tous les morceaux analysés ont un genre.");
+  if (!list.length) return toast(t("Every analysed track has a genre."));
   const conf = (r) => ctl.genreInfo(r).suggestions[0]?.confidence ?? 0;
   queue = list.sort((a, b) => conf(a) - conf(b)).map((r) => r.id);
   mode = "genres";
@@ -95,18 +96,18 @@ export function openGenres() {
 
 function genreCard() {
   const r = state.records.get(queue[pos]);
-  if (!r) return "<p>Terminé.</p>";
+  if (!r) return `<p>${t("Done.")}</p>`;
   const g = ctl.genreInfo(r);
-  const chips = [...(g.source === "spotify" ? [[g.label, "Spotify (genre principal)"]] : []), ...g.suggestions.map((s) => [s.label, `proches · ${Math.round(s.confidence * 100)} %`]), ...g.spotify.map((x) => [x.label, `Spotify · ${x.raw}`])]
+  const chips = [...(g.source === "spotify" ? [[g.label, t("Spotify (main genre)")]] : []), ...g.suggestions.map((s) => [s.label, `${t("close")} · ${Math.round(s.confidence * 100)} %`]), ...g.spotify.map((x) => [x.label, `Spotify · ${x.raw}`])]
     .filter((c, i, arr) => arr.findIndex((x) => x[0] === c[0]) === i);
   return `<div class="review-track">
     ${trackHead(r)}
-    <div class="lyrics-row">${chips.map(([l, why], i) => `<button type="button" class="chip-btn" data-act="genre" data-label="${escapeHtml(l)}" title="${escapeHtml(why)}">${i < 9 ? `<kbd>${i + 1}</kbd> ` : ""}${escapeHtml(l)} <span class="muted">${escapeHtml(why)}</span></button>`).join("") || `<span class="muted small">Pas encore de suggestion : les premières étiquettes servent de modèles.</span>`}</div>
+    <div class="lyrics-row">${chips.map(([l, why], i) => `<button type="button" class="chip-btn" data-act="genre" data-label="${escapeHtml(l)}" title="${escapeHtml(why)}">${i < 9 ? `<kbd>${i + 1}</kbd> ` : ""}${escapeHtml(l)} <span class="muted">${escapeHtml(why)}</span></button>`).join("") || `<span class="muted small">${t("No suggestion yet: the first labels serve as models.")}</span>`}</div>
     <div class="lyrics-row">
-      <input type="text" id="rv-genre" list="rv-genre-list" placeholder="ex. Metal › Death metal" aria-label="Genre">
+      <input type="text" id="rv-genre" list="rv-genre-list" placeholder="${t("e.g. Metal › Death metal")}" aria-label="Genre">
       <datalist id="rv-genre-list">${ctl.allGenres().map((k) => `<option value="${escapeHtml(k)}">`).join("")}</datalist>
-      <button type="button" class="btn primary" data-act="genre-save">Enregistrer <kbd>Entrée</kbd></button>
-      <button type="button" class="btn ghost" data-act="skip">Passer</button>
+      <button type="button" class="btn primary" data-act="genre-save">${t("Save")} <kbd>${t("Enter")}</kbd></button>
+      <button type="button" class="btn ghost" data-act="skip">${t("Skip")}</button>
       <span class="spacer"></span><span class="muted small">${pos + 1} / ${queue.length}</span>
     </div></div>`;
 }
@@ -116,7 +117,7 @@ async function saveGenre(label) {
   player.stop?.();
   await ctl.setGenre(queue[pos], label);
   pos++;
-  if (pos >= queue.length) { dialog().close(); return toast("Genres enregistrés."); }
+  if (pos >= queue.length) { dialog().close(); return toast(t("Genres saved.")); }
   render();
   setTimeout(() => dialog().querySelector("#rv-genre")?.focus(), 30);
 }
@@ -128,7 +129,7 @@ export async function openDuels() {
   proposal = null;
   duelCount = (await ctl.getComparisons()).length;
   duel = await ctl.nextDuel();
-  if (!duel) return toast("Il faut au moins deux morceaux analysés.");
+  if (!duel) return toast(t("At least two analysed tracks are needed."));
   render();
   dialog().showModal();
 }
@@ -136,40 +137,40 @@ export async function openDuels() {
 function duelCard() {
   if (proposal) return proposalHtml();
   const a = state.records.get(duel.a), b = state.records.get(duel.b);
-  if (!a || !b) return "<p>Plus de paire disponible.</p>";
+  if (!a || !b) return `<p>${t("No pair left.")}</p>`;
   const side = (r, k, key) => `<div class="duel-side">
       ${trackHead(r, false)}
-      <button type="button" class="btn primary duel-pick" data-act="pick" data-winner="${k}">Celui-ci est plus intense <kbd>${key}</kbd></button>
+      <button type="button" class="btn primary duel-pick" data-act="pick" data-winner="${k}">${t("This one is more intense")} <kbd>${key}</kbd></button>
     </div>`;
   return `
-    <p class="small muted">Sans regarder les scores : lequel ressens-tu comme le plus intense ? Chaque réponse aide à régler les pondérations du modèle sur ta perception.</p>
-    <div class="duel">${side(a, "a", "←")}<div class="duel-vs">ou</div>${side(b, "b", "→")}</div>
+    <p class="small muted">${t("Without looking at the scores: which one feels more intense? Each answer helps tune the model's weights to your perception.")}</p>
+    <div class="duel">${side(a, "a", "←")}<div class="duel-vs">${t("or")}</div>${side(b, "b", "→")}</div>
     <div class="lyrics-row">
-      <button type="button" class="btn" data-act="pick" data-winner="tie">Pareil <kbd>=</kbd></button>
-      <button type="button" class="btn ghost" data-act="next-duel">Autre paire</button>
+      <button type="button" class="btn" data-act="pick" data-winner="tie">${t("Same")} <kbd>=</kbd></button>
+      <button type="button" class="btn ghost" data-act="next-duel">${t("Another pair")}</button>
       <span class="spacer"></span>
-      <span class="muted small">${duelCount} duel${duelCount > 1 ? "s" : ""}</span>
-      <button type="button" class="btn" data-act="propose" ${duelCount < 6 ? "disabled title='Au moins 6 duels'" : ""}>Ajuster les pondérations</button>
+      <span class="muted small">${tn(duelCount, "{n} duel", "{n} duels")}</span>
+      <button type="button" class="btn" data-act="propose" ${duelCount < 6 ? `disabled title="${t("At least 6 duels")}"` : ""}>${t("Fit the weights")}</button>
     </div>`;
 }
 
 function proposalHtml() {
-  if (proposal.error) return `<p class="notice">${escapeHtml(proposal.error)}</p><button class="btn" data-act="back">Continuer les duels</button>`;
+  if (proposal.error) return `<p class="notice">${escapeHtml(proposal.error)}</p><button class="btn" data-act="back">${t("Keep duelling")}</button>`;
   const pct = (v) => (v == null ? "—" : `${Math.round(v * 100)} %`);
   return `<div class="card">
     <ul class="delta-list">${DIMENSIONS.map((d) => `<li><span>${d.label}</span><span>${state.weights[d.key].toFixed(2)} → <strong>${proposal.weights[d.key].toFixed(2)}</strong></span></li>`).join("")}</ul>
-    <p class="small">Duels respectés par le score : ${pct(proposal.agreementBefore)} → <strong>${pct(proposal.agreementAfter)}</strong> (${proposal.n} duels).${proposal.unchanged ? " Aucune pondération n'explique mieux tes réponses : les réglages actuels sont gardés. Continue les duels (réponses plus tranchées, ou plus de paires)." : ""}</p>
+    <p class="small">${t("Duels the score agrees with: {a} → <strong>{b}</strong> ({n} duels).", { a: pct(proposal.agreementBefore), b: pct(proposal.agreementAfter), n: proposal.n })}${proposal.unchanged ? " " + t("No weights explain your answers better: the current settings are kept. Keep duelling (clearer answers, or more pairs).") : ""}</p>
     <div class="settings-actions">
-      <button class="btn primary" data-act="apply" ${proposal.unchanged ? "disabled" : ""}>Appliquer</button>
-      <button class="btn" data-act="back">Continuer les duels</button>
-      <button class="btn ghost danger" data-act="reset-duels">Effacer les duels</button>
+      <button class="btn primary" data-act="apply" ${proposal.unchanged ? "disabled" : ""}>${t("Apply")}</button>
+      <button class="btn" data-act="back">${t("Keep duelling")}</button>
+      <button class="btn ghost danger" data-act="reset-duels">${t("Delete the duels")}</button>
     </div></div>`;
 }
 
 // ------------------------------------------------------------------ shared
 
 function trackHead(r, showScore = true) {
-  const canPlay = state.files.has(r.id);
+  const canPlay = player.canPlay(r.id);
   const url = r.source?.url ?? (r.source?.trackId ? `https://open.spotify.com/track/${r.source.trackId}` : null);
   const img = r.source?.image;
   const m = r.auto?.music;
@@ -177,15 +178,15 @@ function trackHead(r, showScore = true) {
       ${img ? `<img src="${escapeHtml(img)}" alt="" referrerpolicy="no-referrer">` : `<span class="review-thumb">♪</span>`}
       <div class="nm"><b>${escapeHtml(r.name)}</b>
         <div class="small muted">${formatDuration(r.duration)}${showScore && r.finalScore != null ? ` · ${formatScore(r.finalScore)} · ${escapeHtml(stageFor(r.finalScore).label)}` : ""}${m?.key ? ` · ${escapeHtml(m.key.name)}` : ""}${m?.tempo ? ` · ${Math.round(m.tempo.bpm)} BPM` : ""}</div></div>
-      ${canPlay ? `<button type="button" class="btn small" data-act="play" data-id="${escapeHtml(r.id)}">${player.isPlaying(r.id) ? "Pause" : "▶ Écouter"}</button>`
-        : url ? `<a class="btn small" href="${escapeHtml(url)}" target="_blank" rel="noopener">Ouvrir dans Spotify</a>` : ""}
+      ${canPlay ? `<button type="button" class="btn small" data-act="play" data-id="${escapeHtml(r.id)}">${player.isPlaying(r.id) ? t("Pause") : "▶ " + t("Play")}</button>`
+        : url ? `<a class="btn small" href="${escapeHtml(url)}" target="_blank" rel="noopener">${t("Open in Spotify")}</a>` : ""}
     </div>`;
 }
 
 function render() {
   const d = dialog();
   d.innerHTML = `
-    <div class="dialog-head"><h2>${mode === "lyrics" ? "Ambiance des paroles" : mode === "genres" ? "Genres" : "Lequel est le plus intense ?"}</h2><button class="icon-btn" data-act="close" aria-label="Fermer">✕</button></div>
+    <div class="dialog-head"><h2>${mode === "lyrics" ? t("Lyrics mood") : mode === "genres" ? t("Genres") : t("Which one is more intense?")}</h2><button class="icon-btn" data-act="close" aria-label="${t("Close")}">✕</button></div>
     <div class="dialog-body">${mode === "lyrics" ? lyricsCard() : mode === "genres" ? genreCard() : duelCard()}</div>`;
 }
 
@@ -194,7 +195,7 @@ async function advanceLyrics() {
   strength = 2;
   if (pos >= queue.length) {
     dialog().close();
-    toast("Paroles notées. Merci !");
+    toast(t("Lyrics rated. Thanks!"));
     return;
   }
   render();
@@ -233,7 +234,7 @@ async function onClick(e) {
       player.stop?.();
       duelCount = await ctl.addComparison(duel.a, duel.b, el.dataset.winner);
       duel = await ctl.nextDuel();
-      if (!duel) { d.close(); return toast("Toutes les paires utiles ont été jugées."); }
+      if (!duel) { d.close(); return toast(t("Every useful pair has been judged.")); }
       return render();
     }
     if (act === "next-duel") { duel = await ctl.nextDuel(); return render(); }
@@ -242,11 +243,11 @@ async function onClick(e) {
     if (act === "apply") {
       await ctl.setWeights(proposal.weights);
       proposal = null;
-      toast("Pondérations ajustées à tes duels, scores recalculés.");
+      toast(t("Weights fitted to your duels, scores recomputed."));
       return render();
     }
     if (act === "reset-duels") {
-      if (!confirm("Effacer tous les duels enregistrés ?")) return;
+      if (!confirm(t("Delete every saved duel?"))) return;
       await ctl.clearComparisons();
       duelCount = 0;
       proposal = null;

@@ -3,6 +3,7 @@
 // first, with a fallback to the older ones.
 
 import { accessToken } from "./auth.js";
+import { t } from "../i18n/index.js";
 
 const BASE = "https://api.spotify.com/v1";
 
@@ -13,10 +14,10 @@ export class SpotifyError extends Error {
   }
 }
 
-const PLAYLIST_HINT = { 403: " (compte non autorisé dans le tableau de bord de l'application, ou playlist dont tu n'es ni propriétaire ni collaborateur)" };
+const PLAYLIST_HINT = { 403: t(" (account not allowed in the app's dashboard, or a playlist you neither own nor collaborate on)") };
 const PLAYER_HINT = {
-  403: " (contrôle de lecture refusé : Spotify Premium requis, ou reconnecte-toi pour autoriser le contrôle de lecture)",
-  404: " (aucun appareil Spotify actif : ouvre l'application Spotify sur ce PC et lance un titre une fois)",
+  403: t(" (playback control refused: Spotify Premium required, or log in again to allow playback control)"),
+  404: t(" (no active Spotify device: open the Spotify app on this PC and play a track once)"),
 };
 
 async function request(method, url, body, attempt = 0, hints = PLAYLIST_HINT) {

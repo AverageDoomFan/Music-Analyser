@@ -4,6 +4,7 @@ import { state, subscribe } from "../app/store.js";
 import * as ctl from "../app/controller.js";
 import * as auth from "../spotify/auth.js";
 import { escapeHtml } from "../util/format.js";
+import { t, tn } from "../i18n/index.js";
 
 const $ = (id) => document.getElementById(id);
 let extra = { playlists: 0 };
@@ -23,6 +24,7 @@ export function initHome() {
 export async function showHome() {
   extra = {
     playlists: (await ctl.importedPlaylists().catch(() => [])).length,
+    genres: await ctl.genreStatus().catch(() => null),
   };
   render();
 }
@@ -33,13 +35,27 @@ function render() {
   const tests = recs.filter((r) => r.source?.kind === "test").length;
   const captured = recs.filter((r) => r.source?.kind === "spotify").length;
   const toRate = ctl.lyricsToRate().length;
-  const labelled = recs.filter((r) => r.genre?.source === "user").length;
+  const g = extra.genres;
   const avg = analysed.length ? Math.round(analysed.reduce((a, r) => a + r.finalScore, 0) / analysed.length) : null;
   const items = [
-    ["Morceaux analysés", analysed.length, analysed.length ? `intensité moyenne ${avg}${tests ? ` · dont ${tests} de test` : ""}` : "importe des fichiers ou scanne une playlist", "tab-library"],
-    ["Spotify", auth.isLoggedIn() ? "connecté" : "non connecté", `${extra.playlists} playlist${extra.playlists > 1 ? "s" : ""} importée${extra.playlists > 1 ? "s" : ""} · ${captured} titre${captured > 1 ? "s" : ""} capté${captured > 1 ? "s" : ""}`, "tab-spotify"],
-    ["Paroles à noter", toRate, toRate ? "morceaux chantés sans note" : "rien en attente", "tab-library"],
-    ["Genres étiquetés", labelled, labelled ? "les autres reçoivent des suggestions" : "étiquette quelques morceaux (bouton Genres)", "tab-library"],
+    [t("Analysed tracks"), analysed.length, analysed.length ? t("average intensity {n}", { n: avg }) + (tests ? ` · ${tn(tests, "{n} test track", "{n} test tracks")}` : "") : t("import files or scan a playlist"), "tab-library"],
+    ["Spotify", auth.isLoggedIn() ? t("connected") : t("not connected"), `${tn(extra.playlists, "{n} playlist imported", "{n} playlists imported")} · ${tn(captured, "{n} track captured", "{n} tracks captured")}`, "tab-spotify"],
+    [t("Lyrics to rate"), toRate, toRate ? t("sung tracks without a rating") : t("nothing pending"), "tab-library"],
+    [t("Genres"), g ? `${g.labelled}/${g.analysed}` : "—", genreLine(g), "tab-library"],
   ];
-  $("home-status").innerHTML = items.map(([k, v, sub, t]) => `<button type="button" class="home-stat" data-home="${t}"><span>${escapeHtml(k)}</span><b>${escapeHtml(String(v))}</b><small>${escapeHtml(sub)}</small></button>`).join("");
+  $("home-status").innerHTML = items.map(([k, v, sub, tab]) => `<button type="button" class="home-stat" data-home="${tab}"><span>${escapeHtml(k)}</span><b>${escapeHtml(String(v))}</b><small>${escapeHtml(sub)}</small></button>`).join("");
+}
+
+/** Where the genres come from, in one line. */
+export function genreLine(g) {
+  if (!g) return "";
+  const parts = [];
+  if (g.spotify) parts.push(t("{n} from Spotify", { n: g.spotify }));
+  if (g.musicbrainz) parts.push(t("{n} from MusicBrainz", { n: g.musicbrainz }));
+  if (g.user) parts.push(t("{n} labelled by you", { n: g.user }));
+  if (!parts.length) {
+    if (g.run?.fieldMissing) return t("Spotify returns no genres for this app: try MusicBrainz (Spotify tab)");
+    return g.run ? t("no genre found yet") : t("fetched automatically once logged in to Spotify");
+  }
+  return parts.join(" · ");
 }

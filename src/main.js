@@ -11,11 +11,14 @@ import { initProgression, renderProgression } from "./ui/progression.js";
 import { toast } from "./ui/toast.js";
 import { initRhythm, showRhythm } from "./ui/rhythm.js";
 import { initSpotify } from "./ui/spotify.js";
+import * as auth from "./spotify/auth.js";
 import { initLive, showLive } from "./ui/live.js";
 import { initReview } from "./ui/review.js";
 import { initSet, showSet } from "./ui/set.js";
 import { initTestlab, showTestlab } from "./ui/testlab.js";
 import { initHome, showHome } from "./ui/home.js";
+import { initGames, showGames } from "./ui/games.js";
+import { t, tn, translateDom } from "./i18n/index.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -24,8 +27,8 @@ function initImport() {
   const input = $("file-input");
   const accept = (files) => {
     const { accepted, rejected } = ctl.importFiles(files);
-    if (rejected) toast(`${rejected} fichier${rejected > 1 ? "s" : ""} ignoré${rejected > 1 ? "s" : ""} (format non audio).`, "error");
-    if (!accepted && !rejected) toast("Aucun fichier reçu.");
+    if (rejected) toast(tn(rejected, "{n} file ignored (not audio).", "{n} files ignored (not audio)."), "error");
+    if (!accepted && !rejected) toast(t("No file received."));
     if (accepted && state.ui.tab === "tab-home") $("tab-library").click();
   };
   input.addEventListener("change", () => {
@@ -79,7 +82,7 @@ async function filesFromDrop(dt) {
 }
 
 function initTabs() {
-  const tabs = [["tab-home", "panel-home"], ["tab-library", "panel-library"], ["tab-progression", "panel-progression"], ["tab-set", "panel-set"], ["tab-rhythm", "panel-rhythm"], ["tab-spotify", "panel-spotify"], ["tab-lab", "panel-lab"], ["tab-live", "panel-live"]];
+  const tabs = [["tab-home", "panel-home"], ["tab-library", "panel-library"], ["tab-progression", "panel-progression"], ["tab-set", "panel-set"], ["tab-rhythm", "panel-rhythm"], ["tab-spotify", "panel-spotify"], ["tab-lab", "panel-lab"], ["tab-live", "panel-live"], ["tab-games", "panel-games"]];
   for (const [tabId, panelId] of tabs) {
     $(tabId).addEventListener("click", () => {
       for (const [t, p] of tabs) {
@@ -93,6 +96,7 @@ function initTabs() {
       if (tabId === "tab-set") showSet();
       if (tabId === "tab-lab") showTestlab();
       if (tabId === "tab-home") showHome();
+      if (tabId === "tab-games") showGames();
     });
   }
   // links like index.html#tab-set (from the guide) open that tab
@@ -110,17 +114,18 @@ function renderQueue() {
   box.hidden = q.total === 0;
   if (!q.total) return;
   const active = [...state.jobs.values()].filter((j) => j.stage !== "queued").length;
-  const parts = [`${q.done}/${q.total} traité${q.done > 1 ? "s" : ""}`];
-  if (active) parts.push(`${active} en cours`);
-  if (q.cached) parts.push(`${q.cached} déjà en cache`);
-  if (q.errors) parts.push(`${q.errors} erreur${q.errors > 1 ? "s" : ""}`);
-  $("queue-text").textContent = (q.done === q.total ? "Analyse terminée · " : "Analyse… ") + parts.join(" · ");
+  const parts = [t("{done}/{total} processed", { done: q.done, total: q.total })];
+  if (active) parts.push(t("{n} in progress", { n: active }));
+  if (q.cached) parts.push(t("{n} already cached", { n: q.cached }));
+  if (q.errors) parts.push(tn(q.errors, "{n} error", "{n} errors"));
+  $("queue-text").textContent = (q.done === q.total ? t("Analysis finished · ") : t("Analysing… ")) + parts.join(" · ");
   const partial = [...state.jobs.values()].reduce((a, j) => a + (j.stage === "features" ? j.progress * 0.9 + 0.1 : j.stage === "decode" ? 0.08 : 0), 0);
   $("queue-bar").style.width = `${Math.min(100, ((q.done + partial) / q.total) * 100)}%`;
 }
 
 async function main() {
-  $("version-info").textContent = `· algorithme v${ALGORITHM_VERSION}`;
+  translateDom();
+  $("version-info").textContent = `· ${t("algorithm")} v${ALGORITHM_VERSION}`;
   initImport();
   initTabs();
   initLibrary({ openDetail });
@@ -134,11 +139,12 @@ async function main() {
   initSet({ openDetail });
   initTestlab({ openDetail });
   initHome();
+  initGames();
   document.addEventListener("open-detail", (e) => openDetail(e.detail));
   ctl.onToast(toast);
   $("rescore-all").addEventListener("click", async () => {
     const n = await ctl.recomputeAll();
-    toast(n ? `${n} scores recalculés depuis le cache.` : "Aucun morceau analysé.");
+    toast(n ? t("{n} scores recomputed from the cache.", { n }) : t("No analysed track."));
   });
   subscribe(() => {
     renderQueue();
@@ -150,15 +156,17 @@ async function main() {
   });
   try {
     const { rescored } = await ctl.init();
-    if (rescored) toast(`${rescored} score${rescored > 1 ? "s" : ""} recalculé${rescored > 1 ? "s" : ""} depuis le cache (nouvelle version ou pondérations).`);
+    if (rescored) toast(tn(rescored, "{n} score recomputed from the cache (new version or weights).", "{n} scores recomputed from the cache (new version or weights)."));
   } catch (err) {
     console.error(err);
-    toast(`Stockage local indisponible : ${err.message}. Les analyses ne seront pas conservées.`, "error", 8000);
+    toast(t("Local storage unavailable: {msg}. Analyses will not be kept.", { msg: err.message }), "error", 8000);
   }
   notify();
   if (state.ui.tab === "tab-home") showHome();
   // after the library is loaded (matching needs it); also finishes a Spotify login redirect
-  initSpotify().catch((err) => console.error(err));
+  initSpotify()
+    .then(() => (auth.isLoggedIn() ? ctl.autoFetchGenres() : null))
+    .catch((err) => console.error(err));
 }
 
 main();

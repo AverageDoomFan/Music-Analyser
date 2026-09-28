@@ -1,5 +1,5 @@
 // Personal genres: the user labels some tracks with their own taxonomy
-// (hierarchical labels like "Électro › Hardstyle › Rawstyle"), the app
+// (hierarchical labels like "Electronic › Hardstyle › Rawstyle"), the app
 // suggests labels for the others from their nearest labelled neighbours.
 // The user's label always wins; suggestions are only suggestions.
 

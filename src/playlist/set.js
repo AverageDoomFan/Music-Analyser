@@ -7,23 +7,24 @@
 // Pure functions, tested in Node.
 
 import { keyCompatibility } from "../audio/music.js";
+import { t } from "../i18n/index.js";
 
 export const CURVE_PRESETS = [
-  { key: "echauffement", label: "Échauffement → pic → retour au calme", points: [[0, 25], [0.55, 82], [0.8, 90], [1, 35]] },
-  { key: "montee", label: "Montée continue", points: [[0, 15], [1, 92]] },
-  { key: "vagues", label: "Vagues", points: [[0, 35], [0.17, 70], [0.33, 40], [0.5, 78], [0.67, 45], [0.83, 88], [1, 50]] },
-  { key: "plateau", label: "Plateau intense", points: [[0, 50], [0.15, 75], [0.9, 78], [1, 65]] },
-  { key: "sport", label: "Fractionné (sport)", points: [[0, 40], [0.12, 80], [0.24, 50], [0.36, 85], [0.48, 50], [0.6, 88], [0.72, 50], [0.84, 92], [1, 35]] },
-  { key: "descente", label: "Descente (fin de soirée)", points: [[0, 85], [1, 15]] },
+  { key: "echauffement", label: t("Warm-up → peak → cool-down"), points: [[0, 25], [0.55, 82], [0.8, 90], [1, 35]] },
+  { key: "montee", label: t("Steady climb"), points: [[0, 15], [1, 92]] },
+  { key: "vagues", label: t("Waves"), points: [[0, 35], [0.17, 70], [0.33, 40], [0.5, 78], [0.67, 45], [0.83, 88], [1, 50]] },
+  { key: "plateau", label: t("Intense plateau"), points: [[0, 50], [0.15, 75], [0.9, 78], [1, 65]] },
+  { key: "sport", label: t("Intervals (workout)"), points: [[0, 40], [0.12, 80], [0.24, 50], [0.36, 85], [0.48, 50], [0.6, 88], [0.72, 50], [0.84, 92], [1, 35]] },
+  { key: "descente", label: t("Wind-down (end of the night)"), points: [[0, 85], [1, 15]] },
 ];
 
 export const TRANSITION_CRITERIA = [
-  { key: "curve", label: "Suivre la courbe", default: 1 },
-  { key: "seam", label: "Enchaînement d'intensité (fin → début)", default: 0.6 },
-  { key: "bpm", label: "Tempo proche", default: 0.5 },
-  { key: "key", label: "Tonalités compatibles", default: 0.5 },
-  { key: "timbre", label: "Timbre proche", default: 0.3 },
-  { key: "mood", label: "Ambiance proche", default: 0.3 },
+  { key: "curve", label: t("Follow the curve"), default: 1 },
+  { key: "seam", label: t("Intensity seams (end → start)"), default: 0.6 },
+  { key: "bpm", label: t("Close tempo"), default: 0.5 },
+  { key: "key", label: t("Compatible keys"), default: 0.5 },
+  { key: "timbre", label: t("Close timbre"), default: 0.3 },
+  { key: "mood", label: t("Close mood"), default: 0.3 },
 ];
 
 /** Target value (0..100) at x in [0, 1] (linear between points). */
@@ -259,7 +260,7 @@ export function splitTracks(items, by, n = 4, groupsMap = null) {
       out.get(g).push(t);
     }
     return [...out.entries()].sort((a, b) => b[1].length - a[1].length)
-      .map(([g, list], i) => ({ label: typeof g === "string" ? g : `Groupe ${i + 1}`, ids: list.sort((a, b) => a.score - b.score).map((t) => t.id), items: list }));
+      .map(([g, list], i) => ({ label: typeof g === "string" ? g : t("Group {n}", { n: i + 1 }), ids: list.sort((a, b) => a.score - b.score).map((t) => t.id), items: list }));
   }
   const val = (t) => (by === "mood" ? t.valence : t.score);
   const sorted = items.filter((t) => val(t) != null).sort((a, b) => val(a) - val(b));

@@ -12,6 +12,7 @@ import { mapStatistics } from "../rhythm/difficulty.js";
 import { renderTimeline } from "./charts.js";
 import { toast } from "./toast.js";
 import { escapeHtml } from "../util/format.js";
+import { t as tr } from "../i18n/index.js";
 
 const $ = (id) => document.getElementById(id);
 const ROW = 36;
@@ -188,12 +189,12 @@ export function openInRhythm(id) {
 
 function refreshTrackSelect() {
   const sel = $("rh-track");
-  const records = [...state.records.values()].filter((r) => r.auto || r.rhythm).sort((a, b) => a.name.localeCompare(b.name, "fr"));
+  const records = [...state.records.values()].filter((r) => r.auto || r.rhythm).sort((a, b) => a.name.localeCompare(b.name));
   const key = records.map((r) => `${r.id}:${state.files.has(r.id)}:${!!r.rhythm}`).join("|");
   if (sel._key === key) return;
   sel._key = key;
-  sel.innerHTML = `<option value="">— choisir —</option>` + records.map((r) => {
-    const tag = state.files.has(r.id) ? (r.rhythm ? " · map" : "") : r.rhythm ? " · map (fichier à réimporter pour écouter)" : " · fichier à réimporter";
+  sel.innerHTML = `<option value="">— ${tr("choose")} —</option>` + records.map((r) => {
+    const tag = state.files.has(r.id) ? (r.rhythm ? " · map" : "") : r.rhythm ? tr(" · map (import the file again to listen)") : tr(" · import the file again");
     return `<option value="${r.id}" ${r.id === rh.id ? "selected" : ""}>${escapeHtml(r.name)}${tag}</option>`;
   }).join("");
   if (!rh.id && records.length === 1) selectTrack(records[0].id);
@@ -223,14 +224,14 @@ function selectTrack(id) {
   showParams();
   renderAll();
   if (!r.rhythm && state.files.has(id)) extract();
-  else setStatus(r.rhythm ? (state.files.has(id) ? "Map enregistrée. Modifie un paramètre ou clique sur « Extraire » pour recalculer." : "Map enregistrée. Réimporte le fichier dans la bibliothèque pour l'écouter ou la recalculer.") : "Fichier absent de cette session : réimporte-le dans la bibliothèque (il sera reconnu).");
+  else setStatus(r.rhythm ? (state.files.has(id) ? tr("Map saved. Change a parameter or click “Extract” to recompute.") : tr("Map saved. Import the file again in the library to listen to it or recompute it.")) : tr("File not in this session: import it again in the library (it will be recognised)."));
 }
 
 async function extract() {
   const id = rh.id;
   const file = state.files.get(id);
   if (!file) {
-    toast("Fichier audio absent de cette session : réimporte-le dans la bibliothèque.", "error");
+    toast(tr("Audio file not in this session: import it again in the library."), "error");
     return;
   }
   rh.busy = true;
@@ -238,7 +239,7 @@ async function extract() {
   $("rh-progress").hidden = false;
   try {
     const data = await bandData(id, file, rh.params, (stage, p) => {
-      setStatus(stage === "decode" ? "Décodage…" : `Analyse spectrale… ${Math.round(p * 100)} %`);
+      setStatus(stage === "decode" ? tr("Decoding…") : `${tr("Spectral analysis…")} ${Math.round(p * 100)} %`);
       $("rh-progress-bar").style.width = `${stage === "decode" ? 5 : 5 + p * 95}%`;
     });
     if (id !== rh.id) return;
@@ -268,7 +269,7 @@ function rebuild() {
   setMap(buildRhythmMap(rh.data, rh.params), false);
   if (rh.lanes.length !== previous || rh.selected.length !== rh.lanes.length) rh.selected = rh.lanes.map(() => true);
   const n = rh.lanes.reduce((a, l) => a + l.notes.length, 0);
-  setStatus(`${rh.lanes.length} instrument${rh.lanes.length > 1 ? "s" : ""} · ${n} notes (${Math.round(performance.now() - t0)} ms)`);
+  setStatus(`${rh.lanes.length} ${tr(rh.lanes.length > 1 ? "instruments" : "instrument")} · ${n} notes (${Math.round(performance.now() - t0)} ms)`);
   renderAll();
   engine.refreshCues();
   save();
@@ -290,10 +291,10 @@ function editLanes(action, i) {
     if (i === 0) return;
     next = mergeLanes(rh.map, i, i - 1, rh.map.attacks?.pool);
   } else {
-    if (!rh.map.attacks) return toast("Recalcule d'abord les notes (fichier requis) pour pouvoir scinder.", "error");
-    if (rh.lanes.length >= RHYTHM.maxLanes) return toast(`${RHYTHM.maxLanes} pistes au maximum.`);
+    if (!rh.map.attacks) return toast(tr("Recompute the notes first (file needed) to split."), "error");
+    if (rh.lanes.length >= RHYTHM.maxLanes) return toast(tr("{n} lanes at most.", { n: RHYTHM.maxLanes }));
     next = splitLane(rh.map, i);
-    if (!next) return toast("Impossible de scinder cette piste (trop peu de notes ou un seul timbre).");
+    if (!next) return toast(tr("Cannot split this lane (too few notes or a single timbre)."));
   }
   setMap(next, true);
   rh.selected = rh.lanes.map(() => true);
@@ -372,7 +373,7 @@ function computeLevels() {
 
 async function play(t) {
   const file = state.files.get(rh.id);
-  if (!file) return toast("Fichier audio absent de cette session : réimporte-le pour écouter.", "error");
+  if (!file) return toast(tr("Audio file not in this session: import it again to listen."), "error");
   await engine.load(rh.id, file);
   applyEngineSettings();
   engine.cueSource = cueSource;
@@ -446,13 +447,13 @@ function renderLanes() {
     const { name, range } = laneLabel(lane);
     const isolated = rh.source === `lane:${i}`;
     return `<div class="rh-lane" data-lane="${i}">
-      <input type="checkbox" ${rh.selected[i] ? "checked" : ""} aria-label="Inclure ${escapeHtml(name)} dans la map">
+      <input type="checkbox" ${rh.selected[i] ? "checked" : ""} aria-label="${tr("Include {name} in the map", { name: escapeHtml(name) })}">
       <span class="swatch" style="background:${colors.lanes[i % 8]}"></span>
       <span class="name" title="${escapeHtml(`${name} · ${range} · ${lane.notes.length} notes`)}">${escapeHtml(name)} <small>${range} · ${lane.notes.length}</small></span>
       <span class="tools">
-        <button class="icon-btn" data-act="isolate" aria-pressed="${isolated}" title="Écouter cette piste seule (filtrée)">🎧</button>
-        <button class="icon-btn" data-act="split" title="Scinder la piste en deux">✂</button>
-        <button class="icon-btn" data-act="merge" ${i === 0 ? "disabled" : ""} title="Fusionner avec la piste du dessous">⤓</button>
+        <button class="icon-btn" data-act="isolate" aria-pressed="${isolated}" title="${tr("Listen to this lane alone (filtered)")}">🎧</button>
+        <button class="icon-btn" data-act="split" title="${tr("Split the lane in two")}">✂</button>
+        <button class="icon-btn" data-act="merge" ${i === 0 ? "disabled" : ""} title="${tr("Merge with the lane below")}">⤓</button>
       </span>
     </div>`;
   }).join("");
@@ -460,8 +461,8 @@ function renderLanes() {
 
 function renderSourceSelect() {
   const sel = $("rh-source");
-  sel.innerHTML = `<option value="music">Musique originale</option><option value="none">Cues seuls</option>` +
-    rh.lanes.map((l, i) => ({ l, i })).reverse().map(({ l, i }) => `<option value="lane:${i}">Piste isolée · ${escapeHtml(laneLabel(l).name)} (${laneLabel(l).range})</option>`).join("");
+  sel.innerHTML = `<option value="music">${tr("Original music")}</option><option value="none">${tr("Cues only")}</option>` +
+    rh.lanes.map((l, i) => ({ l, i })).reverse().map(({ l, i }) => `<option value="lane:${i}">${tr("Isolated lane")} · ${escapeHtml(laneLabel(l).name)} (${laneLabel(l).range})</option>`).join("");
   sel.value = rh.source;
 }
 
@@ -497,7 +498,7 @@ function drawMatrix() {
   if (!n) {
     g.fillStyle = c.muted;
     g.font = "13px system-ui, sans-serif";
-    g.fillText(rh.id ? "Extraction des notes…" : "Choisis un morceau analysé.", 12, HEADER + 22);
+    g.fillText(rh.id ? tr("Extracting notes…") : tr("Choose an analysed track."), 12, HEADER + 22);
     return;
   }
   const vs = rh.viewStart, span = rh.viewSpan;
@@ -602,11 +603,11 @@ function updateStats() {
   const s = rh.stats;
   const tiles = [
     ["Notes", s.notes],
-    ["Pistes dans la map", `${rh.selected.filter(Boolean).length} / ${rh.lanes.length}`],
-    ["KPS moyen", s.meanKps.toFixed(1)],
-    ["KPS max (1 s)", s.maxKps.toFixed(0)],
-    ["Difficulté", `${s.difficulty.overall.toFixed(2)} ★`],
-    ["Pic de difficulté", `${s.difficulty.peak.toFixed(2)} ★`],
+    [tr("Lanes in the map"), `${rh.selected.filter(Boolean).length} / ${rh.lanes.length}`],
+    [tr("Mean KPS"), s.meanKps.toFixed(1)],
+    [tr("Max KPS (1 s)"), s.maxKps.toFixed(0)],
+    [tr("Difficulty"), `${s.difficulty.overall.toFixed(2)} ★`],
+    [tr("Difficulty peak"), `${s.difficulty.peak.toFixed(2)} ★`],
   ];
   box.innerHTML = tiles.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join("");
   renderCurve();
@@ -655,7 +656,7 @@ function showOutputs() {
 
 function showManualNote() {
   $("rh-manual-note").innerHTML = rh.edited
-    ? `· Pistes modifiées à la main (un changement de paramètre recalcule tout) — <button class="link-btn" type="button" data-auto>revenir au calcul automatique</button>`
+    ? `· ${tr("Lanes edited by hand (changing a parameter recomputes everything)")} — <button class="link-btn" type="button" data-auto>${tr("back to automatic")}</button>`
     : "";
 }
 

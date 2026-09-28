@@ -1,6 +1,7 @@
 // Canvas renderers of the live scan stage (always dark). Dependency-free.
 
 import { STAGES, stageFor, DIMENSIONS } from "../config.js";
+import { t as tr } from "../i18n/index.js";
 
 export const DIM_COLORS = {
   energy: "#fb923c", tempo: "#22d3ee", density: "#a3e635", brightness: "#facc15",
@@ -100,7 +101,7 @@ export function drawGauge(canvas, { value, score, label, caption, active }) {
   ctx.fillText(value == null ? "—" : String(Math.round(value)), cx, cy + 12);
   ctx.font = `600 13px ${FONT}`;
   ctx.fillStyle = value == null ? MUTED : intensityColor(value);
-  ctx.fillText(label ?? "intensité", cx, cy + 36);
+  ctx.fillText(label ?? tr("intensity"), cx, cy + 36);
   ctx.font = `12px ${FONT}`;
   ctx.fillStyle = MUTED;
   if (caption) ctx.fillText(caption, cx, cy + 56);
@@ -303,7 +304,7 @@ export function drawCurve(canvas, { cur, enabled, position }) {
       ctx.fillStyle = TEXT;
       ctx.textAlign = "left";
       ctx.font = `600 10px ${FONT}`;
-      ctx.fillText(`score ${Math.round(score)}`, m.l + 4, Y(score) - 4);
+      ctx.fillText(`${tr("score")} ${Math.round(score)}`, m.l + 4, Y(score) - 4);
     }
   }
   // probe markers
@@ -417,7 +418,7 @@ export class SpectrumView {
 
   draw(canvas, analyser) {
     const { ctx, w, h } = fit(canvas);
-    if (!analyser) return drawEmpty(ctx, w, h, "Capture inactive");
+    if (!analyser) return drawEmpty(ctx, w, h, tr("Capture off"));
     const lv = this.read(analyser);
     const bw = w / this.n;
     const grad = ctx.createLinearGradient(0, h, 0, 0);

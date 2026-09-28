@@ -64,7 +64,7 @@ test("structure: calm / intense / calm sections", () => {
   for (const p of parts) { b.push(o / SR); x.set(p, o); o += p.length; }
   const f = extractFeatures(x, SR);
   assert.ok(Array.isArray(f.sections) && f.sections.length >= 3, JSON.stringify(f.sections));
-  const peaks = f.sections.filter((s) => s.label === "Pic");
+  const peaks = f.sections.filter((s) => s.label === "Peak");
   assert.ok(peaks.length >= 1);
   for (const p of peaks) assert.ok(p.start >= b[2] - 3 && p.end <= b[4] + 3, JSON.stringify(f.sections));
   // a boundary near the start and the end of the intense part

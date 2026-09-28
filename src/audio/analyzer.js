@@ -4,6 +4,7 @@
 
 import { ANALYSIS } from "../config.js";
 import { decodeToMono } from "./decoder.js";
+import { t } from "../i18n/index.js";
 
 function spawnWorker() {
   return new Promise((resolve, reject) => {
@@ -65,7 +66,7 @@ class WorkerPool {
         e.preventDefault?.();
         worker.terminate();
         this.count--;
-        reject(new Error("Échec de l'analyse (worker)."));
+        reject(new Error(t("Analysis failed (worker).")));
       };
       worker.postMessage({ jobId, mono, sampleRate, extra }, [mono.buffer]);
     });

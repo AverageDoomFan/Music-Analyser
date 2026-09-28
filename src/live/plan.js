@@ -7,10 +7,12 @@
 //           then the remaining budget is spent listening longer around the
 //           most intense probes
 
+import { t } from "../i18n/index.js";
+
 export const SCAN_MODES = [
-  { key: "adaptive", label: "Adaptatif", hint: "Sondes courtes sur tout le morceau, puis écoute prolongée autour des passages les plus intenses (drops, refrains)." },
-  { key: "fixed", label: "Extraits fixes", hint: "N extraits de L secondes répartis régulièrement." },
-  { key: "full", label: "Morceau entier", hint: "Écoute complète en temps réel : l'analyse est identique à celle d'un fichier." },
+  { key: "adaptive", label: t("Adaptive"), hint: t("Short probes over the whole track, then longer listening around the most intense passages (drops, choruses).") },
+  { key: "fixed", label: t("Fixed excerpts"), hint: t("N excerpts of L seconds, evenly spread.") },
+  { key: "full", label: t("Whole track"), hint: t("Full real-time listening: the analysis is identical to a file's.") },
 ];
 
 export const SCAN_DEFAULTS = Object.freeze({

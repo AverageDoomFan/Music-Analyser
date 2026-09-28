@@ -15,6 +15,7 @@ import { escapeHtml, formatDuration, formatScore } from "../util/format.js";
 import { CurveEditor } from "./curve-editor.js";
 import { intensityColor } from "./live-draw.js";
 import { toast } from "./toast.js";
+import { t, tn } from "../i18n/index.js";
 
 const $ = (id) => document.getElementById(id);
 const STORE = "mea.set.options";
@@ -35,7 +36,7 @@ const st = {
 export function initSet({ openDetail }) {
   st.openDetail = openDetail;
   restore();
-  $("set-preset").innerHTML = CURVE_PRESETS.map((p) => `<option value="${p.key}">${escapeHtml(p.label)}</option>`).join("") + `<option value="custom">Personnalisée</option>`;
+  $("set-preset").innerHTML = CURVE_PRESETS.map((p) => `<option value="${p.key}">${escapeHtml(p.label)}</option>`).join("") + `<option value="custom">${t("Custom")}</option>`;
   $("set-preset").value = st.preset;
   $("set-preset").addEventListener("change", (e) => {
     const p = CURVE_PRESETS.find((x) => x.key === e.target.value);
@@ -77,8 +78,8 @@ export async function showSet() {
   st.playlists = await ctl.importedPlaylists();
   const src = $("set-source");
   const cur = src.value || st.savedSource || "library";
-  src.innerHTML = `<option value="library">Toute la bibliothèque (${countAnalysed()} morceaux)</option>` +
-    st.playlists.map((p) => `<option value="pl:${escapeHtml(p.id)}">Playlist Spotify · ${escapeHtml(p.name)}</option>`).join("");
+  src.innerHTML = `<option value="library">${t("Whole library ({n} tracks)", { n: countAnalysed() })}</option>` +
+    st.playlists.map((p) => `<option value="pl:${escapeHtml(p.id)}">${t("Spotify playlist")} · ${escapeHtml(p.name)}</option>`).join("");
   src.value = [...src.options].some((o) => o.value === cur) ? cur : "library";
   fillTrackSelects();
   st.editor.draw();
@@ -103,8 +104,8 @@ function pool() {
 }
 
 function fillTrackSelects() {
-  const items = pool().sort((a, b) => a.name.localeCompare(b.name, "fr"));
-  const opts = `<option value="">— libre —</option>` + items.map((t) => `<option value="${escapeHtml(t.id)}">${escapeHtml(t.name)} (${Math.round(t.score)})</option>`).join("");
+  const items = pool().sort((a, b) => a.name.localeCompare(b.name));
+  const opts = `<option value="">— ${t("free")} —</option>` + items.map((it) => `<option value="${escapeHtml(it.id)}">${escapeHtml(it.name)} (${Math.round(it.score)})</option>`).join("");
   for (const id of ["set-first", "set-last"]) {
     const sel = $(id);
     const cur = sel.value || st[`saved_${id}`] || "";
@@ -115,7 +116,7 @@ function fillTrackSelects() {
 
 function generate() {
   const items = pool();
-  if (items.length < 2) return toast("Il faut au moins deux morceaux analysés dans la source choisie.", "error");
+  if (items.length < 2) return toast(t("At least two analysed tracks are needed in the chosen source."), "error");
   const minutes = Number($("set-duration").value) || 0;
   const t0 = performance.now();
   st.result = generateSet(items, {
@@ -137,15 +138,15 @@ function fluidColor(f) {
 }
 
 function transitionTip(s) {
-  const t = s.transition;
-  if (!t) return "";
+  const tr = s.transition;
+  if (!tr) return "";
   const lines = [
-    `Fluidité ${t.fluidity} / 100`,
-    `Enchaînement d'intensité : ${Math.round((s.start ?? s.score) - (st.prev.end ?? st.prev.score))} points`,
-    st.prev.bpmEnd || st.prev.bpm ? `Tempo : ${Math.round(st.prev.bpmEnd ?? st.prev.bpm)} → ${Math.round(s.bpmStart ?? s.bpm ?? 0)} BPM` : "Tempo inconnu",
-    st.prev.keyEnd != null && s.keyStart != null ? `Tonalité : ${camelot(st.prev.keyEnd ?? st.prev.key)} → ${camelot(s.keyStart ?? s.key)} (${t.key < 0.2 ? "compatible" : t.key < 0.6 ? "acceptable" : "dissonant"})` : "Tonalité inconnue",
-    `Timbre : ${t.timbre < 0.35 ? "proche" : t.timbre < 0.7 ? "différent" : "très différent"}`,
-    `Ambiance : ${t.mood < 0.3 ? "proche" : t.mood < 0.6 ? "différente" : "opposée"}`,
+    `${t("Smoothness")} ${tr.fluidity} / 100`,
+    `${t("Intensity seam")}: ${Math.round((s.start ?? s.score) - (st.prev.end ?? st.prev.score))} ${t("points")}`,
+    st.prev.bpmEnd || st.prev.bpm ? `${t("Tempo")}: ${Math.round(st.prev.bpmEnd ?? st.prev.bpm)} → ${Math.round(s.bpmStart ?? s.bpm ?? 0)} BPM` : t("Unknown tempo"),
+    st.prev.keyEnd != null && s.keyStart != null ? `${t("Key")}: ${camelot(st.prev.keyEnd ?? st.prev.key)} → ${camelot(s.keyStart ?? s.key)} (${tr.key < 0.2 ? t("compatible") : tr.key < 0.6 ? t("acceptable") : t("dissonant")})` : t("Unknown key"),
+    `${t("Timbre")}: ${tr.timbre < 0.35 ? t("close") : tr.timbre < 0.7 ? t("different") : t("very different")}`,
+    `${t("Mood")}: ${tr.mood < 0.3 ? t("close") : tr.mood < 0.6 ? t("different") : t("opposite")}`,
   ];
   return lines.join("\n");
 }
@@ -160,39 +161,39 @@ function renderResult() {
     const r = state.records.get(step.id);
     const m = r?.auto?.music;
     const diff = step.score - step.target;
-    const t = step.transition;
+    const tr = step.transition;
     return `<li class="set-row${st.locked.has(step.id) ? " locked" : ""}" data-id="${escapeHtml(step.id)}">
-      ${t ? `<div class="set-trans" title="${escapeHtml(transitionTip(step))}"><span class="fl" style="background:${fluidColor(t.fluidity)}">${t.fluidity}</span>
-        <span class="muted small">${[t.bpm > 0.6 && "tempo ≠", t.key > 0.6 && "tonalité ≠", t.seam > 0.5 && "saut d'intensité", t.timbre > 0.7 && "timbre ≠", t.mood > 0.6 && "ambiance ≠"].filter(Boolean).join(" · ")}</span></div>` : ""}
+      ${tr ? `<div class="set-trans" title="${escapeHtml(transitionTip(step))}"><span class="fl" style="background:${fluidColor(tr.fluidity)}">${tr.fluidity}</span>
+        <span class="muted small">${[tr.bpm > 0.6 && t("tempo ≠"), tr.key > 0.6 && t("key ≠"), tr.seam > 0.5 && t("intensity jump"), tr.timbre > 0.7 && t("timbre ≠"), tr.mood > 0.6 && t("mood ≠")].filter(Boolean).join(" · ")}</span></div>` : ""}
       <div class="set-track">
         <span class="pos">${step.position}</span>
         <span class="time muted small">${formatDuration(step.startAt)}</span>
         <button type="button" class="link-btn nm" data-act="open">${escapeHtml(step.name)}</button>
         <span class="set-meta small">${m?.key ? `<b>${escapeHtml(m.key.camelot)}</b> ` : ""}${m?.tempo ? `${Math.round(m.tempo.bpm)} BPM ` : ""}<span class="muted">${escapeHtml(moodLabel(r?.finalScore, r?.valence))}</span></span>
-        <span class="score-pill" style="background:${intensityColor(step.score)}" title="${escapeHtml(stageFor(step.score).label)} · cible ${Math.round(step.target)}">${formatScore(step.score)}</span>
-        <span class="diff small ${Math.abs(diff) > 15 ? "far" : ""}" title="écart à la courbe">${diff >= 0 ? "+" : ""}${Math.round(diff)}</span>
-        <button type="button" class="icon-btn" data-act="lock" title="${st.locked.has(step.id) ? "Déverrouiller" : "Garder ce morceau dans le set"}" aria-pressed="${st.locked.has(step.id)}">${st.locked.has(step.id) ? "🔒" : "🔓"}</button>
-        <button type="button" class="icon-btn" data-act="exclude" title="Retirer et exclure de la génération">✕</button>
+        <span class="score-pill" style="background:${intensityColor(step.score)}" title="${escapeHtml(stageFor(step.score).label)} · ${t("target {n}", { n: Math.round(step.target) })}">${formatScore(step.score)}</span>
+        <span class="diff small ${Math.abs(diff) > 15 ? "far" : ""}" title=t("gap to the curve")>${diff >= 0 ? "+" : ""}${Math.round(diff)}</span>
+        <button type="button" class="icon-btn" data-act="lock" title="${st.locked.has(step.id) ? t("Unlock") : t("Keep this track in the set")}" aria-pressed="${st.locked.has(step.id)}">${st.locked.has(step.id) ? "🔒" : "🔓"}</button>
+        <button type="button" class="icon-btn" data-act="exclude" title=t("Remove and exclude from generation")>✕</button>
       </div>
     </li>`;
   }).join("");
   out.innerHTML = `
     <div class="stats">
-      <span><b>${s.count}</b> morceaux</span>
+      <span>${tn(s.count, "<b>{n}</b> track", "<b>{n}</b> tracks")}</span>
       <span><b>${formatDuration(s.duration)}</b></span>
-      <span>écart à la courbe <b>${s.curveError}</b> pts</span>
-      <span>fluidité moyenne <b style="color:${fluidColor(s.meanFluidity)}">${s.meanFluidity}</b> / 100</span>
-      <span><b>${s.rough}</b> transition${s.rough > 1 ? "s" : ""} difficile${s.rough > 1 ? "s" : ""}</span>
-      <span class="muted small">calculé en ${res.ms} ms</span>
+      <span>${t("gap to the curve")} <b>${s.curveError}</b> pts</span>
+      <span>${t("mean smoothness")} <b style="color:${fluidColor(s.meanFluidity)}">${s.meanFluidity}</b> / 100</span>
+      <span>${tn(s.rough, "<b>{n}</b> rough transition", "<b>{n}</b> rough transitions")}</span>
+      <span class="muted small">${t("computed in {n} ms", { n: res.ms })}</span>
     </div>
     <div class="toolbar">
-      <button class="btn" data-act="regen" type="button">Régénérer</button>
-      ${st.excluded.size ? `<button class="btn ghost" data-act="unexclude" type="button">Réintégrer les ${st.excluded.size} exclus</button>` : ""}
+      <button class="btn" data-act="regen" type="button">${t("Regenerate")}</button>
+      ${st.excluded.size ? `<button class="btn ghost" data-act="unexclude" type="button">${t("Bring back the {n} excluded", { n: st.excluded.size })}</button>` : ""}
       <span class="spacer"></span>
       <button class="btn" data-act="m3u" type="button">M3U</button>
-      <button class="btn" data-act="txt" type="button">Texte</button>
-      <input type="text" id="set-name" value="Set · ${escapeHtml(CURVE_PRESETS.find((p) => p.key === st.preset)?.label ?? "courbe personnalisée")}" aria-label="Nom de la playlist">
-      <button class="btn primary" data-act="spotify" type="button">Créer sur Spotify</button>
+      <button class="btn" data-act="txt" type="button">${t("Text")}</button>
+      <input type="text" id="set-name" value="Set · ${escapeHtml(CURVE_PRESETS.find((p) => p.key === st.preset)?.label ?? t("custom curve"))}" aria-label="${t("Playlist name")}">
+      <button class="btn primary" data-act="spotify" type="button">${t("Create on Spotify")}</button>
     </div>
     <ol class="set-list">${rows}</ol>`;
 }
@@ -212,10 +213,10 @@ async function onResultClick(e) {
     case "spotify": {
       const name = $("set-name").value.trim() || "Set";
       const ids = st.result.steps.map((s) => s.id);
-      if (!confirm(`Créer la playlist privée « ${name} » (${ids.length} titres) sur ton compte Spotify ?`)) return;
+      if (!confirm(t("Create the private playlist “{name}” ({n} tracks) on your Spotify account?", { name, n: ids.length }))) return;
       try {
-        const res = await createFromRecords(name, ids, "Set généré sur une courbe d'intensité (Music Energy Analyzer).");
-        toast(`Playlist créée : ${res.added} titres${res.missing ? `, ${res.missing} sans équivalent Spotify` : ""}.`);
+        const res = await createFromRecords(name, ids, t("Set generated on an intensity curve (Music Energy Analyzer)."));
+        toast(t("Playlist created: {n} tracks", { n: res.added }) + (res.missing ? t(", {n} without a Spotify match", { n: res.missing }) : "") + ".");
         if (res.url) window.open(res.url, "_blank", "noopener");
       } catch (err) {
         toast(err.message, "error", 7000);
@@ -231,16 +232,16 @@ const steps = () => st.result.steps.map((s) => ({ ...s, stage: stageFor(s.score)
 
 function previewSplit() {
   const items = pool();
-  if (items.length < 2) return toast("Pas assez de morceaux analysés.", "error");
+  if (items.length < 2) return toast(t("Not enough analysed tracks."), "error");
   const by = $("split-by").value;
   const n = Math.max(2, Math.min(8, Number($("split-n").value) || 3));
   let gm = null;
   if (by === "groups") {
     gm = groups(new Map(items.filter((t) => t.fp).map((t) => [t.id, t.fp])), n);
-    if (!gm.size) return toast("Le découpage par timbre demande des morceaux analysés avec la version 1.3.", "error");
+    if (!gm.size) return toast(t("Splitting by timbre needs tracks analysed with version 1.3 or later."), "error");
   } else if (by === "genre") {
     // one playlist per genre (the number is ignored); unlabelled tracks together
-    gm = new Map(items.map((t) => [t.id, ctl.genreInfo(state.records.get(t.id)).label ?? "Sans genre"]));
+    gm = new Map(items.map((it) => [it.id, ctl.genreInfo(state.records.get(it.id)).label ?? t("No genre")]));
   }
   st.split = splitTracks(items, by === "genre" ? "groups" : by, n, gm).map((p, i) => ({ ...p, name: by === "genre" ? p.label : splitName(by, p, i) }));
   renderSplit();
@@ -251,11 +252,11 @@ function splitName(by, p, i) {
   if (by === "stage") return `${stageFor(p.range[0]).label} → ${stageFor(p.range[1]).label}`;
   if (by === "mood") {
     const v = p.items.reduce((a, t) => a + (t.valence ?? 50), 0) / p.items.length;
-    return `${moodLabel(avg, v)} (ambiance ${Math.round(p.range[0])}–${Math.round(p.range[1])})`;
+    return `${moodLabel(avg, v)} (${t("mood")} ${Math.round(p.range[0])}–${Math.round(p.range[1])})`;
   }
   const keys = p.items.map((t) => t.key).filter((k) => k != null);
   const common = keys.length ? keyName(mode(keys)) : "";
-  return `Groupe ${i + 1} · intensité ${Math.round(avg)}${common ? ` · souvent ${common}` : ""}`;
+  return `${t("Group {n}", { n: i + 1 })} · ${t("intensity")} ${Math.round(avg)}${common ? ` · ${t("often {k}", { k: common })}` : ""}`;
 }
 
 function mode(arr) {
@@ -267,11 +268,11 @@ function mode(arr) {
 function renderSplit() {
   $("split-result").innerHTML = st.split.map((p, i) => `
     <div class="split-part">
-      <div class="split-head"><input type="text" value="${escapeHtml(p.name)}" data-split-name="${i}" aria-label="Nom de la playlist ${i + 1}">
-        <span class="muted small">${p.ids.length} morceaux · ${formatDuration(p.items.reduce((a, t) => a + (t.duration ?? 0), 0))}</span>
-        <button class="btn small" data-split-create="${i}" type="button">Créer sur Spotify</button></div>
+      <div class="split-head"><input type="text" value="${escapeHtml(p.name)}" data-split-name="${i}" aria-label="${t("Playlist name")} ${i + 1}">
+        <span class="muted small">${tn(p.ids.length, "{n} track", "{n} tracks")} · ${formatDuration(p.items.reduce((a, t) => a + (t.duration ?? 0), 0))}</span>
+        <button class="btn small" data-split-create="${i}" type="button">${t("Create on Spotify")}</button></div>
       <div class="split-chips">${p.items.slice(0, 40).map((t) => `<span class="split-chip" style="border-color:${intensityColor(t.score)}" title="${escapeHtml(t.name)}">${escapeHtml(t.name)}</span>`).join("")}${p.items.length > 40 ? `<span class="muted small">+${p.items.length - 40}</span>` : ""}</div>
-    </div>`).join("") + (st.split.length ? `<button class="btn primary" data-split-all type="button">Créer les ${st.split.length} playlists sur Spotify</button>` : "");
+    </div>`).join("") + (st.split.length ? `<button class="btn primary" data-split-all type="button">${t("Create the {n} playlists on Spotify", { n: st.split.length })}</button>` : "");
 }
 
 async function onSplitClick(e) {
@@ -279,14 +280,14 @@ async function onSplitClick(e) {
   const all = e.target.closest("[data-split-all]");
   if (!one && !all) return;
   const idx = one ? [Number(one.dataset.splitCreate)] : st.split.map((_, i) => i);
-  if (!confirm(`Créer ${idx.length} playlist${idx.length > 1 ? "s" : ""} privée${idx.length > 1 ? "s" : ""} sur ton compte Spotify ?`)) return;
+  if (!confirm(tn(idx.length, "Create {n} private playlist on your Spotify account?", "Create {n} private playlists on your Spotify account?"))) return;
   for (const i of idx) {
     const name = $("split-result").querySelector(`[data-split-name="${i}"]`)?.value.trim() || st.split[i].name;
     try {
-      const res = await createFromRecords(name, st.split[i].ids, "Découpage automatique (Music Energy Analyzer).");
-      toast(`« ${name} » : ${res.added} titres${res.missing ? `, ${res.missing} sans équivalent Spotify` : ""}.`);
+      const res = await createFromRecords(name, st.split[i].ids, t("Automatic split (Music Energy Analyzer)."));
+      toast(`“${name}”: ${tn(res.added, "{n} track", "{n} tracks")}${res.missing ? t(", {n} without a Spotify match", { n: res.missing }) : ""}.`);
     } catch (err) {
-      toast(`« ${name} » : ${err.message}`, "error", 7000);
+      toast(`“${name}”: ${err.message}`, "error", 7000);
       break;
     }
   }
