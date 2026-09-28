@@ -7,7 +7,7 @@ import { state, subscribe } from "../app/store.js";
 import * as ctl from "../app/controller.js";
 import { engine, lowerBound } from "../audio/engine.js";
 import { bandData, cachedBandData } from "../rhythm/session.js";
-import { buildRhythmMap, laneLabel, boundariesOf } from "../rhythm/notes.js";
+import { buildRhythmMap, laneLabel, mergeLanes, splitLane, poolLayout } from "../rhythm/notes.js";
 import { mapStatistics } from "../rhythm/difficulty.js";
 import { renderTimeline } from "./charts.js";
 import { toast } from "./toast.js";
@@ -17,13 +17,15 @@ const $ = (id) => document.getElementById(id);
 const ROW = 36;
 const HEADER = 18;
 const HEAVY = ["bandsPerOctave", "fMin", "fMax"];
-const MAP_VERSION = 1;
+const MAP_VERSION = 2; // 2: instruments from attack-spectra NMF (lanes are no longer frequency ranges)
 
 const rh = {
   id: null,
   params: { ...RHYTHM_DEFAULTS },
   data: null,          // band data (session only)
-  lanes: [],           // [{b0,b1,lo,hi,activity,notes:Float64Array,strengths:Float32Array}]
+  map: null,           // current map (with in-memory attack data for splits)
+  lanes: [],           // [{lo,hi,centroid,template,activity,notes:Float64Array,strengths:Float32Array}]
+  edited: false,       // lanes merged / split by hand
   duration: 0,
   selected: [],
   source: "music",     // "music" | "none" | "lane:<index>"
@@ -68,21 +70,18 @@ export function initRhythm() {
     rh.params[key] = v;
     showOutputs();
     if (heavy) {
-      rh.params.boundaries = null; // band layout changes: manual lanes no longer apply
       if (rh.id) extract();
     } else rebuild();
   };
   const num = (el) => Number(el.value);
-  $("rh-lanes").addEventListener("change", onParam("lanes", (el) => clampInt(el.value, 1, RHYTHM.maxLanes)));
-  $("rh-mode").addEventListener("change", onParam("groupingMode", (el) => el.value));
-  $("rh-grouping").addEventListener("change", onParam("grouping", num));
+  $("rh-instruments").addEventListener("change", onParam("instruments", num));
   $("rh-sensitivity").addEventListener("change", onParam("sensitivity", num));
-  $("rh-dedupe").addEventListener("change", onParam("dedupe", num));
-  $("rh-dedupe").addEventListener("input", showOutputs);
-  $("rh-grouping").addEventListener("input", showOutputs);
+  $("rh-minstrength").addEventListener("change", onParam("minStrength", num));
+  $("rh-assign").addEventListener("change", onParam("assignRatio", num));
+  for (const id of ["rh-minstrength", "rh-assign"]) $(id).addEventListener("input", showOutputs);
+  $("rh-silence").addEventListener("change", onParam("silenceDb", (el) => clampInt(el.value, 10, 80)));
   $("rh-sensitivity").addEventListener("input", showOutputs);
   $("rh-gap").addEventListener("change", onParam("minGapMs", (el) => clampInt(el.value, 10, 500)));
-  $("rh-merge").addEventListener("change", onParam("mergeNeighbors", (el) => el.checked));
   $("rh-bpo").addEventListener("change", onParam("bandsPerOctave", num, true));
   $("rh-fmin").addEventListener("change", onParam("fMin", (el) => clampInt(el.value, 20, 2000), true));
   $("rh-fmax").addEventListener("change", onParam("fMax", (el) => clampInt(el.value, 2000, 20000), true));
@@ -94,10 +93,7 @@ export function initRhythm() {
     else rebuild();
   });
   document.getElementById("rh-manual-note").addEventListener("click", (e) => {
-    if (e.target.closest("[data-auto]")) {
-      rh.params.boundaries = null;
-      rebuild();
-    }
+    if (e.target.closest("[data-auto]")) rebuild();
   });
 
   // lanes list
@@ -261,45 +257,50 @@ async function extract() {
   }
 }
 
-/** Regroups and re-detects from the cached band data (instant). */
+/** Re-detects notes and instruments from the cached band data (instant). */
 function rebuild() {
-  showManualNote();
   if (!rh.data) {
     if (rh.id && state.files.has(rh.id)) extract();
     return;
   }
   const t0 = performance.now();
-  const map = buildRhythmMap(rh.data, rh.params);
-  const sameLayout = map.lanes.length === rh.lanes.length && map.lanes.every((l, i) => l.b0 === rh.lanes[i].b0);
-  rh.lanes = map.lanes;
-  if (!sameLayout) {
-    rh.selected = rh.lanes.map(() => true);
-    if (rh.source.startsWith("lane:")) rh.source = "music";
-  }
-  computeLevels();
+  const previous = rh.lanes.length;
+  setMap(buildRhythmMap(rh.data, rh.params), false);
+  if (rh.lanes.length !== previous || rh.selected.length !== rh.lanes.length) rh.selected = rh.lanes.map(() => true);
   const n = rh.lanes.reduce((a, l) => a + l.notes.length, 0);
-  setStatus(`${rh.lanes.length} pistes · ${n} notes (${Math.round(performance.now() - t0)} ms)`);
+  setStatus(`${rh.lanes.length} instrument${rh.lanes.length > 1 ? "s" : ""} · ${n} notes (${Math.round(performance.now() - t0)} ms)`);
   renderAll();
   engine.refreshCues();
   save();
 }
 
+function setMap(map, edited) {
+  rh.map = map;
+  rh.lanes = map.lanes;
+  rh.edited = edited;
+  if (rh.source.startsWith("lane:") && Number(rh.source.slice(5)) >= rh.lanes.length) rh.source = "music";
+  computeLevels();
+  showManualNote();
+}
+
 function editLanes(action, i) {
-  if (!rh.data) return toast("Recalcule d'abord la map (fichier requis).", "error");
-  let starts = boundariesOf(rh.lanes);
-  const lane = rh.lanes[i];
+  if (!rh.map) return;
+  let next = null;
   if (action === "merge") {
-    // merge lane i with the lane just below it in frequency (i - 1)
     if (i === 0) return;
-    starts = starts.filter((b) => b !== lane.b0);
+    next = mergeLanes(rh.map, i, i - 1, rh.map.attacks?.pool);
   } else {
-    if (lane.b1 <= lane.b0) return toast("Piste trop étroite pour être scindée.");
+    if (!rh.map.attacks) return toast("Recalcule d'abord les notes (fichier requis) pour pouvoir scinder.", "error");
     if (rh.lanes.length >= RHYTHM.maxLanes) return toast(`${RHYTHM.maxLanes} pistes au maximum.`);
-    const mid = Math.round((lane.b0 + lane.b1 + 1) / 2);
-    starts = [...starts, mid].sort((a, b) => a - b);
+    next = splitLane(rh.map, i);
+    if (!next) return toast("Impossible de scinder cette piste (trop peu de notes ou un seul timbre).");
   }
-  rh.params.boundaries = starts;
-  rebuild();
+  setMap(next, true);
+  rh.selected = rh.lanes.map(() => true);
+  if (rh.source.startsWith("lane:")) rh.source = "music";
+  renderAll();
+  engine.refreshCues();
+  save();
 }
 
 function serialize() {
@@ -309,8 +310,10 @@ function serialize() {
     duration: rh.duration,
     selected: [...rh.selected],
     computedAt: Date.now(),
+    edited: rh.edited,
     lanes: rh.lanes.map((l) => ({
-      b0: l.b0, b1: l.b1, lo: l.lo, hi: l.hi, activity: Math.round(l.activity * 1000) / 1000,
+      lo: l.lo, hi: l.hi, centroid: l.centroid, activity: Math.round(l.activity * 1000) / 1000,
+      template: Array.from(l.template ?? [], (v) => Math.round(v * 1000) / 1000),
       notes: Array.from(l.notes, (t) => Math.round(t * 1000)),
       strengths: Array.from(l.strengths, (s) => Math.round(s * 100)),
     })),
@@ -322,9 +325,12 @@ function restore(saved) {
   rh.duration = saved.duration;
   rh.lanes = saved.lanes.map((l) => ({
     ...l,
+    template: Float32Array.from(l.template ?? []),
     notes: Float64Array.from(l.notes, (ms) => ms / 1000),
     strengths: Float32Array.from(l.strengths, (s) => s / 100),
   }));
+  rh.map = { lanes: rh.lanes, params: rh.params, duration: saved.duration };
+  rh.edited = !!saved.edited;
   rh.selected = rh.lanes.map((_, i) => saved.selected?.[i] ?? true);
 }
 
@@ -337,18 +343,26 @@ function save() {
   saveTimer = setTimeout(() => ctl.saveRhythm(id, payload), 400);
 }
 
+/** Display background: the band levels weighted by each instrument's template. */
 function computeLevels() {
   rh.levels = [];
   const d = rh.data;
   if (!d) return;
-  const nl = Math.ceil(d.nf / d.levelStep);
+  const pool = poolLayout(d.bands);
   for (const lane of rh.lanes) {
-    const lv = new Float32Array(nl);
-    for (let b = lane.b0; b <= lane.b1; b++) for (let i = 0; i < nl; i++) lv[i] = Math.max(lv[i], d.level[b * nl + i]);
+    const lv = new Float32Array(d.nf);
+    if (!lane.template?.length || lane.template.length !== pool.n) { rh.levels.push(null); continue; }
+    const w = d.bands.map((_, b) => lane.template[pool.idx[b]] ** 2);
+    const tot = w.reduce((a, x) => a + x, 0) || 1;
+    for (let b = 0; b < d.nb; b++) {
+      if (w[b] < 1e-4 * tot) continue;
+      const row = b * d.nf, wb = w[b] / tot;
+      for (let t = 0; t < d.nf; t++) lv[t] += wb * d.level[row + t];
+    }
     const sorted = Float32Array.from(lv).sort();
     const lo = sorted[Math.floor(sorted.length * 0.1)] ?? 0;
     const hi = sorted[Math.floor(sorted.length * 0.98)] ?? 1;
-    for (let i = 0; i < nl; i++) lv[i] = Math.max(0, Math.min(1, (lv[i] - lo) / (hi - lo || 1)));
+    for (let t = 0; t < d.nf; t++) lv[t] = Math.max(0, Math.min(1, (lv[t] - lo) / (hi - lo || 1)));
     rh.levels.push(lv);
   }
 }
@@ -620,13 +634,12 @@ function renderCurve() {
 
 function showParams() {
   const p = rh.params;
-  $("rh-lanes").value = p.lanes;
-  $("rh-mode").value = p.groupingMode;
-  $("rh-grouping").value = p.grouping;
+  $("rh-instruments").value = String(p.instruments ?? 0);
+  $("rh-minstrength").value = p.minStrength;
+  $("rh-assign").value = p.assignRatio;
+  $("rh-silence").value = p.silenceDb;
   $("rh-sensitivity").value = p.sensitivity;
-  $("rh-dedupe").value = p.dedupe;
   $("rh-gap").value = p.minGapMs;
-  $("rh-merge").checked = p.mergeNeighbors;
   $("rh-bpo").value = String(p.bandsPerOctave);
   $("rh-fmin").value = p.fMin;
   $("rh-fmax").value = p.fMax;
@@ -634,15 +647,15 @@ function showParams() {
 }
 
 function showOutputs() {
-  for (const id of ["rh-grouping", "rh-sensitivity", "rh-dedupe"]) {
+  for (const id of ["rh-sensitivity", "rh-minstrength", "rh-assign"]) {
     const el = $(id);
     el.nextElementSibling.textContent = Number(el.value).toFixed(2);
   }
 }
 
 function showManualNote() {
-  $("rh-manual-note").innerHTML = rh.params.boundaries?.length
-    ? `· Pistes modifiées à la main — <button class="link-btn" type="button" data-auto>revenir au regroupement automatique</button>`
+  $("rh-manual-note").innerHTML = rh.edited
+    ? `· Pistes modifiées à la main (un changement de paramètre recalcule tout) — <button class="link-btn" type="button" data-auto>revenir au calcul automatique</button>`
     : "";
 }
 

@@ -106,20 +106,15 @@
       <details class="card rh-params" id="rh-params">
         <summary><strong>Paramètres de découpage</strong> <span class="muted small">— si la détection est mauvaise</span></summary>
         <div class="rh-params-grid">
-          <label>Pistes max <input type="number" id="rh-lanes" min="1" max="8" step="1"></label>
-          <label>Regroupement
-            <select id="rh-mode">
-              <option value="auto">Auto — timbre ou attaques simultanées</option>
-            <option value="timbre">Timbre — même son (kick, caisse, charley…)</option>
-              <option value="rhythm">Rythme — attaques simultanées (mélodies)</option>
-            </select>
+          <label>Instruments (pistes)
+            <select id="rh-instruments"><option value="0">Auto</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option></select>
           </label>
-          <label>Seuil de regroupement <input type="range" id="rh-grouping" min="0.05" max="0.95" step="0.05"><output></output></label>
           <label>Sensibilité <input type="range" id="rh-sensitivity" min="0" max="1" step="0.05"><output></output></label>
+          <label title="Une note plus faible que cette part des notes fortes de sa piste est considérée comme un reste d'un autre son.">Filtre des notes faibles <input type="range" id="rh-minstrength" min="0" max="0.8" step="0.05"><output></output></label>
+          <label title="Une attaque compte aussi pour un second instrument s'il en porte au moins cette part (coups simultanés).">Partage entre instruments <input type="range" id="rh-assign" min="0.1" max="1" step="0.05"><output></output></label>
           <label>Écart min. entre notes (ms) <input type="number" id="rh-gap" min="10" max="500" step="5"></label>
-          <label title="Un son déborde dans les autres pistes (clic d'attaque, harmoniques). Parmi des notes simultanées de pistes différentes, celles plus faibles que ce rapport × la plus forte sont supprimées. 0 = désactivé.">Suppression des échos entre pistes <input type="range" id="rh-dedupe" min="0" max="0.9" step="0.05"><output></output></label>
-        <label class="check"><input type="checkbox" id="rh-merge"> Une seule note quand deux pistes voisines frappent ensemble</label>
-          <label>Bandes / octave <select id="rh-bpo"><option>4</option><option>6</option><option>8</option><option>12</option></select></label>
+          <label title="Aucune note là où la musique est plus faible que son niveau fort moins ce nombre de dB.">Porte de silence (dB) <input type="number" id="rh-silence" min="10" max="80" step="1"></label>
+          <label>Résolution (bandes / octave) <select id="rh-bpo"><option>12</option><option>24</option><option>36</option></select></label>
           <label>Fréquence min. (Hz) <input type="number" id="rh-fmin" min="20" max="2000" step="5"></label>
           <label>Fréquence max. (Hz) <input type="number" id="rh-fmax" min="2000" max="20000" step="100"></label>
         </div>
