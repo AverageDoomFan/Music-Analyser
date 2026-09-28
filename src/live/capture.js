@@ -29,9 +29,11 @@ export async function audioInputs({ ask = false } = {}) {
 /**
  * @param {{source:"system"|"device", deviceId?:string, onData:(Float32Array)=>void, onEnded?:()=>void}} o
  */
-export async function startCapture({ source, deviceId, onData, onEnded = () => {} }) {
+export async function startCapture({ source, deviceId, stream: given, onData, onEnded = () => {} }) {
   let stream;
-  if (source === "system") {
+  if (source === "stream") {
+    stream = given; // demo mode: a MediaStream produced by the app itself
+  } else if (source === "system") {
     stream = await navigator.mediaDevices.getDisplayMedia({
       video: { frameRate: 1, width: { ideal: 320 }, height: { ideal: 180 } },
       audio: { ...RAW, suppressLocalAudioPlayback: true },
@@ -108,7 +110,7 @@ export async function startCapture({ source, deviceId, onData, onEnded = () => {
   const stop = () => {
     if (stopped) return;
     stopped = true;
-    stream.getTracks().forEach((t) => t.stop());
+    if (source !== "stream") stream.getTracks().forEach((t) => t.stop());
     proc.port && (proc.port.onmessage = null);
     ctx.close().catch(() => {});
   };
@@ -116,7 +118,7 @@ export async function startCapture({ source, deviceId, onData, onEnded = () => {
     if (!stopped) { stop(); onEnded(); }
   });
   return {
-    label: source === "system" ? "Audio système (partage d'écran)" : audioTrack.label || "Entrée audio",
+    label: source === "stream" ? "Démo (morceaux de synthèse)" : source === "system" ? "Audio système (partage d'écran)" : audioTrack.label || "Entrée audio",
     contextRate: ctx.sampleRate,
     analyser, left, right,
     stop,

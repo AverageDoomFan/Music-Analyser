@@ -9,6 +9,7 @@ import { matchPlaylist } from "../spotify/match.js";
 import { analyzePcm } from "../audio/analyzer.js";
 import { startCapture, audioInputs, captureSupport } from "../live/capture.js";
 import { Scanner } from "../live/scanner.js";
+import { createDemo } from "../live/demo.js";
 import { SCAN_MODES, SCAN_DEFAULTS, MODE_RANK, estimateTrackSeconds, coveredSeconds } from "../live/plan.js";
 import { DIMENSIONS, stageFor } from "../config.js";
 import { escapeHtml, formatDuration } from "../util/format.js";
@@ -35,7 +36,9 @@ const lv = {
   queueKey: "",
   wakeLock: null,
   openDetail: () => {},
+  demo: null,          // demo instance (fake Spotify + stream)
 };
+const demoOn = () => $("lv-demo").checked;
 const spectrum = new SpectrumView(96);
 const spectrogram = new Spectrogram();
 const meters = new Meters();
@@ -60,6 +63,8 @@ export function initLive({ openDetail }) {
   $("lv-reconnect").addEventListener("click", () => auth.beginLogin().catch(showError));
   for (const id of ["lv-count", "lv-length", "lv-budget", "lv-gap", "lv-skip-files", "lv-rescan"]) $(id).addEventListener("change", () => { saveOptions(); renderEstimate(); });
   $("lv-start").addEventListener("click", () => startScan().catch(showError));
+  $("lv-demo").addEventListener("change", () => toggleDemo().catch(showError));
+  $("lv-demo-audible").addEventListener("change", (e) => lv.demo?.setAudible(e.target.checked));
   $("lv-pause").addEventListener("click", () => (lv.status?.paused ? lv.scanner?.resume() : lv.scanner?.pause()));
   $("lv-skip").addEventListener("click", () => lv.scanner?.skip());
   $("lv-stop").addEventListener("click", () => lv.scanner?.stop());
@@ -77,7 +82,7 @@ export function initLive({ openDetail }) {
 /** Called when the tab becomes visible. */
 export async function showLive() {
   lv.dirty = true;
-  lv.playlist = await ctl.spotifyStore.get("playlist").catch(() => null);
+  lv.playlist = demoOn() && lv.demo ? demoPlaylist() : await ctl.spotifyStore.get("playlist").catch(() => null);
   renderSetup();
   renderQueue(true);
   renderSession();
@@ -86,7 +91,35 @@ export async function showLive() {
 
 // ------------------------------------------------------------------ setup
 
-const source = () => document.querySelector('input[name="lv-source"]:checked')?.value ?? "system";
+const source = () => (demoOn() ? "stream" : document.querySelector('input[name="lv-source"]:checked')?.value ?? "system");
+
+const demoPlaylist = () => ({ id: "demo", name: "Démo · banc d'essai", tracks: lv.demo.tracks });
+
+async function toggleDemo() {
+  if (lv.status?.running) {
+    $("lv-demo").checked = !demoOn();
+    return toast("Arrête d'abord le scan en cours.");
+  }
+  if (lv.capture) stopCaptureNow();
+  $("lv-demo-audible-row").hidden = !demoOn();
+  if (demoOn()) {
+    if (!lv.demo) {
+      $("lv-playlist-info").textContent = "Préparation des morceaux de démo…";
+      lv.demo = await createDemo({
+        audible: $("lv-demo-audible").checked,
+        onProgress: (d, n) => { $("lv-playlist-info").textContent = `Préparation des morceaux de démo… ${d}/${n}`; },
+      });
+    }
+    lv.playlist = demoPlaylist();
+  } else {
+    lv.playlist = await ctl.spotifyStore.get("playlist").catch(() => null);
+  }
+  lv.status = null;
+  lv.lastCurrent = null;
+  renderSetup();
+  renderQueue(true);
+  renderSession();
+}
 
 function options() {
   const num = (id, lo, hi, d) => {
@@ -183,6 +216,12 @@ async function loadDevices() {
 }
 
 function renderSetup() {
+  if (demoOn() && lv.demo) {
+    $("lv-scope-warn").hidden = true;
+    $("lv-playlist-info").innerHTML = `Démo : <b>${lv.demo.tracks.length} morceaux de synthèse</b> joués par un faux Spotify. Les résultats rejoignent la bibliothèque, marqués « Test ».`;
+    renderEstimate();
+    return;
+  }
   const logged = auth.isLoggedIn();
   $("lv-scope-warn").hidden = !logged || auth.hasScopes(auth.PLAYBACK_SCOPES);
   const pl = lv.playlist;
@@ -233,6 +272,7 @@ async function beginCapture() {
   try {
     lv.capture = await startCapture({
       source: src,
+      stream: src === "stream" ? lv.demo?.stream : undefined,
       deviceId: src === "device" ? $("lv-device").value || undefined : undefined,
       onData: (b) => {
         lv.scanner?.feed(b);
@@ -279,31 +319,49 @@ function renderCapture() {
 
 async function startScan() {
   if (lv.status?.running) return;
-  if (!auth.isLoggedIn()) throw new Error("Connecte d'abord ton compte Spotify (onglet Spotify).");
-  if (!auth.hasScopes(auth.PLAYBACK_SCOPES)) {
-    $("lv-scope-warn").hidden = false;
-    throw new Error("Reconnecte Spotify pour autoriser le contrôle de lecture.");
+  const demo = demoOn();
+  if (demo && !lv.demo) await toggleDemo();
+  if (!demo) {
+    if (!auth.isLoggedIn()) throw new Error("Connecte d'abord ton compte Spotify (onglet Spotify), ou coche « Mode démo ».");
+    if (!auth.hasScopes(auth.PLAYBACK_SCOPES)) {
+      $("lv-scope-warn").hidden = false;
+      throw new Error("Reconnecte Spotify pour autoriser le contrôle de lecture.");
+    }
   }
-  lv.playlist = await ctl.spotifyStore.get("playlist").catch(() => null);
+  lv.playlist = demo ? demoPlaylist() : await ctl.spotifyStore.get("playlist").catch(() => null);
   const { todo } = scanList();
   if (!lv.playlist) throw new Error("Importe d'abord une playlist dans l'onglet Spotify.");
   if (!todo.length) return toast("Tous les titres sont déjà analysés avec ce mode (coche « Réanalyser » pour recommencer).");
   await beginCapture();
-  if (!$("lv-spdevice").value) await loadDevices();
-  const deviceId = $("lv-spdevice").value;
-  if (!deviceId) throw new Error("Aucun appareil Spotify : ouvre l'application Spotify sur ce PC, puis « Actualiser ».");
-
+  let player;
+  if (demo) {
+    player = lv.demo.player;
+  } else {
+    if (!$("lv-spdevice").value) await loadDevices();
+    const deviceId = $("lv-spdevice").value;
+    if (!deviceId) throw new Error("Aucun appareil Spotify : ouvre l'application Spotify sur ce PC, puis « Actualiser ».");
+    player = {
+      play: (uri, ms) => api.play(deviceId, uri, ms),
+      pause: () => api.pause(deviceId),
+      state: () => api.playbackState(),
+    };
+  }
   const o = options();
-  const player = {
-    play: (uri, ms) => api.play(deviceId, uri, ms),
-    pause: () => api.pause(deviceId),
-    state: () => api.playbackState(),
-  };
   lv.scanner = new Scanner({
     player,
-    analyze: (mono, sr, extra) => analyzePcm(mono, sr, extra),
+    analyze: (mono, sr, extra) => {
+      // keep a copy for the optional Essentia models (the buffer goes to the worker)
+      lv.lastPcm = { mono: mono.slice(), sr };
+      return analyzePcm(mono, sr, extra);
+    },
     analyzeLive: (mono, sr, extra) => analyzePcm(mono, sr, extra),
-    save: (track, features, info) => ctl.saveCaptured(track, features, info),
+    save: async (track, features, info) => {
+      const rec = await ctl.saveCaptured(track, features, info);
+      const pcm = lv.lastPcm;
+      lv.lastPcm = null;
+      if (pcm && (await ctl.essentiaAuto())) ctl.runEssentiaOnPcm(rec.id, pcm.mono, pcm.sr).catch((err) => console.warn("Essentia", err));
+      return rec;
+    },
     scoring: ctl.scoring,
     onUpdate: (s) => { lv.status = s; lv.lastUpdate = performance.now(); lv.dirty = true; },
   });
@@ -488,7 +546,7 @@ function renderQueue(force = false) {
     const rec = recordFor(q.track);
     const score = q.score ?? rec?.finalScore ?? null;
     const st = q.state === "pending" && rec?.finalScore != null ? "cached" : q.state;
-    const sub = [q.track.artists?.join(", "), rec?.source?.kind === "spotify" ? `capté ${rec.source.mode === "full" ? "en entier" : `à ${Math.round((rec.source.coverage ?? 0) * 100)} %`}` : rec ? "fichier local" : "", q.message].filter(Boolean).join(" · ");
+    const sub = [q.track.artists?.join(", "), rec?.source?.mode ? `capté ${rec.source.mode === "full" ? "en entier" : `à ${Math.round((rec.source.coverage ?? 0) * 100)} %`}` : rec ? "fichier local" : "", q.message].filter(Boolean).join(" · ");
     return `<li class="${st === "current" ? "current" : ""}" ${rec ? `data-record="${escapeHtml(rec.id)}" style="cursor:pointer"` : ""}>
       <span class="ico" title="${st}">${STATE_ICON[st] ?? "·"}</span>
       ${q.track.image ? `<img class="thumb" src="${escapeHtml(q.track.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="thumb"></span>`}

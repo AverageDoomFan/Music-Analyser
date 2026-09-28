@@ -5,16 +5,17 @@ import { AUDIO_EXTENSIONS, DEFAULT_WEIGHTS, FEATURE_VERSION, AGGREGATIONS, DEFAU
 import { state, notify } from "./store.js";
 import { db } from "../storage/db.js";
 import { buildExport, downloadJson, parseExport, mergeRecord } from "../storage/backup.js";
-import { LocalFileSource } from "../audio/sources.js";
+import { LocalFileSource, TestSource } from "../audio/sources.js";
 import { analyzeAudio } from "../audio/analyzer.js";
 import { readTags } from "../util/tags.js";
 import {
   createRecord, applyFeatures, rescore, commitCorrection, clearCorrection, setManualScore,
-  setLyricsRating, setVocals,
+  setLyricsRating, setVocals, computeFinal as computeFinalFor,
 } from "../core/track.js";
 import { lookupLyrics } from "../util/lyrics.js";
 import { parseFileName } from "../util/tags.js";
 import { fingerprints, similarTo } from "../scoring/similarity.js";
+import { genrePath, normalizeGenre, genreVector, suggestGenres, SEP } from "../scoring/genres.js";
 import { fitWeights, fitPairwise } from "../scoring/learning.js";
 import { buildProgression as buildOrder } from "../playlist/progression.js";
 
@@ -59,6 +60,22 @@ export function importFiles(fileList) {
   const accepted = files.filter(isAudioFile);
   for (const file of accepted) enqueue(new LocalFileSource(file));
   return { accepted: accepted.length, rejected: files.length - accepted.length };
+}
+
+/** Queues generated test-bench tracks ({file, testId}). */
+export function importTestTracks(items) {
+  for (const { file, testId } of items) enqueue(new TestSource(file, testId));
+}
+
+export async function deleteTestTracks() {
+  const ids = [...state.records.values()].filter((r) => r.source?.kind === "test").map((r) => r.id);
+  for (const id of ids) {
+    state.records.delete(id);
+    state.files.delete(id);
+    await db.deleteTrack(id);
+  }
+  notify();
+  return ids.length;
 }
 
 export function enqueue(source, { force = false } = {}) {
@@ -128,6 +145,7 @@ async function ingest({ identity, meta, sourceDesc, job, force, analyze }) {
       // Cache hit: no decoding, no analysis.
       rescore(existing, scoring());
       if (!existing.name) existing.name = meta.name;
+      if (sourceDesc?.kind === "test") existing.source = sourceDesc;
       if (meta.tags && !existing.tags) existing.tags = meta.tags;
       await db.putTrack(existing);
       state.queue.cached++;
@@ -152,6 +170,7 @@ async function ingest({ identity, meta, sourceDesc, job, force, analyze }) {
     applyFeatures(record, features, scoring());
     await db.putTrack(record);
     lookupMissingLyrics();
+    if (state.files.has(record.id)) queueEssentia(record.id);
   } catch (err) {
     console.error(err);
     state.queue.errors++;
@@ -176,7 +195,8 @@ export function onToast(fn) { toastHook = fn; }
 export function reanalyze(id) {
   const file = state.files.get(id);
   if (!file) return false;
-  enqueue(new LocalFileSource(file), { force: true });
+  const r = state.records.get(id);
+  enqueue(r?.source?.kind === "test" ? new TestSource(file, r.source.test) : new LocalFileSource(file), { force: true });
   return true;
 }
 
@@ -359,6 +379,142 @@ export function libraryFingerprints() {
 }
 export const similarTracks = (id, k = 5) => similarTo(id, libraryFingerprints(), k);
 
+// ---------- Essentia models (optional) ----------
+
+export const essentiaModels = async () => (await db.getSetting("essentiaModels").catch(() => null)) ?? [];
+export const essentiaAuto = async () => !!(await db.getSetting("essentiaAuto").catch(() => false));
+export const setEssentiaAuto = (on) => db.setSetting("essentiaAuto", !!on);
+
+export async function importEssentiaModels(files) {
+  const { importModels } = await import("../ml/essentia.js");
+  const added = await importModels(files);
+  const list = (await essentiaModels()).filter((m) => !added.some((a) => a.name === m.name));
+  await db.setSetting("essentiaModels", [...list, ...added]);
+  return added;
+}
+
+export async function removeEssentiaModel(name) {
+  const { removeModel } = await import("../ml/essentia.js");
+  await removeModel(name);
+  await db.setSetting("essentiaModels", (await essentiaModels()).filter((m) => m.name !== name));
+}
+
+/** Stores model predictions; the voice prediction only fills an unknown / non-user state. */
+async function storeMl(r, res) {
+  r.ml = res;
+  if (res.voice != null && r.vocals?.source !== "user") {
+    r.vocals = { state: res.voice >= 0.5 ? "vocal" : "instrumental", source: "essentia", at: Date.now() };
+    if (r.vocals.state === "instrumental" && r.lyrics) r.lyrics = null;
+  }
+  r.finalScore = computeFinalFor(r);
+  r.updatedAt = Date.now();
+  genreCache.key = "";
+  await save(r);
+}
+
+/** Essentia on a track whose file is in this session. */
+export async function runEssentia(id) {
+  const r = state.records.get(id);
+  const file = state.files.get(id);
+  if (!r || !file) throw new Error("Fichier non disponible dans cette session : réimporte-le.");
+  const models = await essentiaModels();
+  if (!models.length) throw new Error("Importe d'abord des modèles Essentia (Paramètres).");
+  const { analyzeWithModels } = await import("../ml/essentia.js");
+  const { decodeToMono } = await import("../audio/decoder.js");
+  const dec = await decodeToMono(await file.arrayBuffer());
+  await storeMl(r, await analyzeWithModels(dec.mono, dec.sampleRate, models));
+}
+
+/** Essentia on audio already in memory (live captures). */
+export async function runEssentiaOnPcm(id, mono, sampleRate) {
+  const r = state.records.get(id);
+  const models = await essentiaModels();
+  if (!r || !models.length) return;
+  const { analyzeWithModels } = await import("../ml/essentia.js");
+  await storeMl(r, await analyzeWithModels(mono, sampleRate, models));
+}
+
+const essentiaQueue = [];
+let essentiaBusy = false;
+/** Background runs after an analysis, when enabled. */
+export async function queueEssentia(id) {
+  if (!(await essentiaAuto()) || !(await essentiaModels()).length) return;
+  essentiaQueue.push(id);
+  if (essentiaBusy) return;
+  essentiaBusy = true;
+  try {
+    while (essentiaQueue.length) {
+      const next = essentiaQueue.shift();
+      try { await runEssentia(next); } catch (err) { console.warn("Essentia", err); }
+    }
+  } finally {
+    essentiaBusy = false;
+  }
+}
+
+// ---------- personal genres ----------
+
+/** Sets (or clears) the user's genre label; the user's label always wins. */
+export async function setGenre(id, label) {
+  const r = state.records.get(id);
+  if (!r) return;
+  const norm = normalizeGenre(label);
+  r.genre = norm ? { label: norm, source: "user", at: Date.now() } : null;
+  r.updatedAt = Date.now();
+  genreCache.key = "";
+  await save(r);
+}
+
+/** Every label in use (user labels, then model predictions), most used first. */
+export function allGenres() {
+  const count = new Map();
+  for (const r of state.records.values()) {
+    const g = r.genre?.label;
+    if (!g) continue;
+    const path = genrePath(g);
+    for (let i = 1; i <= path.length; i++) {
+      const k = path.slice(0, i).join(SEP);
+      count.set(k, (count.get(k) ?? 0) + (i === path.length ? 1 : 0.001));
+    }
+  }
+  return [...count.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k);
+}
+
+const genreCache = { key: "", map: new Map() };
+/** kNN suggestions for every unlabelled record (recomputed when labels or analyses change). */
+function genreSuggestions() {
+  const key = [...state.records.values()].map((r) => `${r.id}:${r.genre?.label ?? ""}:${r.featureVersion}:${Math.round(r.finalScore ?? -1)}`).join("|");
+  if (key === genreCache.key) return genreCache.map;
+  const fps = libraryFingerprints();
+  const vecs = new Map();
+  for (const r of state.records.values()) {
+    const v = genreVector(r, fps.get(r.id));
+    if (v) vecs.set(r.id, v);
+  }
+  const labelled = [...state.records.values()].filter((r) => r.genre?.source === "user" && vecs.has(r.id)).map((r) => ({ id: r.id, label: r.genre.label, vec: vecs.get(r.id) }));
+  const map = new Map();
+  for (const [id, v] of vecs) {
+    const others = labelled.filter((l) => l.id !== id);
+    if (others.length) map.set(id, suggestGenres(v, others));
+  }
+  genreCache.key = key;
+  genreCache.map = map;
+  return map;
+}
+
+/**
+ * Genre of a record: { label, source: "user" | "essentia" | "voisins", confidence, suggestions, ml }.
+ * Only the user's label is certain; the others are shown as suggestions.
+ */
+export function genreInfo(r) {
+  const suggestions = genreSuggestions().get(r.id) ?? [];
+  const ml = r.ml?.genres ?? [];
+  if (r.genre?.label) return { label: r.genre.label, source: "user", confidence: 1, suggestions, ml };
+  if (ml[0] && ml[0].p >= 0.5) return { label: ml[0].label, source: "essentia", confidence: ml[0].p, suggestions, ml };
+  if (suggestions[0] && suggestions[0].confidence >= 0.45) return { label: suggestions[0].label, source: "voisins", confidence: suggestions[0].confidence, suggestions, ml };
+  return { label: null, source: null, confidence: 0, suggestions, ml };
+}
+
 /** Stores a track's rhythm map (lanes, notes, parameters, selection). */
 export async function saveRhythm(id, rhythm) {
   const r = state.records.get(id);
@@ -516,9 +672,11 @@ export async function saveCaptured(track, features, info) {
   const record = state.records.get(id) ?? createRecord({ id, hashAlgorithm: "spotify-id", name, size: null, type: "spotify", lastModified: null });
   record.name = name;
   record.source = {
-    kind: "spotify", trackId: track.id, uri: track.uri, url: track.url ?? null, image: track.image ?? null,
+    kind: track.demo ? "test" : "spotify", test: track.demo ? track.id : undefined,
+    trackId: track.id, uri: track.uri, url: track.url ?? null, image: track.image ?? null,
     mode: info.mode, coverage: info.coverage, excerpts: info.excerpts, probes: info.probes, capturedAt: Date.now(),
   };
+  if (track.demo) record.name = `Démo · ${track.name}`;
   record.tags = { title: track.name, artist: track.artists?.join(", ") ?? "", album: track.album ?? "", isrc: track.isrc ?? null, source: "spotify" };
   state.records.set(id, record);
   applyFeatures(record, features, scoring());

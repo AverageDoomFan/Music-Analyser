@@ -35,15 +35,74 @@
     </section>
 
     <nav class="tabs" role="tablist">
-      <button role="tab" id="tab-library" aria-selected="true" aria-controls="panel-library">Bibliothèque <span class="count" id="library-count">0</span></button>
-      <button role="tab" id="tab-progression" aria-selected="false" aria-controls="panel-progression">Progression</button>
-      <button role="tab" id="tab-set" aria-selected="false" aria-controls="panel-set">Set</button>
-      <button role="tab" id="tab-rhythm" aria-selected="false" aria-controls="panel-rhythm">Rythme</button>
+      <button role="tab" id="tab-home" aria-selected="true" aria-controls="panel-home">Accueil</button>
+      <button role="tab" id="tab-library" aria-selected="false" aria-controls="panel-library">Bibliothèque <span class="count" id="library-count">0</span></button>
       <button role="tab" id="tab-spotify" aria-selected="false" aria-controls="panel-spotify">Spotify</button>
       <button role="tab" id="tab-live" aria-selected="false" aria-controls="panel-live"><span class="live-dot" id="live-tab-dot" aria-hidden="true"></span>Direct</button>
+      <button role="tab" id="tab-set" aria-selected="false" aria-controls="panel-set">Set</button>
+      <button role="tab" id="tab-progression" aria-selected="false" aria-controls="panel-progression">Progression</button>
+      <button role="tab" id="tab-rhythm" aria-selected="false" aria-controls="panel-rhythm">Rythme</button>
+      <button role="tab" id="tab-lab" aria-selected="false" aria-controls="panel-lab">Banc d'essai</button>
+      <a class="tab-link" href="guide.html" target="_blank" rel="noopener">Guide ↗</a>
     </nav>
 
-    <section id="panel-library" role="tabpanel" aria-labelledby="tab-library">
+    <section id="panel-home" role="tabpanel" aria-labelledby="tab-home">
+      <div class="home-hero">
+        <div>
+          <h2>Classe ta musique selon ce qu'elle fait ressentir</h2>
+          <p>Chaque morceau est analysé dans ton navigateur : intensité de 0 (calme) à 100 (bruitiste), tempo, tonalité, ambiance, structure, genre. Ensuite, trie, compare et construis des playlists qui suivent la courbe que tu veux.</p>
+        </div>
+        <div class="home-actions">
+          <button class="btn primary" type="button" data-home="import">📁 Importer des fichiers</button>
+          <button class="btn" type="button" data-home="tab-spotify">🎧 Partir d'une playlist Spotify</button>
+          <button class="btn" type="button" data-home="tab-lab">🧪 Essayer sans rien (banc d'essai)</button>
+          <a class="btn ghost" href="guide.html" target="_blank" rel="noopener">📖 Lire le guide</a>
+        </div>
+      </div>
+      <div class="home-status" id="home-status"></div>
+      <h3>Par où commencer ?</h3>
+      <div class="home-paths">
+        <div class="card home-path">
+          <h4>J'ai mes fichiers audio</h4>
+          <ol>
+            <li>Dépose-les (ou un dossier entier) dans la zone en haut.</li>
+            <li><b>Bibliothèque</b> : scores, courbes, tonalité, ambiance ; ouvre un morceau pour tout voir.</li>
+            <li>Ajuste à ton ressenti : paroles, duels, genres.</li>
+            <li><b>Set</b> : dessine une courbe, obtiens une playlist ordonnée.</li>
+          </ol>
+        </div>
+        <div class="card home-path">
+          <h4>J'ai une playlist Spotify</h4>
+          <ol>
+            <li><b>Spotify</b> : connecte ton compte (une fois) et importe la playlist.</li>
+            <li><b>Direct</b> : l'app fait jouer chaque titre sur ton Spotify et l'analyse en temps réel.</li>
+            <li>Carte, comparaison, découpage, playlist triée créée sur ton compte.</li>
+          </ol>
+        </div>
+        <div class="card home-path">
+          <h4>Je veux d'abord voir</h4>
+          <ol>
+            <li><b>Banc d'essai</b> : des morceaux de synthèse qui font varier une seule variable, du min au max.</li>
+            <li><b>Direct</b> › Mode démo : le scan en direct sans Spotify.</li>
+            <li>Les morceaux de test servent aussi à essayer Set, duels et genres.</li>
+          </ol>
+        </div>
+      </div>
+      <h3>Les onglets</h3>
+      <div class="home-features">
+        <button type="button" class="home-feature" data-home="tab-library"><b>📚 Bibliothèque</b><span>Tous tes morceaux : score, courbe, tonalité, BPM, ambiance, genre. Tri, filtres, fiche détaillée, paroles, duels, genres.</span></button>
+        <button type="button" class="home-feature" data-home="tab-spotify"><b>🎧 Spotify</b><span>Importer une playlist, associer tes fichiers, carte intensité × ambiance, comparer deux playlists, créer la playlist triée.</span></button>
+        <button type="button" class="home-feature" data-home="tab-live"><b>🔴 Direct</b><span>Scanner une playlist en la faisant jouer : graphes en temps réel, modes entier / extraits / adaptatif, mode démo.</span></button>
+        <button type="button" class="home-feature" data-home="tab-set"><b>📈 Set</b><span>Dessine la courbe d'intensité voulue : l'app choisit et ordonne les morceaux (tempo, tonalité, timbre, contraintes). Découpage en playlists.</span></button>
+        <button type="button" class="home-feature" data-home="tab-progression"><b>↗ Progression</b><span>La bibliothèque du plus calme au plus intense, transitions lissées, export M3U.</span></button>
+        <button type="button" class="home-feature" data-home="tab-rhythm"><b>🥁 Rythme</b><span>Découpe un morceau en notes par instrument pour une map de jeu de rythme : KPS, difficulté, cues.</span></button>
+        <button type="button" class="home-feature" data-home="tab-lab"><b>🧪 Banc d'essai</b><span>Vérifie que chaque mesure réagit du min au max avec des morceaux taillés pour l'algorithme.</span></button>
+        <button type="button" class="home-feature" data-home="settings"><b>⚙ Paramètres</b><span>Pondérations du score, apprentissage, recherche de paroles, modèles Essentia, sauvegarde JSON.</span></button>
+      </div>
+      <p class="muted small">Tes fichiers ne quittent jamais ton navigateur : seules les mesures sont gardées (IndexedDB). Le score est un outil pratique de classement perceptif, pas une mesure scientifique.</p>
+    </section>
+
+    <section id="panel-library" role="tabpanel" aria-labelledby="tab-library" hidden>
       <div class="overview" id="overview"></div>
       <div class="notice-bar" id="lyrics-banner" hidden>
         <span id="lyrics-banner-text"></span>
@@ -59,6 +118,7 @@
           <option value="error">Erreurs</option>
         </select>
         <select id="filter-stage" aria-label="Filtrer par niveau"></select>
+        <select id="filter-genre" aria-label="Filtrer par genre"><option value="all">Genre : tous</option></select>
         <select id="filter-vocals" aria-label="Filtrer par voix">
           <option value="all">Voix : tous</option>
           <option value="vocal">Chantés</option>
@@ -73,6 +133,8 @@
           <select id="sort-key" aria-label="Trier par"></select>
         </label>
         <button class="btn" id="sort-dir" type="button" aria-label="Inverser l'ordre de tri">↑</button>
+        <label class="inline small"><input type="checkbox" id="hide-tests"> Masquer les tests</label>
+        <button class="btn" id="open-genres" type="button" title="Étiqueter rapidement les genres (ta propre taxonomie)">Genres</button>
         <button class="btn" id="open-duels" type="button" title="Compare des paires de morceaux pour régler le modèle sur ta perception">Duels</button>
         <button class="btn" id="rescore-all" type="button" title="Recalcule tous les scores depuis les caractéristiques en cache">Recalculer tout</button>
       </div>
@@ -147,6 +209,7 @@
               <option value="stage">intensité</option>
               <option value="mood">ambiance (sombre → lumineux)</option>
               <option value="groups">timbre (groupes de morceaux proches)</option>
+              <option value="genre">genre (tes étiquettes et suggestions)</option>
             </select>
           </label>
           <label class="inline">en <input type="number" id="split-n" min="2" max="8" value="3"> playlists</label>
@@ -289,6 +352,28 @@
         <p class="muted small sp-attrib">Titres et métadonnées fournis par <a href="https://www.spotify.com" target="_blank" rel="noopener">Spotify</a>. Cette application n'est ni affiliée ni approuvée par Spotify.</p>
       </div>
     </section>
+    <section id="panel-lab" role="tabpanel" aria-labelledby="tab-lab" hidden>
+      <div class="card lab-intro">
+        <h2>Banc d'essai</h2>
+        <p class="small">Des morceaux de synthèse, fabriqués dans ton navigateur, qui font varier <b>une seule variable</b> à la fois (min, moyen, max) pendant que le reste ne bouge pas, plus quelques <b>balayages</b> où une variable évolue dans le temps. Ils passent par exactement la même analyse que tes fichiers. La grille compare ce que l'algorithme mesure à ce qui est attendu.</p>
+        <p class="small muted">Ce sont des caricatures : elles vérifient que chaque mesure réagit dans le bon sens et sur toute sa plage, pas que le score est juste sur de la vraie musique. Les morceaux de test rejoignent la bibliothèque, marqués « Test », et servent aussi à essayer le Set, les duels, le découpage ou le mode démo de l'onglet Direct.</p>
+        <div class="lab-vars" id="lab-vars" role="group" aria-label="Variables à tester"></div>
+        <div class="toolbar">
+          <label class="inline small">Durée <select id="lab-seconds"><option value="12">12 s (rapide)</option><option value="20" selected>20 s</option><option value="30">30 s</option></select></label>
+          <button class="btn primary" id="lab-run" type="button">Générer et analyser</button>
+          <button class="btn" id="lab-refresh" type="button">Réévaluer</button>
+          <span class="spacer"></span>
+          <button class="btn danger" id="lab-delete" type="button">Supprimer les morceaux de test</button>
+        </div>
+        <div class="lab-progress" id="lab-progress" hidden>
+          <div class="progress"><div class="progress-bar" id="lab-bar"></div></div>
+          <span class="small muted" id="lab-status"></span>
+        </div>
+      </div>
+      <div id="lab-summary" class="stats"></div>
+      <div id="lab-results" class="lab-results"></div>
+    </section>
+
     <section id="panel-live" role="tabpanel" aria-labelledby="tab-live" hidden>
       <details class="card live-setup" id="lv-setup" open>
         <summary><strong>Réglages du scan</strong> <span class="muted small" id="lv-setup-summary"></span></summary>
@@ -314,6 +399,8 @@
               <button class="btn small" id="lv-spdevice-refresh" type="button">Actualiser</button>
             </div>
             <p class="small muted" id="lv-playlist-info">Importe d'abord une playlist dans l'onglet Spotify.</p>
+            <label class="inline small lv-demo"><input type="checkbox" id="lv-demo"> <b>Mode démo</b> : sans Spotify ni partage audio, avec des morceaux de synthèse du banc d'essai</label>
+            <label class="inline small" id="lv-demo-audible-row" hidden><input type="checkbox" id="lv-demo-audible" checked> entendre la démo</label>
             <p class="small lv-warn" id="lv-scope-warn" hidden>Autorisation de contrôle de lecture manquante. <button class="btn small" id="lv-reconnect" type="button">Reconnecter Spotify</button></p>
           </fieldset>
           <fieldset class="lv-box">

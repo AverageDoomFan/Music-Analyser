@@ -500,12 +500,17 @@ function summarize(ctx, ranges, isGlobal) {
 function foldTempo(bpm, bpms, confs) {
   if (!bpm) return { folded: bpms, stability: 0, alt: null };
   let n = 0, ok = 0;
+  // follow the tempo from window to window: each estimate takes the octave
+  // closest to the previous confident one (fixes half / double jumps while
+  // keeping real tempo changes, even beyond an octave over the track)
+  let prev = bpm;
   const folded = bpms.map((b, i) => {
     if (!b) return b;
     let x = b;
-    while (x / bpm > Math.SQRT2) x /= 2;
-    while (bpm / x > Math.SQRT2) x *= 2;
+    while (x / prev > Math.SQRT2) x /= 2;
+    while (prev / x > Math.SQRT2) x *= 2;
     if ((confs[i] ?? 0) > 0.15) {
+      prev = x;
       n++;
       if (Math.abs(x / bpm - 1) <= 0.04) ok++;
     }

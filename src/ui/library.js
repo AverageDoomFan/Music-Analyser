@@ -29,6 +29,8 @@ export function initLibrary({ openDetail }) {
   $("filter-status").addEventListener("change", (e) => { state.ui.status = e.target.value; notify(); });
   $("filter-stage").addEventListener("change", (e) => { state.ui.stage = e.target.value; notify(); });
   $("filter-vocals").addEventListener("change", (e) => { state.ui.vocals = e.target.value; notify(); });
+  $("hide-tests").addEventListener("change", (e) => { state.ui.hideTests = e.target.checked; notify(); });
+  $("filter-genre").addEventListener("change", (e) => { state.ui.genre = e.target.value; notify(); });
   $("aggregation").innerHTML = AGGREGATIONS.map((a) => `<option value="${a.key}" title="${a.hint}">${a.label}</option>`).join("");
   $("aggregation").addEventListener("change", (e) => ctl.setAggregation(e.target.value));
   $("sort-key").innerHTML = SORT_KEYS.map((k) => `<option value="${k.key}" title="${k.hint ?? ""}">${k.label}</option>`).join("");
@@ -75,6 +77,7 @@ const SORT_KEYS = [
   ...CURVE_STATS,
   { key: "valence", label: "Ambiance", hint: "Sombre → lumineux (mode, brillance, tempo, consonance, paroles)" },
   { key: "bpm", label: "BPM" },
+  { key: "genre", label: "Genre" },
   { key: "camelot", label: "Tonalité (Camelot)", hint: "Ordre de la roue Camelot : 1A, 1B, 2A…" },
   { key: "name", label: "Nom" },
   { key: "date", label: "Date d'ajout" },
@@ -114,6 +117,12 @@ function filterSort(rows) {
   let out = rows.filter((row) => {
     if (q && !row.name.toLowerCase().includes(q)) return false;
     if (state.ui.status !== "all" && rowStatus(row) !== state.ui.status) return false;
+    if (state.ui.hideTests && row.record?.source?.kind === "test") return false;
+    const gf = state.ui.genre ?? "all";
+    if (gf !== "all") {
+      const g = row.record?.auto ? ctl.genreInfo(row.record).label : null;
+      if (gf === "none" ? g : !(g === gf || g?.startsWith(`${gf} › `))) return false;
+    }
     const vf = state.ui.vocals ?? "all";
     if (vf !== "all") {
       const v = row.record?.vocals?.state ?? null;
@@ -135,6 +144,7 @@ function filterSort(rows) {
     if (key === "date") return row.record?.addedAt ?? Date.now();
     if (key === "name") return row.name.toLowerCase();
     if (key === "valence") return row.record?.valence ?? null;
+    if (key === "genre") return row.record?.auto ? (ctl.genreInfo(row.record).label?.toLowerCase() ?? null) : null;
     if (key === "bpm") return row.record?.auto?.music?.tempo?.bpm ?? null;
     if (key === "camelot") {
       const c = row.record?.auto?.music?.key?.camelot;
@@ -157,6 +167,7 @@ export function renderLibrary() {
   const rows = collectRows();
   document.getElementById("library-count").textContent = state.records.size;
   renderOverview();
+  renderGenreFilter();
   const visible = filterSort(rows);
   const body = document.getElementById("library-body");
   body.innerHTML = visible.map(rowHtml).join("");
@@ -182,7 +193,9 @@ function rowHtml(row) {
   const canPlay = row.id && state.files.has(row.id);
   const playing = canPlay && player.isPlaying(row.id);
   const src = r?.source;
-  const meta = src?.kind === "spotify"
+  const meta = src?.kind === "test"
+    ? [`<span class="test-tag" title="Morceau de synthèse du banc d'essai">Test</span>`, formatDuration(r?.duration)]
+    : src?.kind === "spotify"
     ? [`<span class="src-tag" title="Analysé en captant la lecture Spotify">Spotify · ${src.mode === "full" ? "entier" : `${Math.round((src.coverage ?? 0) * 100)} % écouté`}</span>`, formatDuration(r?.duration)]
     : [formatSize(row.size), formatDuration(r?.duration)];
   if (final != null) meta.push(`<span class="stage-tag">${stageFor(final).label}</span>`);
@@ -210,6 +223,19 @@ function rowHtml(row) {
   </tr>`;
 }
 
+let genreKey = "";
+function renderGenreFilter() {
+  const list = ctl.allGenres();
+  const key = list.join("|");
+  if (key === genreKey) return;
+  genreKey = key;
+  const sel = document.getElementById("filter-genre");
+  const cur = state.ui.genre ?? "all";
+  sel.innerHTML = `<option value="all">Genre : tous</option><option value="none">Sans genre</option>` +
+    list.map((g) => `<option value="${escapeHtml(g)}">${"· ".repeat(g.split(" › ").length - 1)}${escapeHtml(g.split(" › ").at(-1))}</option>`).join("");
+  sel.value = [...sel.options].some((o) => o.value === cur) ? cur : "all";
+}
+
 function musicCell(r) {
   const m = r?.auto?.music;
   if (!m) return "";
@@ -218,7 +244,9 @@ function musicCell(r) {
   if (m.tempo) parts.push(`${Math.round(m.tempo.bpm)} BPM`);
   const v = r.valence;
   const mood = v != null ? `<div><span class="mood-dot" style="background:${valenceColor(v)}"></span>${escapeHtml(moodLabel(r.finalScore, v))}${r.vocals?.state === "vocal" ? (r.lyrics ? " · ♪ noté" : " · ♪") : ""}</div>` : "";
-  return `<div class="music-cell">${parts.join(" · ")}${mood}</div>`;
+  const g = ctl.genreInfo(r);
+  const genre = g.label ? `<div class="genre-cell ${g.source === "user" ? "" : "guess"}" title="${g.source === "user" ? "Ton étiquette" : `Suggestion (${g.source}) · ${Math.round(g.confidence * 100)} %`}">${escapeHtml(g.label)}${g.source === "user" ? "" : " ?"}</div>` : "";
+  return `<div class="music-cell">${parts.join(" · ")}${mood}${genre}</div>`;
 }
 
 const valenceColor = (v) => `hsl(${Math.round(270 - (v / 100) * 230)}, 70%, 55%)`;
@@ -226,7 +254,7 @@ const valenceColor = (v) => `hsl(${Math.round(270 - (v / 100) * 230)}, 70%, 55%)
 /** When sorting by a curve statistic, show it next to the score. */
 function sortTag(r) {
   const [key] = state.ui.sort.split("-");
-  if (!r || ["score", "name", "date", "valence", "bpm", "camelot"].includes(key)) return "";
+  if (!r || ["score", "name", "date", "valence", "bpm", "camelot", "genre"].includes(key)) return "";
   const v = statOf(r, key);
   if (v == null) return "";
   const label = SORT_KEYS.find((k) => k.key === key)?.label ?? key;

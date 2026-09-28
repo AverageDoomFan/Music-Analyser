@@ -258,7 +258,8 @@ export function splitTracks(items, by, n = 4, groupsMap = null) {
       if (!out.has(g)) out.set(g, []);
       out.get(g).push(t);
     }
-    return [...out.values()].map((list, i) => ({ label: `Groupe ${i + 1}`, ids: list.sort((a, b) => a.score - b.score).map((t) => t.id), items: list }));
+    return [...out.entries()].sort((a, b) => b[1].length - a[1].length)
+      .map(([g, list], i) => ({ label: typeof g === "string" ? g : `Groupe ${i + 1}`, ids: list.sort((a, b) => a.score - b.score).map((t) => t.id), items: list }));
   }
   const val = (t) => (by === "mood" ? t.valence : t.score);
   const sorted = items.filter((t) => val(t) != null).sort((a, b) => val(a) - val(b));

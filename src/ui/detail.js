@@ -71,6 +71,24 @@ export function initDetail() {
         }
         break;
       case "open": openDetail(e.target.closest("[data-id]").dataset.id); break;
+      case "genre-save": {
+        const v = d.querySelector("#genre-input").value.trim();
+        await ctl.setGenre(id, v || null);
+        if (v) toast(`Genre : ${v}`);
+        break;
+      }
+      case "genre-apply": await ctl.setGenre(id, e.target.closest("[data-label]").dataset.label); break;
+      case "genre-clear": await ctl.setGenre(id, null); break;
+      case "ml-run":
+        try {
+          toast("Analyse Essentia en cours…");
+          await ctl.runEssentia(id);
+          toast("Analyse Essentia terminée.");
+        } catch (err) {
+          toast(err.message, "error", 7000);
+        }
+        break;
+      case "ml-vocals": await ctl.setVocalState(id, e.target.closest("[data-value]").dataset.value); break;
       case "seek":
         if (state.files.has(id)) player.playAt(id, Number(e.target.closest("[data-t]").dataset.t));
         break;
@@ -137,6 +155,7 @@ function render(force = false) {
       ${needsReanalysis(r) ? `<div class="notice">Caractéristiques extraites par une ancienne version de l'analyse (${escapeHtml(r.featureVersion)}). Le score reste valable ; réimporte le fichier pour une réanalyse complète.</div>` : ""}
       ${auto ? scoreBlock(r, final) : `<p class="muted">Pas encore analysé.</p>`}
       ${auto ? musicBlock(r, canPlay) : ""}
+      ${auto ? genreBlock(r) : ""}
       ${auto ? lyricsBlock(r) : ""}
       ${auto?.curves ? `
         <h3>Évolution dans le temps</h3>
@@ -283,6 +302,44 @@ function musicBlock(r, canPlay) {
     ${secs?.length ? `<div class="sections-bar" role="img" aria-label="Structure du morceau">${secs.map((sc) => `<button type="button" class="section" data-action="seek" data-t="${sc.start}" style="flex:${Math.max(0.5, sc.end - sc.start)};background:${SECTION_COLORS[sc.label] ?? "#94a3b8"}" title="${escapeHtml(sc.label)} · ${formatDuration(sc.start)} – ${formatDuration(sc.end)} · niveau ${sc.level.toFixed(1)} dB${canPlay ? " · clic : lire" : ""}" ${canPlay ? "" : "tabindex=\"-1\""}>${sc.end - sc.start > dur * 0.07 ? escapeHtml(sc.label) : ""}</button>`).join("")}</div>
       <p class="muted small">Structure détectée (changements de timbre, d'harmonie et de niveau).</p>`
       : `<p class="muted small">Structure : ${r.features?.excerpted ? "non disponible pour une analyse par extraits" : "à calculer (réanalyse nécessaire)"}.</p>`}`;
+}
+
+const SOURCE_LABEL = { user: "ton étiquette", essentia: "suggestion Essentia", voisins: "suggestion (morceaux proches)" };
+const pct = (p) => `${Math.round(p * 100)} %`;
+
+function genreBlock(r) {
+  const g = ctl.genreInfo(r);
+  const known = ctl.allGenres();
+  const chips = [];
+  const seen = new Set([r.genre?.label, g.label]);
+  for (const s of g.suggestions) if (!seen.has(s.label)) { seen.add(s.label); chips.push({ label: s.label, why: `morceaux proches · ${pct(s.confidence)}` }); }
+  for (const m of g.ml.slice(0, 4)) if (!seen.has(m.label)) { seen.add(m.label); chips.push({ label: m.label, why: `Essentia · ${pct(m.p)}` }); }
+  const ml = r.ml;
+  const mlRows = [];
+  if (ml?.voice != null) mlRows.push(`voix ${pct(ml.voice)}`);
+  if (ml?.danceability != null) mlRows.push(`dansable ${pct(ml.danceability)}`);
+  for (const [k, v] of Object.entries(ml?.moods ?? {})) mlRows.push(`${escapeHtml(k)} ${pct(v)}`);
+  return `<h3>Genre</h3>
+    <div class="genre-box">
+      <div class="lyrics-row">
+        ${g.label ? `<span class="genre-label ${g.source === "user" ? "sure" : ""}">${escapeHtml(g.label)}</span><span class="muted small">${SOURCE_LABEL[g.source]}${g.source !== "user" ? ` · ${pct(g.confidence)}` : ""}</span>` : `<span class="muted small">Pas encore de genre.</span>`}
+        ${g.label && g.source !== "user" ? `<button type="button" class="btn small" data-action="genre-apply" data-label="${escapeHtml(g.label)}">✓ C'est ça</button>` : ""}
+        ${r.genre ? `<button type="button" class="link-btn" data-action="genre-clear">retirer mon étiquette</button>` : ""}
+      </div>
+      <div class="lyrics-row">
+        <input type="text" id="genre-input" list="genre-list" placeholder="ex. Électro › Hardstyle › Rawstyle" value="${escapeHtml(r.genre?.label ?? "")}" aria-label="Genre">
+        <datalist id="genre-list">${known.map((k) => `<option value="${escapeHtml(k)}">`).join("")}</datalist>
+        <button type="button" class="btn small primary" data-action="genre-save">Enregistrer</button>
+      </div>
+      ${chips.length ? `<div class="lyrics-row small">Suggestions : ${chips.map((c) => `<button type="button" class="chip-btn" data-action="genre-apply" data-label="${escapeHtml(c.label)}" title="${escapeHtml(c.why)}">${escapeHtml(c.label)} <span class="muted">${escapeHtml(c.why.split(" · ")[1] ?? "")}</span></button>`).join("")}</div>` : ""}
+      <p class="muted small">Ta propre taxonomie, aussi précise que tu veux (niveaux séparés par ›). Les morceaux non étiquetés reçoivent une suggestion d'après les morceaux proches que tu as étiquetés ; ton étiquette prime toujours.</p>
+      <div class="lyrics-row small">
+        ${ml ? `<span class="muted">Essentia : ${mlRows.join(" · ") || "—"}</span>` : ""}
+        ${ml?.voice != null && r.vocals?.source !== "user" ? `<span class="muted">(voix : ${ml.voice >= 0.5 ? "chanté" : "instrumental"}, corrige si faux →</span>
+          <button type="button" class="link-btn" data-action="ml-vocals" data-value="${ml.voice >= 0.5 ? "instrumental" : "vocal"}">${ml.voice >= 0.5 ? "instrumental" : "chanté"}</button><span class="muted">)</span>` : ""}
+        ${state.files.has(r.id) ? `<button type="button" class="link-btn" data-action="ml-run" title="Modèles Essentia chargés dans les Paramètres">${ml ? "relancer Essentia" : "analyser avec Essentia"}</button>` : ""}
+      </div>
+    </div>`;
 }
 
 function lyricsBlock(r) {

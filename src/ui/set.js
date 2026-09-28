@@ -234,9 +234,15 @@ function previewSplit() {
   if (items.length < 2) return toast("Pas assez de morceaux analysés.", "error");
   const by = $("split-by").value;
   const n = Math.max(2, Math.min(8, Number($("split-n").value) || 3));
-  const gm = by === "groups" ? groups(new Map(items.filter((t) => t.fp).map((t) => [t.id, t.fp])), n) : null;
-  if (by === "groups" && !gm.size) return toast("Le découpage par timbre demande des morceaux analysés avec la version 1.3.", "error");
-  st.split = splitTracks(items, by, n, gm).map((p, i) => ({ ...p, name: splitName(by, p, i) }));
+  let gm = null;
+  if (by === "groups") {
+    gm = groups(new Map(items.filter((t) => t.fp).map((t) => [t.id, t.fp])), n);
+    if (!gm.size) return toast("Le découpage par timbre demande des morceaux analysés avec la version 1.3.", "error");
+  } else if (by === "genre") {
+    // one playlist per genre (the number is ignored); unlabelled tracks together
+    gm = new Map(items.map((t) => [t.id, ctl.genreInfo(state.records.get(t.id)).label ?? "Sans genre"]));
+  }
+  st.split = splitTracks(items, by === "genre" ? "groups" : by, n, gm).map((p, i) => ({ ...p, name: by === "genre" ? p.label : splitName(by, p, i) }));
   renderSplit();
 }
 

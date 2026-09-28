@@ -31,3 +31,13 @@ export class LocalFileSource extends AudioSource {
   getArrayBuffer() { return this.file.arrayBuffer(); }
   describe() { return { kind: "local" }; }
 }
+
+/** Generated test-bench track (a WAV file made in the browser). */
+export class TestSource extends LocalFileSource {
+  constructor(file, testId) {
+    super(file);
+    this.testId = testId;
+  }
+  get kind() { return "test"; }
+  describe() { return { kind: "test", test: this.testId }; }
+}

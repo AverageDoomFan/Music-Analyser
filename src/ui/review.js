@@ -10,7 +10,7 @@ import { player } from "./player.js";
 import { toast } from "./toast.js";
 
 const dialog = () => document.getElementById("review-dialog");
-let mode = null;          // "lyrics" | "duels"
+let mode = null;          // "lyrics" | "duels" | "genres"
 let queue = [];           // lyrics: record ids
 let pos = 0;
 let strength = 2;
@@ -21,6 +21,7 @@ let proposal = null;
 export function initReview() {
   document.getElementById("lyrics-rate").addEventListener("click", openLyricsReview);
   document.getElementById("open-duels").addEventListener("click", openDuels);
+  document.getElementById("open-genres").addEventListener("click", openGenres);
   const d = dialog();
   d.addEventListener("close", () => { player.stop?.(); mode = null; });
   d.addEventListener("click", onClick);
@@ -75,6 +76,49 @@ function lyricsCard() {
         <span class="muted small">${pos + 1} / ${queue.length}</span>
       </div>
     </div>`;
+}
+
+// ------------------------------------------------------------------ genres
+
+/** Unlabelled tracks, the most uncertain suggestions first (the answers that teach the most). */
+export function openGenres() {
+  const list = [...state.records.values()].filter((r) => r.auto && !r.genre);
+  if (!list.length) return toast("Tous les morceaux analysés ont un genre.");
+  const conf = (r) => ctl.genreInfo(r).suggestions[0]?.confidence ?? 0;
+  queue = list.sort((a, b) => conf(a) - conf(b)).map((r) => r.id);
+  mode = "genres";
+  pos = 0;
+  render();
+  dialog().showModal();
+  setTimeout(() => dialog().querySelector("#rv-genre")?.focus(), 30);
+}
+
+function genreCard() {
+  const r = state.records.get(queue[pos]);
+  if (!r) return "<p>Terminé.</p>";
+  const g = ctl.genreInfo(r);
+  const chips = [...g.suggestions.map((s) => [s.label, `proches · ${Math.round(s.confidence * 100)} %`]), ...g.ml.slice(0, 3).map((m) => [m.label, `Essentia · ${Math.round(m.p * 100)} %`])]
+    .filter((c, i, arr) => arr.findIndex((x) => x[0] === c[0]) === i);
+  return `<div class="review-track">
+    ${trackHead(r)}
+    <div class="lyrics-row">${chips.map(([l, why], i) => `<button type="button" class="chip-btn" data-act="genre" data-label="${escapeHtml(l)}" title="${escapeHtml(why)}">${i < 9 ? `<kbd>${i + 1}</kbd> ` : ""}${escapeHtml(l)} <span class="muted">${escapeHtml(why)}</span></button>`).join("") || `<span class="muted small">Pas encore de suggestion : les premières étiquettes servent de modèles.</span>`}</div>
+    <div class="lyrics-row">
+      <input type="text" id="rv-genre" list="rv-genre-list" placeholder="ex. Metal › Death metal" aria-label="Genre">
+      <datalist id="rv-genre-list">${ctl.allGenres().map((k) => `<option value="${escapeHtml(k)}">`).join("")}</datalist>
+      <button type="button" class="btn primary" data-act="genre-save">Enregistrer <kbd>Entrée</kbd></button>
+      <button type="button" class="btn ghost" data-act="skip">Passer</button>
+      <span class="spacer"></span><span class="muted small">${pos + 1} / ${queue.length}</span>
+    </div></div>`;
+}
+
+async function saveGenre(label) {
+  if (!label) return;
+  player.stop?.();
+  await ctl.setGenre(queue[pos], label);
+  pos++;
+  if (pos >= queue.length) { dialog().close(); return toast("Genres enregistrés."); }
+  render();
+  setTimeout(() => dialog().querySelector("#rv-genre")?.focus(), 30);
 }
 
 // ------------------------------------------------------------------ duels
@@ -141,8 +185,8 @@ function trackHead(r, showScore = true) {
 function render() {
   const d = dialog();
   d.innerHTML = `
-    <div class="dialog-head"><h2>${mode === "lyrics" ? "Ambiance des paroles" : "Lequel est le plus intense ?"}</h2><button class="icon-btn" data-act="close" aria-label="Fermer">✕</button></div>
-    <div class="dialog-body">${mode === "lyrics" ? lyricsCard() : duelCard()}</div>`;
+    <div class="dialog-head"><h2>${mode === "lyrics" ? "Ambiance des paroles" : mode === "genres" ? "Genres" : "Lequel est le plus intense ?"}</h2><button class="icon-btn" data-act="close" aria-label="Fermer">✕</button></div>
+    <div class="dialog-body">${mode === "lyrics" ? lyricsCard() : mode === "genres" ? genreCard() : duelCard()}</div>`;
 }
 
 async function advanceLyrics() {
@@ -174,6 +218,16 @@ async function onClick(e) {
     if (act === "level") { strength = Number(el.dataset.level); return render(); }
     if (act === "instrumental") { player.stop?.(); await ctl.setVocalState(id, "instrumental"); return advanceLyrics(); }
     if (act === "skip") { player.stop?.(); return advanceLyrics(); }
+  } else if (mode === "genres") {
+    if (act === "genre") return saveGenre(el.dataset.label);
+    if (act === "genre-save") return saveGenre(d.querySelector("#rv-genre").value.trim());
+    if (act === "skip") {
+      player.stop?.();
+      pos++;
+      if (pos >= queue.length) return d.close();
+      render();
+      setTimeout(() => d.querySelector("#rv-genre")?.focus(), 30);
+    }
   } else {
     if (act === "pick") {
       player.stop?.();
@@ -202,7 +256,17 @@ async function onClick(e) {
 }
 
 function onKey(e) {
+  if (mode === "genres" && e.target.id === "rv-genre" && e.key === "Enter") {
+    e.preventDefault();
+    return saveGenre(e.target.value.trim());
+  }
   if (e.target.matches("input, select, textarea")) return;
+  if (mode === "genres") {
+    const n = Number(e.key);
+    const chips = dialog().querySelectorAll("[data-act=genre]");
+    if (n >= 1 && n <= chips.length) { e.preventDefault(); chips[n - 1].click(); }
+    return;
+  }
   const click = (sel) => { const b = dialog().querySelector(sel); if (b && !b.disabled) { e.preventDefault(); b.click(); } };
   if (mode === "lyrics") {
     const n = Number(e.key);

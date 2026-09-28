@@ -15,6 +15,8 @@ Le score est un outil pratique de classement perceptif, **pas une mesure scienti
 
 ## Utilisation
 
+L'onglet **Accueil** présente les parcours possibles et l'état de l'application. Le guide détaillé est dans **[guide.html](guide.html)** (lien « Guide » dans l'application).
+
 1. Dépose des fichiers (MP3, WAV, OGG, FLAC, M4A… selon le navigateur) ou un dossier entier.
 2. L'analyse tourne en arrière-plan (Web Workers) ; les résultats sont mis en cache dans IndexedDB.
 3. Choisis comment la courbe d'intensité devient un score (moyenne des pics, moyenne, médiane, pic, perceptive) et trie par score, par statistique de courbe (début, fin, variabilité…), par nom ou par date.
@@ -83,6 +85,11 @@ src/
   scoring/similarity.js     empreinte de timbre, morceaux proches, groupes (k-means)
   playlist/set.js           générateur de set (courbe cible, transitions, contraintes), découpage
   util/lyrics.js            recherche LRCLIB optionnelle, suggestion d'ambiance
+  scoring/genres.js         genres personnels hiérarchiques, suggestions par plus proches voisins
+  testlab/synth.js          générateur paramétrique de morceaux de test (worker : testlab.worker.js)
+  testlab/suite.js          banc d'essai : min / moyen / max par variable, balayages, évaluation
+  live/demo.js              mode démo du scan en direct (faux Spotify → MediaStream)
+  ml/essentia.js            modèles Essentia.js optionnels (genre, voix, humeurs, dansabilité)
   app/                      état et cas d'usage (contrôleur)
   ui/                       bibliothèque, détail, correction, paramètres, progression, graphiques
 ```
@@ -114,6 +121,33 @@ Chaque morceau reçoit, en plus de son intensité :
 En option (Paramètres), l'app interroge **LRCLIB** (lrclib.net, base de paroles ouverte) avec l'artiste et le titre seulement. Elle sait alors si un titre est instrumental et propose une ambiance d'après un lexique de mots, que tu confirmes. Les paroles ne sont jamais conservées. Cette recherche n'a pas pu être testée depuis l'environnement de développement (domaine bloqué) : à vérifier en ligne.
 
 **Duels.** « Lequel est le plus intense ? » : l'app choisit des paires où le modèle hésite (scores proches, timbres différents). Les réponses ajustent les pondérations par un modèle de Bradley-Terry. Si aucune pondération n'explique mieux tes réponses, les réglages actuels sont gardés.
+
+## Banc d'essai, mode démo
+
+- **Banc d'essai** : des morceaux de synthèse sont générés dans un worker à partir d'un groove paramétrique (kick, caisse claire, charleston, basse, accords, arpège, bruit, saturation, écrêtage, irrégularité, contraste de niveau).
+  - Chaque variable a trois versions (min, moyen, max) où elle seule change : tempo, brillance, pression, dureté, bruit, densité, complexité, dynamique, tonalité, ambiance, intensité globale.
+  - Quatre morceaux évoluent dans le temps : trois balayages (tempo 80 → 170 BPM, brillance, arrivée du bruit) et un morceau à la structure connue.
+  - Ils passent par l'analyse normale, marqués « Test ». Une grille compare le mesuré à l'attendu.
+  - La même série tourne dans les tests Node (`tests/testlab.test.mjs`), donc toute régression d'une mesure fait échouer les tests.
+- Ce banc a révélé et fait corriger deux défauts :
+  - les tempos par fenêtre étaient ramenés à l'octave du tempo global, ce qui écrasait les vrais changements de tempo ; ils sont maintenant suivis de fenêtre en fenêtre ;
+  - la complexité mesurait l'agitation plutôt que l'imprévisibilité (algorithme 1.4).
+- **Mode démo** (onglet Direct) : un faux Spotify joue des morceaux du banc d'essai dans un `MediaStream`, capté par la vraie chaîne de capture. On peut ainsi essayer tout le scan en direct sans compte ni partage audio.
+
+## Genres
+
+- Étiquettes hiérarchiques propres à l'utilisateur (« Électro › Hardstyle › Rawstyle »). L'étiquette de l'utilisateur prime toujours.
+- Les morceaux non étiquetés reçoivent une suggestion par plus proches voisins parmi les morceaux étiquetés. Le calcul utilise l'empreinte de timbre, l'intensité, l'ambiance, le tempo et le mode. Si les voisins ne s'accordent pas sur un sous-genre (au moins 55 % des votes), la suggestion remonte au genre parent.
+- Un assistant d'étiquetage présente d'abord les morceaux les plus incertains.
+- Les genres servent au filtre et au tri de la bibliothèque, et au découpage en playlists dans l'onglet Set.
+
+**Modèles Essentia (optionnel).** Les classifieurs MusiCNN d'Essentia.js proposent genre, voix / instrumental, humeurs et dansabilité.
+- **Code** : essentia.js 0.1.3 et TensorFlow.js 3.21 sont chargés depuis jsDelivr, seulement quand la fonction est utilisée.
+- **Modèles** : au format TensorFlow.js, importés par l'utilisateur depuis un dossier (métadonnées `.json` avec les classes), puis gardés dans IndexedDB.
+- **Calcul** : audio rééchantillonné à 16 kHz, au plus 60 s prises au milieu du morceau, moyenne des prédictions par tranche.
+- **Résultats** : des suggestions corrigeables. La voix prédite ne remplace jamais une réponse de l'utilisateur.
+- **Licences** : modèles CC BY-NC-ND 4.0 (usage non commercial), essentia.js AGPL-3.0.
+- **Tests** : la chaîne a été testée dans Chromium avec les vraies bibliothèques et des modèles simulés. Les vrais modèles n'ont pas pu être téléchargés depuis l'environnement de développement.
 
 ## Onglet Set : générateur de set
 
