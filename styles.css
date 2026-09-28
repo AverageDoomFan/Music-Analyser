@@ -542,3 +542,13 @@ kbd { font: 0.72rem ui-monospace, monospace; border: 1px solid var(--border); bo
   .set-track { grid-template-columns: 22px minmax(0, 1fr) 40px 30px 30px 30px; }
   .set-track .time, .set-meta { display: none; }
 }
+
+/* Spotify: map and comparison */
+.sp-insights { margin-top: 12px; }
+.sp-map { display: block; width: 100%; height: 360px; }
+.sp-map-tip { min-height: 1.4em; margin: 4px 0 10px; }
+table.pl-compare { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+table.pl-compare th, table.pl-compare td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: bottom; }
+table.pl-compare td:first-child { color: var(--muted); }
+.stage-bars { display: flex; align-items: flex-end; gap: 2px; height: 36px; }
+.stage-bars i { display: block; width: 12px; min-height: 2px; border-radius: 2px 2px 0 0; }

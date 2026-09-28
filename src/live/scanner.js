@@ -30,8 +30,11 @@ class Abort extends Error {
 }
 
 export class Scanner {
-  constructor({ player, analyze, save, isDone = () => false, scoring, onUpdate = () => {}, sampleRate = ANALYSIS.sampleRate, clock = () => performance.now() }) {
-    Object.assign(this, { player, analyze, save, isDone, scoring, onUpdate, sampleRate, clock });
+  constructor({
+    player, analyze, save, isDone = () => false, scoring, onUpdate = () => {}, sampleRate = ANALYSIS.sampleRate,
+    clock = () => performance.now(), analyzeLive = (mono, sr, extra) => extractFeatures(mono, sr, extra),
+  }) {
+    Object.assign(this, { player, analyze, save, isDone, scoring, onUpdate, sampleRate, clock, analyzeLive });
     this.consumer = null;
     this.abortWait = null;
     this.levelDb = -120;
@@ -351,7 +354,7 @@ export class Scanner {
         cur.position = trackTime + out.filled / this.sampleRate;
         seg.filled = out.filled / this.sampleRate;
         while (out.filled >= nextWin) {
-          this.liveWindow(cur, out, nextWin - winN, nextWin);
+          this.liveWindow(cur, out, nextWin - winN, nextWin).catch((err) => console.warn(err));
           nextWin += hopN;
         }
         if (cur.position - lastEmit > 0.25) {
@@ -384,7 +387,7 @@ export class Scanner {
     }
     const got = { kind: out.kind, trackTime, data: out.data.subarray(0, out.filled) };
     // short excerpts (probes) get their live window once complete
-    if (out.filled >= this.sampleRate * 2 && out.filled < winN) this.liveWindow(cur, out, 0, out.filled);
+    if (out.filled >= this.sampleRate * 2 && out.filled < winN) this.liveWindow(cur, out, 0, out.filled).catch((err) => console.warn(err));
     if (aborted?.reason === "pause") {
       // keep what we have, listen to the rest after the pause
       const rest = seg.len - out.filled / this.sampleRate;
@@ -398,14 +401,16 @@ export class Scanner {
   }
 
   /** Live analysis of one window of the excerpt being recorded (provisional). */
-  liveWindow(cur, out, a, b) {
+  async liveWindow(cur, out, a, b) {
     const live = cur.live;
     const copy = out.data.slice(a, b);
     const ref = cur.meter.reference();
     const extra = ref.integrated > -70 && cur.meter.blocks.length > 30
       ? { referenceLoudness: ref, gainDb: Math.max(-30, Math.min(50, ANALYSIS.referenceLufs - ref.integrated)) }
       : {};
-    const f = extractFeatures(copy, this.sampleRate, extra);
+    // off the main thread in the browser (the copy is transferred)
+    const f = await this.analyzeLive(copy, this.sampleRate, extra);
+    if (this.status.current !== cur || cur.final) return; // track finished meanwhile
     const t = out.trackTime + (a + b) / 2 / this.sampleRate;
     const s = f.timeline.series;
     // insert in time order (excerpts are not heard in order in adaptive mode)

@@ -21,7 +21,9 @@ Le score est un outil pratique de classement perceptif, **pas une mesure scienti
 4. Ouvre un morceau pour suivre ses **courbes dans le temps** (intensité, sous-scores, BPM, volume relatif, attaques…) et voir **pourquoi** il a ce score.
 5. « Le score ne correspond pas » → quelques questions ciblées, aperçu ancien/nouveau score, accepter ou annuler.
 6. Onglet **Progression** → « Créer une progression », export M3U / texte.
-7. Paramètres → pondérations, apprentissage à partir des corrections, export/import JSON, effacement des données.
+7. Onglet **Set** → dessine la courbe d'intensité voulue, l'app choisit et ordonne les morceaux (voir plus bas).
+8. **Paroles** et **Duels** (bibliothèque) → ajuste la perception à ton ressenti.
+9. Paramètres → pondérations, apprentissage à partir des corrections, recherche de paroles, export/import JSON, effacement des données.
 
 Les fichiers audio ne sont jamais envoyés à un serveur. Ils ne sont pas non plus stockés : seules les caractéristiques extraites le sont. La lecture et la réanalyse audio sont donc possibles pour les fichiers importés pendant la session ; un fichier réimporté plus tard est reconnu par son empreinte SHA-256 et n'est pas réanalysé.
 
@@ -76,6 +78,11 @@ src/
   live/scanner.js           scan d'une playlist : pilotage Spotify, extraits, analyse live et finale
   live/plan.js              modes (entier, extraits fixes, adaptatif : sondes puis écoute ciblée)
   live/meter.js             loudness BS.1770 en continu (momentanée, court terme, intégrée, LRA)
+  audio/music.js            tonalité (chroma, Krumhansl), Camelot, MFCC, structure (auto-similarité)
+  scoring/describe.js       tonalité / tempo de début et de fin, ambiance, effet des paroles
+  scoring/similarity.js     empreinte de timbre, morceaux proches, groupes (k-means)
+  playlist/set.js           générateur de set (courbe cible, transitions, contraintes), découpage
+  util/lyrics.js            recherche LRCLIB optionnelle, suggestion d'ambiance
   app/                      état et cas d'usage (contrôleur)
   ui/                       bibliothèque, détail, correction, paramètres, progression, graphiques
 ```
@@ -93,6 +100,32 @@ Le scoring, le stockage, l'import audio et l'interface sont indépendants : un n
 
 Les fichiers de plus de 12 minutes sont analysés sur 12 extraits de 45 s répartis sur toute la durée.
 
+## Musique : tonalité, tempo, structure, ambiance
+
+Chaque morceau reçoit, en plus de son intensité :
+- **Tonalité et mode** (ex. « Am · 8A » sur la roue Camelot), avec une fiabilité et les tonalités du début et de la fin. Calcul : chroma sur les pics d'une FFT de 8192 points (fréquence affinée par interpolation), puis corrélation avec les profils de Krumhansl-Kessler.
+- **Tempo** : les estimations par fenêtre sont ramenées à l'octave du tempo global, avec la stabilité (part des fenêtres à ±4 %), l'octave alternative et le tempo du début et de la fin.
+- **Structure** : découpage en sections par nouveauté de la matrice d'auto-similarité (timbre, harmonie, niveau). Les étiquettes (Intro, Montée, Pic, Break, Section, Outro) ne dépendent que du niveau relatif des sections, jamais d'un genre. La structure n'est calculée que si tout le morceau a été entendu d'un seul tenant.
+- **Ambiance** (0 = sombre, 100 = lumineux), à partir du mode, de la brillance, du tempo, de la consonance et du caractère peu saturé du son. Combinée à l'intensité, elle donne une étiquette : Euphorique, Sombre / rageur, Serein, Mélancolique…
+- **Empreinte de timbre** (MFCC et équilibre spectral), pour trouver les morceaux proches et former des groupes.
+
+**Voix et paroles.** L'audio seul ne permet pas de détecter la voix de façon fiable sans modèle d'apprentissage. Les indices mesurés sont gardés, mais ne décident de rien. C'est donc l'utilisateur qui dit si un morceau est chanté, et quelle ambiance donnent ses paroles : joyeux, tendre, neutre, triste, sombre ou violent, avec trois niveaux. Cette note ajuste l'intensité perçue (par exemple, des paroles violentes à fond : +9) et l'ambiance. Un assistant (« Noter les paroles ») enchaîne les morceaux avec des raccourcis clavier.
+
+En option (Paramètres), l'app interroge **LRCLIB** (lrclib.net, base de paroles ouverte) avec l'artiste et le titre seulement. Elle sait alors si un titre est instrumental et propose une ambiance d'après un lexique de mots, que tu confirmes. Les paroles ne sont jamais conservées. Cette recherche n'a pas pu être testée depuis l'environnement de développement (domaine bloqué) : à vérifier en ligne.
+
+**Duels.** « Lequel est le plus intense ? » : l'app choisit des paires où le modèle hésite (scores proches, timbres différents). Les réponses ajustent les pondérations par un modèle de Bradley-Terry. Si aucune pondération n'explique mieux tes réponses, les réglages actuels sont gardés.
+
+## Onglet Set : générateur de set
+
+- **Courbe cible** : préréglages (échauffement → pic → retour au calme, montée, vagues, plateau, fractionné, descente) ou courbe libre. On déplace les points, un clic en ajoute un, un double-clic le retire.
+- **Sélection et ordre** : recuit simulé à partir d'une affectation par rangs (le k-ième morceau le plus calme va au k-ième créneau le plus calme de la courbe). Le coût combine :
+  - l'écart à la courbe ;
+  - les transitions : enchaînement d'intensité fin → début, tempo (demi et double tempo compatibles), compatibilité Camelot, timbre et ambiance, chacune avec un poids réglable ;
+  - la durée visée et les contraintes.
+- **Contraintes** : premier et dernier morceau, morceaux verrouillés 🔒 ou exclus ✕, jamais deux fois le même artiste d'affilée. La source est la bibliothèque ou une playlist Spotify importée.
+- **Résultat** : note de fluidité de chaque transition (le détail au survol), écart à la courbe et transitions difficiles. Export M3U ou texte, ou création de la playlist sur Spotify, pour les titres captés en direct ou associés à un fichier.
+- **Découper** une bibliothèque ou une playlist en N playlists, par intensité, par ambiance ou par groupe de timbre, puis les créer sur Spotify.
+
 ## Onglet Spotify : trier une de tes playlists
 
 L'onglet importe la liste des titres d'une de tes playlists et l'associe à tes fichiers audio locaux (analysés dans l'app), puis crée sur ton compte une **nouvelle** playlist, privée, ordonnée du plus calme au plus intense. La playlist d'origine n'est jamais modifiée.
@@ -108,6 +141,8 @@ L'onglet importe la liste des titres d'une de tes playlists et l'associe à tes 
 - **Association automatique** : par ISRC lu dans les tags quand il existe, sinon par titre, artiste et durée. Les tags lus sont ID3 pour le MP3 et Vorbis pour le FLAC ; à défaut, le nom de fichier au format « Artiste - Titre ».
 - **Correction** : une association se corrige ligne par ligne.
 - **Création** : « Aperçu de l'ordre » puis « Créer la playlist sur Spotify ».
+- **Suivi** : les playlists importées sont mémorisées. Un nouvel import affiche les titres ajoutés et retirés depuis le précédent, avec un raccourci pour scanner les nouveaux.
+- **Carte** : chaque morceau analysé est placé selon son intensité et son ambiance, avec la moyenne. On peut **comparer** avec une autre playlist importée : points superposés, et tableau intensité, ambiance, étendue, tempo, tonalités et répartition par palier.
 
 **Sécurité et vie privée**
 - **Connexion** : OAuth 2.0 *Authorization Code + PKCE*, le flux prévu pour les applications sans serveur. Pas de secret, et un `state` protège contre les requêtes forgées.

@@ -243,6 +243,12 @@
           <button class="btn primary" type="button" id="sp-import">Importer les titres</button>
           <span class="muted small" id="sp-import-status" role="status"></span>
         </div>
+        <div class="sp-row" id="sp-imported-row" hidden>
+          <label class="inline">Déjà importées <select id="sp-imported"></select></label>
+          <button class="btn small" type="button" id="sp-switch">Afficher</button>
+          <button class="btn small ghost" type="button" id="sp-forget">Oublier</button>
+        </div>
+        <div class="notice" id="sp-diff" hidden></div>
         <p class="muted small">Seules les playlists dont tu es propriétaire ou collaborateur peuvent être lues (règle Spotify pour les applications en mode développement).</p>
       </div>
 
@@ -257,6 +263,15 @@
               <tbody id="sp-tracks"></tbody>
             </table>
           </div>
+        </div>
+        <div class="card sp-insights">
+          <div class="chart-title">
+            <strong>Carte de la playlist</strong>
+            <label class="inline small">Comparer avec <select id="sp-compare"><option value="">—</option></select></label>
+          </div>
+          <canvas id="sp-map" class="sp-map" aria-label="Morceaux placés par intensité et ambiance"></canvas>
+          <div class="sp-map-tip muted small" id="sp-map-tip">Chaque point est un morceau analysé : intensité en abscisse, ambiance (sombre → lumineux) en ordonnée. Clic : détails.</div>
+          <div id="sp-compare-stats"></div>
         </div>
         <div class="card sp-create">
           <h3>Nouvelle playlist ordonnée</h3>

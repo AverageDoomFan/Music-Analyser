@@ -556,7 +556,8 @@ export async function importedPlaylists() {
  */
 export async function rememberPlaylist(pl) {
   const lib = (await spotifyStore.get("library").catch(() => null)) ?? {};
-  const prev = lib[pl.id];
+  const current = await spotifyStore.get("playlist").catch(() => null);
+  const prev = lib[pl.id] ?? (current?.id === pl.id ? current : null);
   lib[pl.id] = pl;
   await spotifyStore.set("library", lib);
   if (!prev) return null;

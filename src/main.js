@@ -120,6 +120,7 @@ async function main() {
   initLive({ openDetail });
   initReview();
   initSet({ openDetail });
+  document.addEventListener("open-detail", (e) => openDetail(e.detail));
   ctl.onToast(toast);
   $("rescore-all").addEventListener("click", async () => {
     const n = await ctl.recomputeAll();

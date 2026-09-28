@@ -302,6 +302,7 @@ async function startScan() {
   lv.scanner = new Scanner({
     player,
     analyze: (mono, sr, extra) => analyzePcm(mono, sr, extra),
+    analyzeLive: (mono, sr, extra) => analyzePcm(mono, sr, extra),
     save: (track, features, info) => ctl.saveCaptured(track, features, info),
     scoring: ctl.scoring,
     onUpdate: (s) => { lv.status = s; lv.lastUpdate = performance.now(); lv.dirty = true; },
