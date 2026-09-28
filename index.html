@@ -37,6 +37,7 @@
     <nav class="tabs" role="tablist">
       <button role="tab" id="tab-library" aria-selected="true" aria-controls="panel-library">Bibliothèque <span class="count" id="library-count">0</span></button>
       <button role="tab" id="tab-progression" aria-selected="false" aria-controls="panel-progression">Progression</button>
+      <button role="tab" id="tab-set" aria-selected="false" aria-controls="panel-set">Set</button>
       <button role="tab" id="tab-rhythm" aria-selected="false" aria-controls="panel-rhythm">Rythme</button>
       <button role="tab" id="tab-spotify" aria-selected="false" aria-controls="panel-spotify">Spotify</button>
       <button role="tab" id="tab-live" aria-selected="false" aria-controls="panel-live"><span class="live-dot" id="live-tab-dot" aria-hidden="true"></span>Direct</button>
@@ -110,6 +111,51 @@
       </div>
       <div id="progression-output"><p class="empty">Clique sur « Créer une progression » pour ordonner les morceaux analysés.</p></div>
     </section>
+    <section id="panel-set" role="tabpanel" aria-labelledby="tab-set" hidden>
+      <div class="set-layout">
+        <div class="card set-curve">
+          <div class="chart-title">
+            <strong>Courbe cible</strong>
+            <select id="set-preset" aria-label="Forme de courbe"></select>
+          </div>
+          <canvas id="set-canvas" class="set-canvas" aria-label="Courbe d'intensité voulue pour le set"></canvas>
+          <p class="muted small">Glisse les points pour dessiner l'intensité voulue au fil du set · clic : ajouter un point · double-clic : le retirer. Les barres montrent le set généré.</p>
+        </div>
+        <div class="card set-options">
+          <label class="set-field">Morceaux
+            <select id="set-source"></select>
+          </label>
+          <label class="set-field">Durée visée
+            <span><input type="number" id="set-duration" min="0" max="900" step="5" value="60"> min <span class="muted small">(0 = tous les morceaux)</span></span>
+          </label>
+          <label class="set-field">Premier morceau <select id="set-first"></select></label>
+          <label class="set-field">Dernier morceau <select id="set-last"></select></label>
+          <label class="inline small"><input type="checkbox" id="set-artist" checked> Jamais deux fois le même artiste d'affilée</label>
+          <details class="set-weights" open>
+            <summary class="small">Importance des critères</summary>
+            <div id="set-weights"></div>
+          </details>
+          <button class="btn primary" id="set-generate" type="button">Générer le set</button>
+        </div>
+      </div>
+      <div id="set-result"></div>
+      <div class="card set-split">
+        <div class="chart-title"><strong>Découper en plusieurs playlists</strong></div>
+        <div class="toolbar">
+          <label class="inline">Par
+            <select id="split-by">
+              <option value="stage">intensité</option>
+              <option value="mood">ambiance (sombre → lumineux)</option>
+              <option value="groups">timbre (groupes de morceaux proches)</option>
+            </select>
+          </label>
+          <label class="inline">en <input type="number" id="split-n" min="2" max="8" value="3"> playlists</label>
+          <button class="btn" id="split-preview" type="button">Aperçu</button>
+        </div>
+        <div id="split-result"></div>
+      </div>
+    </section>
+
     <section id="panel-rhythm" role="tabpanel" aria-labelledby="tab-rhythm" hidden>
       <div class="toolbar">
         <label class="inline">Morceau <select id="rh-track" aria-label="Morceau"></select></label>

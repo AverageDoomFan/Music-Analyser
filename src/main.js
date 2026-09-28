@@ -13,6 +13,7 @@ import { initRhythm, showRhythm } from "./ui/rhythm.js";
 import { initSpotify } from "./ui/spotify.js";
 import { initLive, showLive } from "./ui/live.js";
 import { initReview } from "./ui/review.js";
+import { initSet, showSet } from "./ui/set.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -75,7 +76,7 @@ async function filesFromDrop(dt) {
 }
 
 function initTabs() {
-  const tabs = [["tab-library", "panel-library"], ["tab-progression", "panel-progression"], ["tab-rhythm", "panel-rhythm"], ["tab-spotify", "panel-spotify"], ["tab-live", "panel-live"]];
+  const tabs = [["tab-library", "panel-library"], ["tab-progression", "panel-progression"], ["tab-set", "panel-set"], ["tab-rhythm", "panel-rhythm"], ["tab-spotify", "panel-spotify"], ["tab-live", "panel-live"]];
   for (const [tabId, panelId] of tabs) {
     $(tabId).addEventListener("click", () => {
       for (const [t, p] of tabs) {
@@ -86,6 +87,7 @@ function initTabs() {
       notify();
       if (tabId === "tab-rhythm") showRhythm();
       if (tabId === "tab-live") showLive();
+      if (tabId === "tab-set") showSet();
     });
   }
 }
@@ -117,6 +119,7 @@ async function main() {
   initRhythm();
   initLive({ openDetail });
   initReview();
+  initSet({ openDetail });
   ctl.onToast(toast);
   $("rescore-all").addEventListener("click", async () => {
     const n = await ctl.recomputeAll();

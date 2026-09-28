@@ -538,6 +538,39 @@ export const spotifyStore = {
   get: (key) => db.getSetting(`spotify.${key}`),
   set: (key, value) => db.setSetting(`spotify.${key}`, value),
   clear: async () => {
-    for (const k of ["playlist", "matches"]) await db.setSetting(`spotify.${k}`, null);
+    for (const k of ["playlist", "matches", "library"]) await db.setSetting(`spotify.${k}`, null);
   },
 };
+
+/** Every playlist imported so far (id → playlist), for comparisons, exports and diffs. */
+export async function importedPlaylists() {
+  const lib = (await spotifyStore.get("library").catch(() => null)) ?? {};
+  const cur = await spotifyStore.get("playlist").catch(() => null);
+  if (cur && !lib[cur.id]) lib[cur.id] = cur;
+  return Object.values(lib);
+}
+
+/**
+ * Stores an imported playlist and returns what changed since its previous
+ * import: { added: tracks, removed: tracks, previousAt }.
+ */
+export async function rememberPlaylist(pl) {
+  const lib = (await spotifyStore.get("library").catch(() => null)) ?? {};
+  const prev = lib[pl.id];
+  lib[pl.id] = pl;
+  await spotifyStore.set("library", lib);
+  if (!prev) return null;
+  const before = new Set(prev.tracks.map((t) => t.id));
+  const after = new Set(pl.tracks.map((t) => t.id));
+  return {
+    added: pl.tracks.filter((t) => !before.has(t.id)),
+    removed: prev.tracks.filter((t) => !after.has(t.id)),
+    previousAt: prev.importedAt,
+  };
+}
+
+export async function forgetPlaylist(id) {
+  const lib = (await spotifyStore.get("library").catch(() => null)) ?? {};
+  delete lib[id];
+  await spotifyStore.set("library", lib);
+}
