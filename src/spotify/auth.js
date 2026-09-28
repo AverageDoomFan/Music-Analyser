@@ -9,7 +9,10 @@ export const SCOPES = [
   "playlist-read-collaborative", // … and collaborative ones
   "playlist-modify-private",     // create the sorted playlist (private by default)
   "playlist-modify-public",
+  "user-read-playback-state",    // live scan: know which device plays what
+  "user-modify-playback-state",  // live scan: play / pause / seek on your Spotify app
 ];
+export const PLAYBACK_SCOPES = ["user-read-playback-state", "user-modify-playback-state"];
 const TOKEN_KEY = "mea.spotify.token";
 const CLIENT_KEY = "mea.spotify.clientId";
 const PKCE_KEY = "mea.spotify.pkce";
@@ -40,6 +43,12 @@ export function setClientId(id) {
 }
 
 export const isLoggedIn = () => !!store.get(TOKEN_KEY)?.refresh_token || !!store.get(TOKEN_KEY)?.access_token;
+
+/** True when the stored token was granted every scope in `list` (older logins lack the playback ones). */
+export function hasScopes(list) {
+  const granted = String(store.get(TOKEN_KEY)?.scope ?? "").split(/\s+/);
+  return list.every((s) => granted.includes(s));
+}
 
 export function logout() {
   store.del(TOKEN_KEY);

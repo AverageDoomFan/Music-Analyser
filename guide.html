@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Guide · Music Energy Analyzer</title>
+  <meta name="description" content="Guide d'utilisation de Music Energy Analyzer : bibliothèque, Spotify, scan en direct, set, genres, banc d'essai.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M2 26h4V16H2zm6 0h4V10H8zm6 0h4V6h-4zm6 0h4V12h-4zm6 0h4V2h-4z' fill='%233987e5'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .guide { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 28px; width: 100%; max-width: 1180px; margin: 0 auto; padding: 0 16px 48px; }
+    a.btn { text-decoration: none; }
+    .guide-toc { position: sticky; top: 12px; align-self: start; max-height: calc(100vh - 24px); overflow-y: auto; font-size: 0.88rem; }
+    .guide-toc ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 2px; }
+    .guide-toc a { display: block; padding: 4px 8px; border-radius: 6px; text-decoration: none; color: var(--text-2); }
+    .guide-toc a:hover { background: var(--surface-2); color: var(--text); }
+    .guide-body { min-width: 0; line-height: 1.6; }
+    .guide-body section { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 18px 22px; margin-bottom: 14px; scroll-margin-top: 12px; }
+    .guide-body h2 { font-size: 1.25rem; display: flex; justify-content: space-between; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+    .guide-body h2 a.open { font-size: 0.82rem; font-weight: 500; }
+    .guide-body h3 { color: var(--text); margin-top: 16px; }
+    .guide-body ol.steps { counter-reset: s; list-style: none; padding: 0; display: grid; gap: 8px; }
+    .guide-body ol.steps > li { counter-increment: s; position: relative; padding-left: 36px; }
+    .guide-body ol.steps > li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 0.8rem; font-weight: 700; display: grid; place-items: center; }
+    .tip { background: var(--accent-soft); border-radius: 10px; padding: 10px 14px; margin: 10px 0; font-size: 0.92rem; }
+    .warn { background: color-mix(in srgb, var(--warn) 14%, transparent); border-radius: 10px; padding: 10px 14px; margin: 10px 0; font-size: 0.92rem; }
+    .dims { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    .dims th, .dims td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .dims th { color: var(--muted); font-weight: 600; font-size: 0.8rem; }
+    kbd { font: 0.78rem ui-monospace, monospace; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; }
+    .guide-hero { width: 100%; max-width: 1180px; margin: 0 auto; padding: 20px 16px 16px; display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+    details.faq { border-top: 1px solid var(--border); padding: 8px 0; }
+    details.faq summary { cursor: pointer; font-weight: 600; }
+    @media (max-width: 820px) { .guide { grid-template-columns: 1fr; } .guide-toc { position: static; max-height: none; } .guide-toc ol { grid-template-columns: 1fr 1fr; } }
+  </style>
+</head>
+<body>
+  <header class="guide-hero">
+    <div>
+      <h1>Guide de Music Energy Analyzer</h1>
+      <p class="tagline">Tout ce que fait l'application, étape par étape.</p>
+    </div>
+    <a class="btn primary" href="index.html">← Ouvrir l'application</a>
+  </header>
+
+  <div class="guide">
+    <nav class="guide-toc" aria-label="Sommaire">
+      <ol>
+        <li><a href="#bref">En bref</a></li>
+        <li><a href="#demarrer">Démarrer</a></li>
+        <li><a href="#bibliotheque">Bibliothèque</a></li>
+        <li><a href="#score">Comprendre le score</a></li>
+        <li><a href="#musique">Tonalité, tempo, structure, ambiance</a></li>
+        <li><a href="#ressenti">Ajuster à ton ressenti</a></li>
+        <li><a href="#genres">Genres</a></li>
+        <li><a href="#spotify">Spotify</a></li>
+        <li><a href="#direct">Direct (scan en temps réel)</a></li>
+        <li><a href="#set">Set</a></li>
+        <li><a href="#progression">Progression</a></li>
+        <li><a href="#rythme">Rythme</a></li>
+        <li><a href="#banc">Banc d'essai</a></li>
+        <li><a href="#essentia">Modèles Essentia</a></li>
+        <li><a href="#donnees">Données et sauvegarde</a></li>
+        <li><a href="#faq">Dépannage</a></li>
+      </ol>
+    </nav>
+
+    <main class="guide-body">
+      <section id="bref">
+        <h2>En bref</h2>
+        <p>L'application écoute tes morceaux et les place sur une échelle d'<b>intensité perçue</b> de 0 (calme) à 100 (bruitiste). Elle mesure aussi le tempo, la tonalité, l'ambiance (sombre ↔ lumineux), la structure et le timbre. Avec ça, tu peux trier, comparer des playlists et générer des sets qui suivent la courbe d'énergie que tu veux.</p>
+        <div class="tip"><b>Confidentialité.</b> L'analyse se fait entièrement dans ton navigateur. Tes fichiers ne sont envoyés nulle part et ne sont pas stockés : seules les mesures sont gardées, dans ce navigateur (IndexedDB).</div>
+        <p>Le score est un <b>outil pratique de classement</b>, pas une mesure scientifique. Il s'ajuste à ta perception : corrections, notes de paroles, duels, pondérations.</p>
+      </section>
+
+      <section id="demarrer">
+        <h2>Démarrer</h2>
+        <h3>Tu as tes fichiers audio</h3>
+        <ol class="steps">
+          <li>Dépose tes fichiers (MP3, WAV, FLAC, OGG, M4A…) ou un dossier entier dans la zone en haut de l'application.</li>
+          <li>L'analyse démarre toute seule (plusieurs morceaux en parallèle). Suis l'avancement dans la barre sous la zone d'import.</li>
+          <li>Va dans <b>Bibliothèque</b> et ouvre un morceau pour voir ses courbes et le détail de son score.</li>
+        </ol>
+        <h3>Tu as une playlist Spotify</h3>
+        <ol class="steps">
+          <li>Onglet <b>Spotify</b> : crée ton application développeur (une fois, voir <a href="#spotify">Spotify</a>), connecte ton compte et importe la playlist.</li>
+          <li>Onglet <b>Direct</b> : l'app fait jouer chaque titre sur ton Spotify et l'analyse en temps réel.</li>
+        </ol>
+        <h3>Tu veux d'abord voir comment ça marche</h3>
+        <ol class="steps">
+          <li>Onglet <b>Banc d'essai</b> › « Générer et analyser » : une série de morceaux de synthèse arrive dans la bibliothèque.</li>
+          <li>Onglet <b>Direct</b> › coche <b>Mode démo</b> › « Lancer le scan » : le scan en direct, sans Spotify.</li>
+        </ol>
+      </section>
+
+      <section id="bibliotheque">
+        <h2>Bibliothèque <a class="open" href="index.html#tab-library">ouvrir l'onglet ↗</a></h2>
+        <p>Chaque ligne affiche le nom, la courbe d'intensité en miniature, la colonne <b>Musique</b> (code Camelot, BPM, ambiance, genre), le score, le score automatique et la correction éventuelle.</p>
+        <h3>Trier et filtrer</h3>
+        <ul>
+          <li><b>Score</b> : choisis comment la courbe d'intensité devient un score. Par défaut, c'est la moyenne des pics (les 25 % de moments les plus intenses) ; tu peux aussi prendre la moyenne, la médiane, le pic ou une moyenne perceptive.</li>
+          <li><b>Tri</b> : par score, par statistique de courbe (début, fin, variabilité), par ambiance, BPM, ordre Camelot, genre, nom ou date.</li>
+          <li><b>Filtres</b> : statut, palier d'intensité, genre (un genre parent inclut ses sous-genres), voix (chantés, instrumentaux, à noter), et une case pour masquer les morceaux de test.</li>
+        </ul>
+        <h3>La fiche d'un morceau</h3>
+        <ul>
+          <li><b>Musique</b> : tonalité (et celle du début et de la fin), tempo et sa stabilité, ambiance, structure en sections (un clic lance la lecture depuis la section).</li>
+          <li><b>Genre</b> et <b>Paroles</b> : tes étiquettes (voir <a href="#genres">Genres</a> et <a href="#ressenti">Ajuster à ton ressenti</a>).</li>
+          <li><b>Évolution dans le temps</b> : la courbe d'intensité, chaque sous-score, le BPM, le volume relatif… Un clic sur la courbe lance la lecture depuis ce point (pour les fichiers importés pendant la session).</li>
+          <li><b>Pourquoi ce score ?</b> : les 8 dimensions, avec leurs indicateurs au survol.</li>
+          <li><b>Morceaux au timbre proche</b>, puis les caractéristiques brutes et l'historique.</li>
+        </ul>
+      </section>
+
+      <section id="score">
+        <h2>Comprendre le score</h2>
+        <p>Le morceau est analysé par fenêtres de 6 s, toutes les 3 s. Pour chaque fenêtre, 8 dimensions sont calculées, puis combinées en une intensité. Le score du morceau est l'agrégation de cette courbe.</p>
+        <table class="dims">
+          <thead><tr><th>Dimension</th><th>Ce qu'elle mesure</th></tr></thead>
+          <tbody>
+            <tr><td><b>Énergie</b></td><td>Activité globale : mouvement spectral, attaques, dynamique resserrée, écrasement.</td></tr>
+            <tr><td><b>Tempo</b></td><td>Vitesse des événements (attaques par seconde) et BPM pondéré par sa fiabilité.</td></tr>
+            <tr><td><b>Densité</b></td><td>Remplissage du spectre et du temps, peu de silences.</td></tr>
+            <tr><td><b>Brillance</b></td><td>Centre de gravité du spectre, énergie dans les aigus.</td></tr>
+            <tr><td><b>Dureté</b></td><td>Agressivité du timbre : aigus bruités, transitoires, saturation, clipping.</td></tr>
+            <tr><td><b>Pression</b></td><td>Kicks et basses : attaques dans le grave, poids, saturation du grave, écrasement. Ne dépend pas du volume du fichier.</td></tr>
+            <tr><td><b>Complexité</b></td><td>Imprévisibilité : rythme irrégulier, pulsation peu répétitive, timbre changeant.</td></tr>
+            <tr><td><b>Bruit</b></td><td>Caractère bruitiste : spectre plat, peu de notes. Pousse vers 100, mais seulement les morceaux déjà intenses.</td></tr>
+          </tbody>
+        </table>
+        <p>Paliers : Calme (0–14), Calme / mélodique (15–29), Accessible (30–44), Énergique (45–59), Intense (60–71), Agressif (72–83), Extrême (84–93), Bruitiste (94–100).</p>
+        <div class="tip">Chaque fichier est d'abord ramené à un volume de référence (-14 LUFS) : un morceau masterisé fort n'est pas avantagé.</div>
+      </section>
+
+      <section id="musique">
+        <h2>Tonalité, tempo, structure, ambiance</h2>
+        <ul>
+          <li><b>Tonalité</b> : par exemple « Am · 8A ». Le code Camelot sert aux enchaînements : même numéro, ±1 ou même numéro avec l'autre lettre, ça s'enchaîne bien. La fiabilité indique si la tonalité est nette.</li>
+          <li><b>Tempo</b> : le BPM, sa stabilité, et l'octave alternative (un morceau à 87 BPM peut se sentir à 174). Le Set considère le demi et le double tempo comme compatibles.</li>
+          <li><b>Structure</b> : Intro, Montée, Pic, Break, Section, Outro, d'après les changements de timbre, d'harmonie et de niveau. Elle n'est calculée que si le morceau entier a été écouté d'un seul tenant (pas pour une analyse par extraits).</li>
+          <li><b>Ambiance</b> : de 0 (sombre) à 100 (lumineux), d'après le mode majeur ou mineur, la brillance, le tempo, la consonance et la saturation. Combinée à l'intensité, elle donne une étiquette : Euphorique, Sombre / rageur, Serein, Mélancolique…</li>
+        </ul>
+      </section>
+
+      <section id="ressenti">
+        <h2>Ajuster à ton ressenti</h2>
+        <h3>Le score ne correspond pas</h3>
+        <p>Dans la fiche, « Le score ne correspond pas » pose quelques questions ciblées (trop calme ? pas assez agressif ?) et montre l'ancien et le nouveau score avant d'appliquer. Tu peux aussi fixer un <b>score manuel</b>, qui prime sur tout le reste.</p>
+        <h3>Les paroles</h3>
+        <p>Un morceau chanté ne se ressent pas pareil selon ce qu'il raconte. Dans la fiche, ou avec le bouton « Noter les paroles » du bandeau de la bibliothèque, indique si le morceau est chanté, puis l'ambiance des paroles, sur trois niveaux : joyeux, tendre, neutre, triste, sombre ou violent. Des paroles violentes augmentent l'intensité perçue (jusqu'à +9), des paroles tendres l'adoucissent ; l'ambiance est ajustée aussi.</p>
+        <p>Raccourcis de l'assistant : <kbd>1</kbd>–<kbd>6</kbd> pour l'ambiance, <kbd>I</kbd> pour instrumental, <kbd>→</kbd> pour passer.</p>
+        <p>En option (Paramètres), la base ouverte <b>LRCLIB</b> indique si un titre est instrumental et suggère une ambiance d'après ses mots. Seuls l'artiste et le titre sont envoyés, et les paroles ne sont pas conservées.</p>
+        <h3>Les duels</h3>
+        <p>Bouton « Duels » de la bibliothèque : « lequel est le plus intense ? ». L'app choisit des paires où elle hésite. Après au moins 6 réponses, « Ajuster les pondérations » propose de nouvelles pondérations qui respectent mieux tes réponses. Si tes réponses ne s'expliquent pas mieux, les réglages actuels sont gardés. Raccourcis : <kbd>←</kbd>, <kbd>→</kbd> et <kbd>=</kbd>.</p>
+        <h3>Les pondérations</h3>
+        <p>Paramètres : l'importance de chaque dimension dans l'intensité. « Apprendre de mes corrections » propose des pondérations ajustées à tes corrections.</p>
+      </section>
+
+      <section id="genres">
+        <h2>Genres</h2>
+        <p>Les genres sont <b>ta propre taxonomie</b>, aussi précise que tu veux. Sépare les niveaux par › (ou / ou >) : « Électro › Hardstyle › Rawstyle ».</p>
+        <ol class="steps">
+          <li>Étiquette quelques morceaux : dans la fiche (bloc Genre), ou avec le bouton <b>Genres</b> de la bibliothèque, qui présente d'abord les morceaux les plus incertains. <kbd>Entrée</kbd> enregistre, <kbd>1</kbd>–<kbd>9</kbd> choisit une suggestion.</li>
+          <li>Les autres morceaux reçoivent une <b>suggestion</b> (en italique, suivie d'un « ? ») d'après les morceaux étiquetés les plus proches : timbre, intensité, ambiance, tempo. Si les voisins hésitent entre deux sous-genres, la suggestion remonte au genre parent.</li>
+          <li>Une suggestion fausse ? Tape le bon genre, ou clique une autre suggestion : <b>ton étiquette prime toujours</b>. « ✓ C'est ça » valide une suggestion juste.</li>
+        </ol>
+        <p>Avec les <a href="#essentia">modèles Essentia</a>, des suggestions de genre, de voix et d'humeur s'ajoutent. Elles se corrigent de la même façon. Les genres servent au filtre et au tri de la bibliothèque, et au découpage en playlists dans l'onglet Set.</p>
+      </section>
+
+      <section id="spotify">
+        <h2>Spotify <a class="open" href="index.html#tab-spotify">ouvrir l'onglet ↗</a></h2>
+        <h3>Mise en place (une fois)</h3>
+        <ol class="steps">
+          <li>Sur <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a>, crée une application (coche <i>Web API</i>, ne mets pas « Spotify » dans le nom). Le compte doit être Premium.</li>
+          <li><i>Redirect URIs</i> : ajoute l'adresse affichée dans l'onglet Spotify de l'application.</li>
+          <li><i>User Management</i> : ajoute l'e-mail de ton compte Spotify.</li>
+          <li>Copie le <b>Client ID</b> dans l'onglet, puis « Connecter mon compte Spotify ». Le <i>Client secret</i> ne sert pas.</li>
+        </ol>
+        <h3>Utilisation</h3>
+        <ul>
+          <li><b>Importer</b> une playlist dont tu es propriétaire ou collaborateur (règle Spotify pour les applications en développement). Les playlists importées sont mémorisées ; « Déjà importées » permet de passer de l'une à l'autre.</li>
+          <li><b>Réimporter</b> une playlist montre les titres ajoutés et retirés depuis la dernière fois, avec un bouton pour scanner les nouveaux.</li>
+          <li><b>Association</b> : tes fichiers sont associés aux titres (ISRC, puis titre, artiste et durée). Les titres captés dans l'onglet Direct sont reconnus directement.</li>
+          <li><b>Carte</b> : chaque morceau selon son intensité et son ambiance. <b>Comparer avec</b> superpose une autre playlist et affiche un tableau de statistiques.</li>
+          <li><b>Nouvelle playlist ordonnée</b> : crée une playlist privée triée par intensité (la playlist d'origine n'est jamais modifiée). Pour une courbe sur mesure, utilise l'onglet <a href="#set">Set</a>.</li>
+        </ul>
+      </section>
+
+      <section id="direct">
+        <h2>Direct : scan en temps réel <a class="open" href="index.html#tab-live">ouvrir l'onglet ↗</a></h2>
+        <p>L'app fait jouer chaque titre de la playlist importée sur <b>ton application Spotify</b>, capte le son qui sort du PC et l'analyse en direct. L'audio n'est jamais enregistré : il est analysé en mémoire, puis effacé.</p>
+        <h3>Capter le son (Windows)</h3>
+        <ul>
+          <li><b>Audio système</b> : dans Chrome ou Edge, choisis « Écran entier » et coche « Partager l'audio du système ». Rien d'autre ne doit jouer pendant le scan.</li>
+          <li><b>Scan silencieux</b> : installe VB-Cable, puis Paramètres Windows › Son › Mélangeur de volume › Spotify › Sortie = « CABLE Input ». Dans l'onglet, choisis l'entrée « CABLE Output ».</li>
+          <li>Dans Spotify, désactive <b>Normaliser le volume</b> et le <b>fondu enchaîné</b>.</li>
+        </ul>
+        <h3>Modes</h3>
+        <ul>
+          <li><b>Adaptatif</b> : des sondes de 3 s couvrent le morceau (jamais plus de 20 s d'écart, donc un drop ne peut pas passer entre deux), puis le budget restant sert à écouter les passages les plus intenses.</li>
+          <li><b>Extraits fixes</b> : N extraits de L secondes répartis régulièrement.</li>
+          <li><b>Morceau entier</b> : le plus fidèle, identique à l'analyse d'un fichier.</li>
+        </ul>
+        <h3>Ce que montre l'écran</h3>
+        <p>Jauge d'intensité, courbe et sous-scores, parties du morceau écoutées, radar des dimensions, spectre et spectrogramme, vumètres et loudness, 17 mesures en direct, file du scan et répartition des scores par palier. Une analyse complète est refaite à la fin de chaque titre.</p>
+        <div class="tip"><b>Mode démo</b> : coche « Mode démo » pour essayer tout ça sans Spotify ni partage audio. Un faux Spotify joue des morceaux du banc d'essai, et la vraie chaîne de capture les analyse.</div>
+      </section>
+
+      <section id="set">
+        <h2>Set <a class="open" href="index.html#tab-set">ouvrir l'onglet ↗</a></h2>
+        <ol class="steps">
+          <li>Choisis une <b>forme de courbe</b> (échauffement → pic → retour au calme, montée, vagues, plateau, fractionné, descente) ou dessine la tienne : fais glisser les points, clique pour en ajouter un, double-clique pour le retirer.</li>
+          <li>Choisis la <b>source</b> (toute la bibliothèque ou une playlist importée) et la <b>durée visée</b> (0 = tous les morceaux).</li>
+          <li>Règle les <b>critères</b> : suivre la courbe, enchaînement d'intensité, tempo proche, tonalités compatibles, timbre, ambiance.</li>
+          <li>Ajoute des <b>contraintes</b> si besoin : premier et dernier morceau, pas deux fois le même artiste d'affilée. Dans le résultat, 🔒 garde un morceau et ✕ l'exclut.</li>
+          <li>« Générer le set ». Chaque transition a une <b>note de fluidité</b>, avec le détail au survol. Exporte en M3U ou en texte, ou « Créer sur Spotify ».</li>
+        </ol>
+        <p><b>Découper en plusieurs playlists</b> : par intensité, ambiance, timbre ou genre. Chaque groupe peut être créé sur Spotify.</p>
+      </section>
+
+      <section id="progression">
+        <h2>Progression <a class="open" href="index.html#tab-progression">ouvrir l'onglet ↗</a></h2>
+        <p>Toute la bibliothèque du plus calme au plus intense. L'ordre est ajusté localement pour lisser les transitions, selon la souplesse choisie. Les grands sauts signalent des morceaux intermédiaires manquants. Export M3U ou texte.</p>
+      </section>
+
+      <section id="rythme">
+        <h2>Rythme <a class="open" href="index.html#tab-rhythm">ouvrir l'onglet ↗</a></h2>
+        <p>Découpe un morceau importé en notes, regroupées par instrument (une piste par instrument), pour créer une map de jeu de rythme. Tu peux écouter l'original, une piste isolée ou des cues sur chaque note, suivre les notes par seconde (KPS) et la difficulté, régler le découpage, et scinder ou fusionner des instruments.</p>
+      </section>
+
+      <section id="banc">
+        <h2>Banc d'essai <a class="open" href="index.html#tab-lab">ouvrir l'onglet ↗</a></h2>
+        <p>Des morceaux de synthèse fabriqués dans ton navigateur, qui font varier <b>une seule variable</b> du min au max : tempo, brillance, pression, dureté, bruit, densité, complexité, dynamique, tonalité, ambiance, intensité globale. S'y ajoutent des <b>balayages</b> (tempo 80 → 170 BPM, brillance, arrivée du bruit) et un morceau avec une structure connue.</p>
+        <ol class="steps">
+          <li>Choisis les variables et la durée, puis « Générer et analyser ».</li>
+          <li>La grille compare le mesuré à l'attendu (vert = conforme). « Détails » ouvre la fiche, par exemple pour voir la courbe d'un balayage.</li>
+          <li>Les morceaux de test restent dans la bibliothèque, marqués « Test ». Masque-les avec le filtre, ou supprime-les en un clic.</li>
+        </ol>
+        <div class="warn">Ce sont des caricatures : elles vérifient que chaque mesure réagit dans le bon sens et sur toute sa plage, pas que le score est juste sur de la vraie musique.</div>
+      </section>
+
+      <section id="essentia">
+        <h2>Modèles Essentia (IA, optionnel)</h2>
+        <p>Des réseaux pré-entraînés du MTG (Universitat Pompeu Fabra) proposent un genre, la présence de voix, des humeurs (joyeux, triste, agressif, détendu…) et la dansabilité. Tout tourne dans ton navigateur.</p>
+        <ol class="steps">
+          <li>Sur <a href="https://essentia.upf.edu/models.html" target="_blank" rel="noopener">essentia.upf.edu/models</a>, télécharge des classifieurs <b>MusiCNN (msd)</b> au format <b>TensorFlow.js</b> : genre_dortmund, genre_electronic, voice_instrumental, mood_happy, mood_sad, mood_aggressive, mood_relaxed, danceability… Garde le fichier .json de métadonnées de chaque modèle.</li>
+          <li>Décompresse-les dans un dossier, avec un sous-dossier par modèle (model.json et ses fichiers .bin).</li>
+          <li>Paramètres › Modèles Essentia › « Importer un dossier de modèles ». Ils sont copiés dans le navigateur, une fois pour toutes.</li>
+          <li>Lance l'analyse depuis la fiche d'un morceau, pour tous les fichiers de la session, ou automatiquement à chaque nouveau morceau (fichiers et titres captés en direct).</li>
+        </ol>
+        <p>Les résultats sont des <b>suggestions corrigeables</b> : genre dans le bloc Genre, voix avec un lien pour corriger. Ton choix prime toujours.</p>
+        <div class="warn">Licences : modèles CC BY-NC-ND 4.0 (usage non commercial), essentia.js AGPL-3.0. Les bibliothèques ne sont chargées depuis jsDelivr que si tu utilises cette fonction. Sur les sous-genres, attends-toi plutôt à « le bon genre est dans les premières suggestions » qu'à une réponse toujours juste.</div>
+      </section>
+
+      <section id="donnees">
+        <h2>Données et sauvegarde</h2>
+        <ul>
+          <li>Les mesures, scores, corrections, genres et notes sont stockés dans ce navigateur (IndexedDB). Un fichier réimporté est reconnu par son empreinte et n'est pas réanalysé.</li>
+          <li>Paramètres › <b>Exporter la base (JSON)</b> : une sauvegarde complète, sans audio. L'import fusionne sans perdre tes corrections.</li>
+          <li>Quand l'algorithme change de version, les scores sont recalculés depuis les mesures en cache, sans relire l'audio. Quand les mesures elles-mêmes changent, la fiche conseille une réanalyse.</li>
+        </ul>
+      </section>
+
+      <section id="faq">
+        <h2>Dépannage</h2>
+        <details class="faq"><summary>La lecture ou la réanalyse d'un morceau est grisée</summary><p>L'audio n'est pas stocké : la lecture et la réanalyse ne marchent que pour les fichiers importés pendant la session. Réimporte le fichier : il sera reconnu, sans nouvelle analyse.</p></details>
+        <details class="faq"><summary>Direct : « Aucun son capté »</summary><p>Vérifie que Spotify joue bien sur ce PC, que tu as coché « Partager l'audio du système » (écran entier) ou choisi l'entrée « CABLE Output », et que rien d'autre ne joue. Pour vérifier la chaîne sans Spotify, utilise le mode démo.</p></details>
+        <details class="faq"><summary>Spotify 403 ou 404</summary><p>Erreur 403 : compte non ajouté dans <i>User Management</i>, pas de Premium, ou droits de contrôle de lecture manquants (reconnecte-toi). Erreur 404 : aucun appareil Spotify actif ; ouvre l'application Spotify sur le PC et lance un titre une fois.</p></details>
+        <details class="faq"><summary>La tonalité ou le BPM semble faux</summary><p>La fiabilité est indiquée à côté. Un BPM à la moitié ou au double est une ambiguïté fréquente (l'octave alternative est affichée). Une tonalité peu fiable signale une harmonie ambiguë ou très bruitée.</p></details>
+        <details class="faq"><summary>Essentia ne se charge pas</summary><p>Il faut accès à jsDelivr (cdn.jsdelivr.net) pour les bibliothèques, et des modèles au format TensorFlow.js (model.json et fichiers .bin). « Tester le chargement » dans les Paramètres affiche l'erreur exacte.</p></details>
+        <details class="faq"><summary>Repartir de zéro</summary><p>Paramètres › « Effacer les données locales », après un export JSON si tu veux garder tes corrections.</p></details>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

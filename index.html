@@ -35,14 +35,79 @@
     </section>
 
     <nav class="tabs" role="tablist">
-      <button role="tab" id="tab-library" aria-selected="true" aria-controls="panel-library">Bibliothèque <span class="count" id="library-count">0</span></button>
+      <button role="tab" id="tab-home" aria-selected="true" aria-controls="panel-home">Accueil</button>
+      <button role="tab" id="tab-library" aria-selected="false" aria-controls="panel-library">Bibliothèque <span class="count" id="library-count">0</span></button>
+      <button role="tab" id="tab-spotify" aria-selected="false" aria-controls="panel-spotify">Spotify</button>
+      <button role="tab" id="tab-live" aria-selected="false" aria-controls="panel-live"><span class="live-dot" id="live-tab-dot" aria-hidden="true"></span>Direct</button>
+      <button role="tab" id="tab-set" aria-selected="false" aria-controls="panel-set">Set</button>
       <button role="tab" id="tab-progression" aria-selected="false" aria-controls="panel-progression">Progression</button>
       <button role="tab" id="tab-rhythm" aria-selected="false" aria-controls="panel-rhythm">Rythme</button>
-      <button role="tab" id="tab-spotify" aria-selected="false" aria-controls="panel-spotify">Spotify</button>
+      <button role="tab" id="tab-lab" aria-selected="false" aria-controls="panel-lab">Banc d'essai</button>
+      <a class="tab-link" href="guide.html" target="_blank" rel="noopener">Guide ↗</a>
     </nav>
 
-    <section id="panel-library" role="tabpanel" aria-labelledby="tab-library">
+    <section id="panel-home" role="tabpanel" aria-labelledby="tab-home">
+      <div class="home-hero">
+        <div>
+          <h2>Classe ta musique selon ce qu'elle fait ressentir</h2>
+          <p>Chaque morceau est analysé dans ton navigateur : intensité de 0 (calme) à 100 (bruitiste), tempo, tonalité, ambiance, structure, genre. Ensuite, trie, compare et construis des playlists qui suivent la courbe que tu veux.</p>
+        </div>
+        <div class="home-actions">
+          <button class="btn primary" type="button" data-home="import">📁 Importer des fichiers</button>
+          <button class="btn" type="button" data-home="tab-spotify">🎧 Partir d'une playlist Spotify</button>
+          <button class="btn" type="button" data-home="tab-lab">🧪 Essayer sans rien (banc d'essai)</button>
+          <a class="btn ghost" href="guide.html" target="_blank" rel="noopener">📖 Lire le guide</a>
+        </div>
+      </div>
+      <div class="home-status" id="home-status"></div>
+      <h3>Par où commencer ?</h3>
+      <div class="home-paths">
+        <div class="card home-path">
+          <h4>J'ai mes fichiers audio</h4>
+          <ol>
+            <li>Dépose-les (ou un dossier entier) dans la zone en haut.</li>
+            <li><b>Bibliothèque</b> : scores, courbes, tonalité, ambiance ; ouvre un morceau pour tout voir.</li>
+            <li>Ajuste à ton ressenti : paroles, duels, genres.</li>
+            <li><b>Set</b> : dessine une courbe, obtiens une playlist ordonnée.</li>
+          </ol>
+        </div>
+        <div class="card home-path">
+          <h4>J'ai une playlist Spotify</h4>
+          <ol>
+            <li><b>Spotify</b> : connecte ton compte (une fois) et importe la playlist.</li>
+            <li><b>Direct</b> : l'app fait jouer chaque titre sur ton Spotify et l'analyse en temps réel.</li>
+            <li>Carte, comparaison, découpage, playlist triée créée sur ton compte.</li>
+          </ol>
+        </div>
+        <div class="card home-path">
+          <h4>Je veux d'abord voir</h4>
+          <ol>
+            <li><b>Banc d'essai</b> : des morceaux de synthèse qui font varier une seule variable, du min au max.</li>
+            <li><b>Direct</b> › Mode démo : le scan en direct sans Spotify.</li>
+            <li>Les morceaux de test servent aussi à essayer Set, duels et genres.</li>
+          </ol>
+        </div>
+      </div>
+      <h3>Les onglets</h3>
+      <div class="home-features">
+        <button type="button" class="home-feature" data-home="tab-library"><b>📚 Bibliothèque</b><span>Tous tes morceaux : score, courbe, tonalité, BPM, ambiance, genre. Tri, filtres, fiche détaillée, paroles, duels, genres.</span></button>
+        <button type="button" class="home-feature" data-home="tab-spotify"><b>🎧 Spotify</b><span>Importer une playlist, associer tes fichiers, carte intensité × ambiance, comparer deux playlists, créer la playlist triée.</span></button>
+        <button type="button" class="home-feature" data-home="tab-live"><b>🔴 Direct</b><span>Scanner une playlist en la faisant jouer : graphes en temps réel, modes entier / extraits / adaptatif, mode démo.</span></button>
+        <button type="button" class="home-feature" data-home="tab-set"><b>📈 Set</b><span>Dessine la courbe d'intensité voulue : l'app choisit et ordonne les morceaux (tempo, tonalité, timbre, contraintes). Découpage en playlists.</span></button>
+        <button type="button" class="home-feature" data-home="tab-progression"><b>↗ Progression</b><span>La bibliothèque du plus calme au plus intense, transitions lissées, export M3U.</span></button>
+        <button type="button" class="home-feature" data-home="tab-rhythm"><b>🥁 Rythme</b><span>Découpe un morceau en notes par instrument pour une map de jeu de rythme : KPS, difficulté, cues.</span></button>
+        <button type="button" class="home-feature" data-home="tab-lab"><b>🧪 Banc d'essai</b><span>Vérifie que chaque mesure réagit du min au max avec des morceaux taillés pour l'algorithme.</span></button>
+        <button type="button" class="home-feature" data-home="settings"><b>⚙ Paramètres</b><span>Pondérations du score, apprentissage, recherche de paroles, modèles Essentia, sauvegarde JSON.</span></button>
+      </div>
+      <p class="muted small">Tes fichiers ne quittent jamais ton navigateur : seules les mesures sont gardées (IndexedDB). Le score est un outil pratique de classement perceptif, pas une mesure scientifique.</p>
+    </section>
+
+    <section id="panel-library" role="tabpanel" aria-labelledby="tab-library" hidden>
       <div class="overview" id="overview"></div>
+      <div class="notice-bar" id="lyrics-banner" hidden>
+        <span id="lyrics-banner-text"></span>
+        <button class="btn small primary" id="lyrics-rate" type="button">Noter les paroles</button>
+      </div>
       <div class="toolbar">
         <input type="search" id="search" placeholder="Rechercher…" aria-label="Rechercher">
         <select id="filter-status" aria-label="Filtrer par statut">
@@ -53,6 +118,14 @@
           <option value="error">Erreurs</option>
         </select>
         <select id="filter-stage" aria-label="Filtrer par niveau"></select>
+        <select id="filter-genre" aria-label="Filtrer par genre"><option value="all">Genre : tous</option></select>
+        <select id="filter-vocals" aria-label="Filtrer par voix">
+          <option value="all">Voix : tous</option>
+          <option value="vocal">Chantés</option>
+          <option value="torate">Chantés sans note de paroles</option>
+          <option value="instrumental">Instrumentaux</option>
+          <option value="unknown">Voix inconnue</option>
+        </select>
         <label class="inline">Score
           <select id="aggregation" aria-label="Méthode de calcul du score" title="Comment la courbe d'intensité d'un morceau devient son score"></select>
         </label>
@@ -60,6 +133,9 @@
           <select id="sort-key" aria-label="Trier par"></select>
         </label>
         <button class="btn" id="sort-dir" type="button" aria-label="Inverser l'ordre de tri">↑</button>
+        <label class="inline small"><input type="checkbox" id="hide-tests"> Masquer les tests</label>
+        <button class="btn" id="open-genres" type="button" title="Étiqueter rapidement les genres (ta propre taxonomie)">Genres</button>
+        <button class="btn" id="open-duels" type="button" title="Compare des paires de morceaux pour régler le modèle sur ta perception">Duels</button>
         <button class="btn" id="rescore-all" type="button" title="Recalcule tous les scores depuis les caractéristiques en cache">Recalculer tout</button>
       </div>
       <div class="table-wrap">
@@ -69,6 +145,7 @@
               <th class="col-play"><span class="sr-only">Écouter</span></th>
               <th data-sort="name">Morceau</th>
               <th class="col-curve hide-sm">Courbe</th>
+              <th class="hide-sm" data-sort="camelot">Musique</th>
               <th data-sort="score" class="num">Score</th>
               <th class="num hide-sm">Auto</th>
               <th class="num hide-sm">Correction</th>
@@ -96,6 +173,52 @@
       </div>
       <div id="progression-output"><p class="empty">Clique sur « Créer une progression » pour ordonner les morceaux analysés.</p></div>
     </section>
+    <section id="panel-set" role="tabpanel" aria-labelledby="tab-set" hidden>
+      <div class="set-layout">
+        <div class="card set-curve">
+          <div class="chart-title">
+            <strong>Courbe cible</strong>
+            <select id="set-preset" aria-label="Forme de courbe"></select>
+          </div>
+          <canvas id="set-canvas" class="set-canvas" aria-label="Courbe d'intensité voulue pour le set"></canvas>
+          <p class="muted small">Glisse les points pour dessiner l'intensité voulue au fil du set · clic : ajouter un point · double-clic : le retirer. Les barres montrent le set généré.</p>
+        </div>
+        <div class="card set-options">
+          <label class="set-field">Morceaux
+            <select id="set-source"></select>
+          </label>
+          <label class="set-field">Durée visée
+            <span><input type="number" id="set-duration" min="0" max="900" step="5" value="60"> min <span class="muted small">(0 = tous les morceaux)</span></span>
+          </label>
+          <label class="set-field">Premier morceau <select id="set-first"></select></label>
+          <label class="set-field">Dernier morceau <select id="set-last"></select></label>
+          <label class="inline small"><input type="checkbox" id="set-artist" checked> Jamais deux fois le même artiste d'affilée</label>
+          <details class="set-weights" open>
+            <summary class="small">Importance des critères</summary>
+            <div id="set-weights"></div>
+          </details>
+          <button class="btn primary" id="set-generate" type="button">Générer le set</button>
+        </div>
+      </div>
+      <div id="set-result"></div>
+      <div class="card set-split">
+        <div class="chart-title"><strong>Découper en plusieurs playlists</strong></div>
+        <div class="toolbar">
+          <label class="inline">Par
+            <select id="split-by">
+              <option value="stage">intensité</option>
+              <option value="mood">ambiance (sombre → lumineux)</option>
+              <option value="groups">timbre (groupes de morceaux proches)</option>
+              <option value="genre">genre (tes étiquettes et suggestions)</option>
+            </select>
+          </label>
+          <label class="inline">en <input type="number" id="split-n" min="2" max="8" value="3"> playlists</label>
+          <button class="btn" id="split-preview" type="button">Aperçu</button>
+        </div>
+        <div id="split-result"></div>
+      </div>
+    </section>
+
     <section id="panel-rhythm" role="tabpanel" aria-labelledby="tab-rhythm" hidden>
       <div class="toolbar">
         <label class="inline">Morceau <select id="rh-track" aria-label="Morceau"></select></label>
@@ -183,24 +306,40 @@
           <button class="btn primary" type="button" id="sp-import">Importer les titres</button>
           <span class="muted small" id="sp-import-status" role="status"></span>
         </div>
+        <div class="sp-row" id="sp-imported-row" hidden>
+          <label class="inline">Déjà importées <select id="sp-imported"></select></label>
+          <button class="btn small" type="button" id="sp-switch">Afficher</button>
+          <button class="btn small ghost" type="button" id="sp-forget">Oublier</button>
+        </div>
+        <div class="notice" id="sp-diff" hidden></div>
         <p class="muted small">Seules les playlists dont tu es propriétaire ou collaborateur peuvent être lues (règle Spotify pour les applications en mode développement).</p>
       </div>
 
       <div id="sp-work" hidden>
         <div class="card">
           <div class="chart-title"><strong id="sp-title"></strong><span class="muted small" id="sp-summary"></span></div>
-          <p class="muted small">Dépose tes fichiers audio dans la zone d'import en haut de la page : ils sont associés automatiquement (ISRC, puis titre / artiste / durée). Corrige une association avec le menu de la ligne.</p>
+          <p class="muted small">Pas les fichiers ? <button class="btn small primary" type="button" id="sp-go-live">Scanner la playlist en direct</button> : l'onglet Direct fait jouer chaque titre sur ton Spotify et l'analyse en temps réel.</p>
+          <p class="muted small">Tu as les fichiers : dépose-les dans la zone d'import en haut de la page, ils sont associés automatiquement (ISRC, puis titre / artiste / durée). Corrige une association avec le menu de la ligne.</p>
           <div class="table-wrap">
             <table class="library sp-table">
-              <thead><tr><th class="num">#</th><th>Titre Spotify</th><th class="num hide-sm">Durée</th><th>Fichier local</th><th class="num">Score</th></tr></thead>
+              <thead><tr><th class="num">#</th><th>Titre Spotify</th><th class="num hide-sm">Durée</th><th>Source de l'analyse</th><th class="num">Score</th></tr></thead>
               <tbody id="sp-tracks"></tbody>
             </table>
           </div>
         </div>
+        <div class="card sp-insights">
+          <div class="chart-title">
+            <strong>Carte de la playlist</strong>
+            <label class="inline small">Comparer avec <select id="sp-compare"><option value="">—</option></select></label>
+          </div>
+          <canvas id="sp-map" class="sp-map" aria-label="Morceaux placés par intensité et ambiance"></canvas>
+          <div class="sp-map-tip muted small" id="sp-map-tip">Chaque point est un morceau analysé : intensité en abscisse, ambiance (sombre → lumineux) en ordonnée. Clic : détails.</div>
+          <div id="sp-compare-stats"></div>
+        </div>
         <div class="card sp-create">
           <h3>Nouvelle playlist ordonnée</h3>
           <div class="sp-row">
-            <label class="inline">Titres sans fichier analysé
+            <label class="inline">Titres non analysés
               <select id="sp-unmatched"><option value="end">à la fin (ordre d'origine)</option><option value="exclude">exclus</option></select>
             </label>
             <label class="inline">Nom <input type="text" id="sp-name"></label>
@@ -213,6 +352,152 @@
         <p class="muted small sp-attrib">Titres et métadonnées fournis par <a href="https://www.spotify.com" target="_blank" rel="noopener">Spotify</a>. Cette application n'est ni affiliée ni approuvée par Spotify.</p>
       </div>
     </section>
+    <section id="panel-lab" role="tabpanel" aria-labelledby="tab-lab" hidden>
+      <div class="card lab-intro">
+        <h2>Banc d'essai</h2>
+        <p class="small">Des morceaux de synthèse, fabriqués dans ton navigateur, qui font varier <b>une seule variable</b> à la fois (min, moyen, max) pendant que le reste ne bouge pas, plus quelques <b>balayages</b> où une variable évolue dans le temps. Ils passent par exactement la même analyse que tes fichiers. La grille compare ce que l'algorithme mesure à ce qui est attendu.</p>
+        <p class="small muted">Ce sont des caricatures : elles vérifient que chaque mesure réagit dans le bon sens et sur toute sa plage, pas que le score est juste sur de la vraie musique. Les morceaux de test rejoignent la bibliothèque, marqués « Test », et servent aussi à essayer le Set, les duels, le découpage ou le mode démo de l'onglet Direct.</p>
+        <div class="lab-vars" id="lab-vars" role="group" aria-label="Variables à tester"></div>
+        <div class="toolbar">
+          <label class="inline small">Durée <select id="lab-seconds"><option value="12">12 s (rapide)</option><option value="20" selected>20 s</option><option value="30">30 s</option></select></label>
+          <button class="btn primary" id="lab-run" type="button">Générer et analyser</button>
+          <button class="btn" id="lab-refresh" type="button">Réévaluer</button>
+          <span class="spacer"></span>
+          <button class="btn danger" id="lab-delete" type="button">Supprimer les morceaux de test</button>
+        </div>
+        <div class="lab-progress" id="lab-progress" hidden>
+          <div class="progress"><div class="progress-bar" id="lab-bar"></div></div>
+          <span class="small muted" id="lab-status"></span>
+        </div>
+      </div>
+      <div id="lab-summary" class="stats"></div>
+      <div id="lab-results" class="lab-results"></div>
+    </section>
+
+    <section id="panel-live" role="tabpanel" aria-labelledby="tab-live" hidden>
+      <details class="card live-setup" id="lv-setup" open>
+        <summary><strong>Réglages du scan</strong> <span class="muted small" id="lv-setup-summary"></span></summary>
+        <div class="lv-setup-grid">
+          <fieldset class="lv-box">
+            <legend>1 · Capture du son</legend>
+            <label class="lv-radio"><input type="radio" name="lv-source" value="system" checked> Audio système <span class="muted small">(partage d'écran : « Écran entier » + « Partager l'audio du système »)</span></label>
+            <label class="lv-radio"><input type="radio" name="lv-source" value="device"> Entrée audio <span class="muted small">(VB-Cable : scan silencieux)</span></label>
+            <div class="lv-row" id="lv-device-row" hidden>
+              <select id="lv-device" aria-label="Entrée audio"></select>
+              <button class="btn small" id="lv-device-refresh" type="button">Lister</button>
+            </div>
+            <div class="lv-row">
+              <button class="btn" id="lv-capture" type="button">Activer la capture</button>
+              <span class="lv-chip" id="lv-capture-status">inactive</span>
+            </div>
+            <div class="lv-level" aria-hidden="true"><i id="lv-level-bar"></i></div>
+          </fieldset>
+          <fieldset class="lv-box">
+            <legend>2 · Spotify</legend>
+            <div class="lv-row">
+              <select id="lv-spdevice" aria-label="Appareil Spotify"><option value="">— appareil —</option></select>
+              <button class="btn small" id="lv-spdevice-refresh" type="button">Actualiser</button>
+            </div>
+            <p class="small muted" id="lv-playlist-info">Importe d'abord une playlist dans l'onglet Spotify.</p>
+            <label class="inline small lv-demo"><input type="checkbox" id="lv-demo"> <b>Mode démo</b> : sans Spotify ni partage audio, avec des morceaux de synthèse du banc d'essai</label>
+            <label class="inline small" id="lv-demo-audible-row" hidden><input type="checkbox" id="lv-demo-audible" checked> entendre la démo</label>
+            <p class="small lv-warn" id="lv-scope-warn" hidden>Autorisation de contrôle de lecture manquante. <button class="btn small" id="lv-reconnect" type="button">Reconnecter Spotify</button></p>
+          </fieldset>
+          <fieldset class="lv-box">
+            <legend>3 · Mode d'analyse</legend>
+            <div class="lv-modes" id="lv-modes" role="radiogroup" aria-label="Mode"></div>
+            <div class="lv-params" id="lv-params-fixed" hidden>
+              <label class="inline">Extraits <input type="number" id="lv-count" min="1" max="12" value="4"></label>
+              <label class="inline">de <input type="number" id="lv-length" min="6" max="60" value="12"> s</label>
+            </div>
+            <div class="lv-params" id="lv-params-adaptive">
+              <label class="inline">Budget <input type="number" id="lv-budget" min="30" max="240" value="75"> s / titre</label>
+              <label class="inline">Écart max entre sondes <input type="number" id="lv-gap" min="8" max="40" value="20"> s</label>
+            </div>
+            <label class="inline small"><input type="checkbox" id="lv-skip-files" checked> Ignorer les titres déjà analysés depuis un fichier</label>
+            <label class="inline small"><input type="checkbox" id="lv-rescan"> Réanalyser les titres déjà captés</label>
+            <p class="small muted" id="lv-estimate"></p>
+          </fieldset>
+        </div>
+        <details class="lv-tips small">
+          <summary>Avant de lancer (Windows)</summary>
+          <ul>
+            <li>Spotify › Paramètres › Lecture : désactive <b>Normaliser le volume</b> (le mode « Fort » compresse la dynamique) et le <b>fondu enchaîné</b>.</li>
+            <li>Audio système : rien d'autre ne doit jouer pendant le scan (vidéos, notifications). Le son doit rester audible.</li>
+            <li>Scan silencieux : installe VB-Cable, puis Paramètres Windows › Son › Mélangeur de volume › Spotify › Sortie = « CABLE Input ». Ici, choisis l'entrée « CABLE Output ».</li>
+            <li>L'audio n'est jamais enregistré : il est analysé en mémoire puis effacé, seules les mesures sont gardées.</li>
+          </ul>
+        </details>
+      </details>
+
+      <div class="lv-transport">
+        <button class="btn primary" id="lv-start" type="button">▶ Lancer le scan</button>
+        <button class="btn" id="lv-pause" type="button" disabled>❚❚ Pause</button>
+        <button class="btn" id="lv-skip" type="button" disabled>⏭ Passer</button>
+        <button class="btn danger" id="lv-stop" type="button" disabled>■ Arrêter</button>
+        <div class="lv-overall">
+          <div class="lv-overall-text" id="lv-overall-text">Prêt.</div>
+          <div class="progress"><div class="progress-bar" id="lv-overall-bar"></div></div>
+        </div>
+      </div>
+
+      <div class="lv-stage" id="lv-stage">
+        <div class="lv-hero">
+          <div class="lv-backdrop" id="lv-backdrop"></div>
+          <div class="lv-cover" id="lv-cover"><span>♪</span></div>
+          <div class="lv-now">
+            <div class="lv-phase"><span class="lv-pulse" id="lv-pulse"></span><span id="lv-phase">En attente</span></div>
+            <div class="lv-title" id="lv-title">Aucun titre</div>
+            <div class="lv-artist" id="lv-artist">Lance un scan pour analyser ta playlist en direct.</div>
+            <canvas class="lv-timeline" id="lv-timeline" height="46" aria-label="Parties du morceau écoutées"></canvas>
+            <div class="lv-times"><span id="lv-pos">0:00</span><span id="lv-heard" class="muted"></span><span id="lv-dur">0:00</span></div>
+          </div>
+          <div class="lv-gauge-wrap">
+            <canvas class="lv-gauge" id="lv-gauge" width="220" height="220" aria-label="Intensité"></canvas>
+          </div>
+        </div>
+
+        <div class="lv-grid">
+          <div class="lv-panel lv-wide">
+            <div class="lv-panel-head"><span>Courbe d'intensité</span><div class="lv-chips" id="lv-curve-chips"></div></div>
+            <canvas id="lv-curve" height="220"></canvas>
+          </div>
+          <div class="lv-panel">
+            <div class="lv-panel-head"><span>Profil</span><span class="muted small">fenêtre actuelle · morceau</span></div>
+            <canvas id="lv-radar" height="260"></canvas>
+          </div>
+          <div class="lv-panel lv-wide">
+            <div class="lv-panel-head"><span>Spectre</span><span class="muted small" id="lv-spec-info"></span></div>
+            <canvas id="lv-spectrum" height="160"></canvas>
+            <canvas id="lv-spectrogram" height="120"></canvas>
+          </div>
+          <div class="lv-panel">
+            <div class="lv-panel-head"><span>Loudness</span><span class="muted small">LUFS</span></div>
+            <div class="lv-loud">
+              <canvas id="lv-meters" width="120" height="220"></canvas>
+              <dl class="lv-loud-values" id="lv-loud-values"></dl>
+            </div>
+          </div>
+          <div class="lv-panel lv-full">
+            <div class="lv-panel-head"><span>Mesures en direct</span><span class="muted small" id="lv-window-info"></span></div>
+            <div class="lv-tiles" id="lv-tiles"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="lv-bottom">
+        <div class="card lv-queue-card">
+          <div class="chart-title"><strong>File du scan</strong><span class="muted small" id="lv-queue-summary"></span></div>
+          <ol class="lv-queue" id="lv-queue"></ol>
+        </div>
+        <div class="card lv-session">
+          <div class="chart-title"><strong>Session</strong><span class="muted small" id="lv-session-summary"></span></div>
+          <canvas id="lv-histogram" height="170"></canvas>
+          <div class="lv-session-stats" id="lv-session-stats"></div>
+          <p class="small muted">Les titres captés rejoignent la bibliothèque (tri, courbes, progression) et la playlist triée de l'onglet Spotify.</p>
+        </div>
+      </div>
+    </section>
   </main>
 
   <footer class="app-footer muted small">
@@ -223,6 +508,7 @@
   <dialog id="detail-dialog" class="dialog wide"></dialog>
   <dialog id="correction-dialog" class="dialog"></dialog>
   <dialog id="settings-dialog" class="dialog wide"></dialog>
+  <dialog id="review-dialog" class="dialog wide"></dialog>
   <div class="toasts" id="toasts" aria-live="polite" popover="manual"></div>
 </body>
 </html>

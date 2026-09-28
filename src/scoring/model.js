@@ -6,6 +6,7 @@
 
 import { ALGORITHM_VERSION, CALIBRATION, DEFAULT_WEIGHTS, DEFAULT_AGGREGATION } from "../config.js";
 import { aggregate, aggregateAll } from "./aggregate.js";
+import { describeMusic } from "./describe.js";
 
 const clamp01 = (x) => (Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0);
 /** Linear map of x from [lo, hi] to [0, 1], clamped. */
@@ -78,9 +79,11 @@ function components(raw) {
       ["Écrasement (PLR faible)", squash, 0.2],
     ],
     complexity: [
-      ["Variation du centroïde", lin(f.centroidStd, 100, 1500), 0.35],
-      ["Variation du flux", lin(f.fluxStd, 0.02, 0.1), 0.35],
-      ["Rythme irrégulier et rapide", lin(f.onsetRate, 1, 10) * lin(f.ioiCv, 0.2, 1), 0.3],
+      // unpredictability, not busyness: a dense but perfectly regular loop is simple
+      ["Rythme irrégulier", lin(f.ioiCv, 0.2, 0.65) * lin(f.onsetRate, 0.5, 3), 0.35],
+      ["Pulsation peu répétitive", (1 - clamp01(f.bpmConfidence)) * lin(f.onsetRate, 0.5, 3), 0.25],
+      ["Variation du centroïde", lin(f.centroidStd, 300, 2000), 0.2],
+      ["Variation du flux", lin(f.fluxStd, 0.03, 0.12), 0.2],
     ],
     noise: [
       ["Planéité spectrale", lin(flatDb, -25, -3), 0.45],
@@ -236,6 +239,7 @@ export function scoreFeatures(features, weights = DEFAULT_WEIGHTS, aggregation =
     stats,
     score: stats[aggregation],
     curves: { times: curves.times, intensity: curves.intensity, subscores: curves.subscores },
+    music: describeMusic(features),
   };
 }
 

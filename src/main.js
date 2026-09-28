@@ -11,6 +11,11 @@ import { initProgression, renderProgression } from "./ui/progression.js";
 import { toast } from "./ui/toast.js";
 import { initRhythm, showRhythm } from "./ui/rhythm.js";
 import { initSpotify } from "./ui/spotify.js";
+import { initLive, showLive } from "./ui/live.js";
+import { initReview } from "./ui/review.js";
+import { initSet, showSet } from "./ui/set.js";
+import { initTestlab, showTestlab } from "./ui/testlab.js";
+import { initHome, showHome } from "./ui/home.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -21,6 +26,7 @@ function initImport() {
     const { accepted, rejected } = ctl.importFiles(files);
     if (rejected) toast(`${rejected} fichier${rejected > 1 ? "s" : ""} ignoré${rejected > 1 ? "s" : ""} (format non audio).`, "error");
     if (!accepted && !rejected) toast("Aucun fichier reçu.");
+    if (accepted && state.ui.tab === "tab-home") $("tab-library").click();
   };
   input.addEventListener("change", () => {
     accept(input.files);
@@ -73,7 +79,7 @@ async function filesFromDrop(dt) {
 }
 
 function initTabs() {
-  const tabs = [["tab-library", "panel-library"], ["tab-progression", "panel-progression"], ["tab-rhythm", "panel-rhythm"], ["tab-spotify", "panel-spotify"]];
+  const tabs = [["tab-home", "panel-home"], ["tab-library", "panel-library"], ["tab-progression", "panel-progression"], ["tab-set", "panel-set"], ["tab-rhythm", "panel-rhythm"], ["tab-spotify", "panel-spotify"], ["tab-lab", "panel-lab"], ["tab-live", "panel-live"]];
   for (const [tabId, panelId] of tabs) {
     $(tabId).addEventListener("click", () => {
       for (const [t, p] of tabs) {
@@ -83,8 +89,19 @@ function initTabs() {
       state.ui.tab = tabId;
       notify();
       if (tabId === "tab-rhythm") showRhythm();
+      if (tabId === "tab-live") showLive();
+      if (tabId === "tab-set") showSet();
+      if (tabId === "tab-lab") showTestlab();
+      if (tabId === "tab-home") showHome();
     });
   }
+  // links like index.html#tab-set (from the guide) open that tab
+  const fromHash = () => {
+    const id = location.hash.slice(1);
+    if (tabs.some(([t]) => t === id)) $(id).click();
+  };
+  window.addEventListener("hashchange", fromHash);
+  fromHash();
 }
 
 function renderQueue() {
@@ -112,6 +129,12 @@ async function main() {
   initSettings();
   initProgression({ openDetail });
   initRhythm();
+  initLive({ openDetail });
+  initReview();
+  initSet({ openDetail });
+  initTestlab({ openDetail });
+  initHome();
+  document.addEventListener("open-detail", (e) => openDetail(e.detail));
   ctl.onToast(toast);
   $("rescore-all").addEventListener("click", async () => {
     const n = await ctl.recomputeAll();
@@ -133,6 +156,7 @@ async function main() {
     toast(`Stockage local indisponible : ${err.message}. Les analyses ne seront pas conservées.`, "error", 8000);
   }
   notify();
+  if (state.ui.tab === "tab-home") showHome();
   // after the library is loaded (matching needs it); also finishes a Spotify login redirect
   initSpotify().catch((err) => console.error(err));
 }

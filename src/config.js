@@ -6,7 +6,7 @@
  * Bump it whenever the scoring changes: stored tracks whose version differs are
  * re-scored automatically from their cached features, without re-decoding audio.
  */
-export const ALGORITHM_VERSION = "1.2";
+export const ALGORITHM_VERSION = "1.4";
 
 /**
  * Version of the feature extractor (audio -> raw features).
@@ -14,7 +14,7 @@ export const ALGORITHM_VERSION = "1.2";
  * file again. Tracks with an older feature version are flagged "réanalyse
  * conseillée" but keep their scores and corrections.
  */
-export const FEATURE_VERSION = "1.2";
+export const FEATURE_VERSION = "1.3";
 
 /** Schema version of the JSON export. */
 export const EXPORT_SCHEMA_VERSION = 1;
@@ -100,7 +100,7 @@ export const DIMENSIONS = [
   { key: "brightness", label: "Brillance", hint: "Centre de gravité spectral, énergie dans les aigus." },
   { key: "harshness", label: "Dureté", hint: "Aigus bruités, transitoires, saturation : l'agressivité du timbre." },
   { key: "pressure", label: "Pression", hint: "Kicks et basses : attaques dans le grave, poids, maintien et saturation du grave, écrasement. Indépendant du volume du fichier." },
-  { key: "complexity", label: "Complexité", hint: "Variabilité spectrale et rythmique." },
+  { key: "complexity", label: "Complexité", hint: "Imprévisibilité : rythme irrégulier, pulsation peu répétitive, timbre changeant." },
   { key: "noise", label: "Bruit", hint: "Caractère bruitiste / extrême : spectre plat, peu de tonalité." },
 ];
 
@@ -120,6 +120,21 @@ export const CALIBRATION = [
   [0.92, 97],
   [1.0, 100],
 ];
+
+/**
+ * How the user's rating of a song's lyrics shifts its perceived intensity and
+ * mood (per level, levels 1..3). Words change how a track feels: violent
+ * lyrics make it hit harder, tender ones soften it.
+ */
+export const LYRICS_MOODS = [
+  { key: "joyeux", label: "Joyeux", icon: "☀", intensity: 1, valence: 10 },
+  { key: "doux", label: "Tendre / apaisé", icon: "♡", intensity: -2, valence: 5 },
+  { key: "neutre", label: "Neutre", icon: "○", intensity: 0, valence: 0 },
+  { key: "triste", label: "Triste", icon: "☂", intensity: -1, valence: -10 },
+  { key: "sombre", label: "Sombre", icon: "☾", intensity: 1, valence: -8 },
+  { key: "violent", label: "Violent / énervé", icon: "⚡", intensity: 3, valence: -10 },
+];
+export const LYRICS_LEVELS = ["", "un peu", "nettement", "très"];
 
 /** Perceptual stages used for display and the progression view. */
 export const STAGES = [

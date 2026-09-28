@@ -10,7 +10,7 @@ export const state = {
   jobs: new Map(),             // jobKey -> { key, id?, name, size, stage, progress, error? }
   queue: { total: 0, done: 0, cached: 0, errors: 0 },
   progression: null,
-  ui: { search: "", status: "all", stage: "all", sort: "score-asc", tab: "library" },
+  ui: { search: "", status: "all", stage: "all", sort: "score-asc", tab: "tab-home" },
 };
 
 const listeners = new Set();
