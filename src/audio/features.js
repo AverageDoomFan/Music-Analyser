@@ -8,6 +8,7 @@
 
 import { FFT } from "./fft.js";
 import { ANALYSIS, FEATURE_VERSION } from "../config.js";
+import { detectKey, detectSections, melFilterbank, dctMatrix } from "./music.js";
 
 const EPS = 1e-12;
 const BANDS = [
@@ -79,11 +80,26 @@ export function extractFeatures(mono, sampleRate, extra = {}, onProgress = () =>
     if (i % 8 === 0) onProgress(0.9 + (0.1 * i) / windows.length);
   });
 
+  // tempo: fold each window's estimate to the octave closest to the global
+  // tempo (window estimates often jump to half / double), then measure how
+  // steady the tempo is
+  const tempo = foldTempo(global.bpm, series.bpm ?? [], series.bpmConfidence ?? []);
+  if (series.bpm) series.bpm = tempo.folded;
+
+  // structure: needs a contiguous listening of (almost) the whole track
+  const duration = extra.duration ?? mono.length / sampleRate;
+  let sections = null;
+  const longest = frames.segments.reduce((m, sg, i) => (sg.end - sg.start > (m?.len ?? 0) ? { sg, i, len: sg.end - sg.start } : m), null);
+  if (longest && longest.len / frames.frameRate >= duration * 0.9) {
+    const off = offsets[longest.i] + frames.time[longest.sg.start];
+    sections = structureOf(frames, longest.sg, frames.frameRate).map((x) => ({ ...x, start: round4(x.start + off), end: round4(x.end + off) }));
+  }
+
   onProgress(1);
   return {
     featureVersion: FEATURE_VERSION,
     sampleRate,
-    duration: extra.duration ?? mono.length / sampleRate,
+    duration,
     analyzedSeconds: analyzedSamples / sampleRate,
     excerpted: segments.length > 1 || analyzedSamples / sampleRate < (extra.duration ?? 0) * 0.97,
     ...global,
@@ -97,6 +113,9 @@ export function extractFeatures(mono, sampleRate, extra = {}, onProgress = () =>
     peakDb: global.peakDb - gainDb,
     clippingRatio: ctx.clippingRatio,
     channelPeakDb: extra.channelPeakDb ?? global.peakDb - gainDb,
+    bpmStability: tempo.stability,
+    bpmAlt: tempo.alt,
+    sections,
     timeline: {
       windowSeconds: ANALYSIS.windowSeconds,
       hopSeconds: ANALYSIS.windowHopSeconds,
@@ -115,6 +134,7 @@ export const TIMELINE_KEYS = [
   "bandSub", "bandBass", "bandLowMid", "bandHighMid", "bandHigh", "bassRatio", "midRatio", "highRatio",
   "lowPulse", "kickRate", "kickPunch", "lowBandDbStd", "lowFlatnessMedian",
   "plrDb", "crestDb", "loudnessRel",
+  "keyIndex", "keyConfidence", "midModulation", "midLowCorr",
 ];
 
 // ---------------------------------------------------------------------------
@@ -134,6 +154,22 @@ function analyzeFrames(mono, sampleRate, segments, onProgress) {
   const kLowFlatLo = bin(30), kLowFlatHi = bin(500);
   const bandRanges = BANDS.map(([name, lo, hi]) => [name, bin(lo), bin(Math.min(hi, nyquist))]);
   const frameRate = sampleRate / H;
+  // chroma: spectral peaks 55 Hz – 2.1 kHz of a longer FFT (close bass notes
+  // must be resolved), frequency refined by interpolation, folded to 12 pitch
+  // classes; computed every CHROMA_EVERY frames
+  const NC = CHROMA_FFT;
+  const fftC = new FFT(NC);
+  const magC = new Float64Array(NC / 2 + 1);
+  const binHzC = sampleRate / NC;
+  const kChLo = Math.max(1, Math.round(55 / binHzC)), kChHi = Math.round(2100 / binHzC);
+  const chroma = new Float64Array(12);
+  const chromaLast = new Float64Array(12);
+  // MFCC 1..12 on a 26-band mel filterbank (40 Hz – 10 kHz)
+  const mel = melFilterbank(26, nBins, binHz, 40, Math.min(10000, nyquist));
+  const dct = dctMatrix(MFCC_N, mel.length);
+  const melLog = new Float64Array(mel.length);
+  const mfccLast = new Float64Array(MFCC_N);
+  const kMidLo = bin(300), kMidHi = bin(3400);
 
   let total = 0;
   for (const [s, e] of segments) total += Math.max(1, Math.floor((e - s - N) / H) + 1);
@@ -191,6 +227,9 @@ function analyzeFrames(mono, sampleRate, segments, onProgress) {
       cols.od[f] = havePrev ? od / (kHi - kLo + 1) : 0;
       cols.lowOd[f] = havePrev ? lod / (kKickHi - kKickLo + 1) : 0;
       cols.lowDb[f] = 10 * Math.log10(lowP + EPS);
+      let midP = 0;
+      for (let k = kMidLo; k <= kMidHi; k++) midP += mag[k] * mag[k];
+      cols.midDb[f] = 10 * Math.log10(midP + EPS);
 
       if (rmsDb < ANALYSIS.silenceDb) {
         silent[f] = 1;
@@ -262,6 +301,47 @@ function analyzeFrames(mono, sampleRate, segments, onProgress) {
         for (let k = lo; k <= hi; k++) p += mag[k] * mag[k];
         cols[`band_${name}`][f] = p;
       }
+      if ((f - first) % CHROMA_EVERY === 0) {
+        // centred on the short frame when the segment allows it
+        const cOff = Math.max(segStart, Math.min(off + N / 2 - NC / 2, segEnd - NC));
+        chroma.fill(0);
+        let chSum = 0;
+        if (cOff >= segStart && cOff + NC <= segEnd) {
+          fftC.magnitudes(mono, cOff, magC);
+          let mx = 0;
+          for (let k = kChLo; k <= kChHi; k++) if (magC[k] > mx) mx = magC[k];
+          const floor = mx * 0.02;
+          for (let k = kChLo; k <= kChHi; k++) {
+            const m0 = magC[k];
+            if (m0 < floor || m0 < magC[k - 1] || m0 < magC[k + 1]) continue;
+            const la = Math.log(magC[k - 1] + EPS), lb = Math.log(m0 + EPS), lc = Math.log(magC[k + 1] + EPS);
+            const den = la - 2 * lb + lc;
+            const delta = den < 0 ? Math.max(-0.5, Math.min(0.5, (0.5 * (la - lc)) / den)) : 0;
+            const semis = 12 * Math.log2(((k + delta) * binHzC) / 440) + 69;
+            const r = Math.round(semis);
+            const e = m0 * m0 * (1 - Math.abs(semis - r));
+            chroma[((r % 12) + 12) % 12] += e;
+            chSum += e;
+          }
+        }
+        for (let c = 0; c < 12; c++) chromaLast[c] = chSum > 0 ? chroma[c] / chSum : 0;
+      }
+      for (let c = 0; c < 12; c++) cols[CHROMA_COLS[c]][f] = chromaLast[c];
+      if ((f - first) % MFCC_EVERY === 0) {
+        for (let m = 0; m < mel.length; m++) {
+          const { idx, w } = mel[m];
+          let e = 0;
+          for (let j = 0; j < idx.length; j++) { const v = mag[idx[j]]; e += v * v * w[j]; }
+          melLog[m] = Math.log(e + 1e-10);
+        }
+        for (let c = 0; c < MFCC_N; c++) {
+          const row = dct[c];
+          let v = 0;
+          for (let m = 0; m < melLog.length; m++) v += row[m] * melLog[m];
+          mfccLast[c] = v;
+        }
+      }
+      for (let c = 0; c < MFCC_N; c++) cols[MFCC_COLS[c]][f] = mfccLast[c];
       havePrev = true;
       if ((f & 511) === 0) onProgress(f / total);
     }
@@ -274,10 +354,16 @@ function analyzeFrames(mono, sampleRate, segments, onProgress) {
   return { ...cols, silent, fluxValid, count: f, frameRate, segments: segs };
 }
 
+const MFCC_N = 12;
+const CHROMA_FFT = 8192;   // 5.4 Hz bins at 44.1 kHz
+const CHROMA_EVERY = 8;    // frames (~93 ms)
+const MFCC_EVERY = 2;      // frames
+const CHROMA_COLS = Array.from({ length: 12 }, (_, i) => `chroma_${i}`);
+const MFCC_COLS = Array.from({ length: MFCC_N }, (_, i) => `mfcc_${i + 1}`);
 const FRAME_COLUMNS = [
-  "time", "sumSq", "peak", "rmsDb", "zcr", "od", "lowOd", "lowDb",
+  "time", "sumSq", "peak", "rmsDb", "zcr", "od", "lowOd", "lowDb", "midDb",
   "centroid", "bandwidth", "rolloff", "flatness", "crest", "fill", "lowFlat", "flux",
-  ...BANDS.map(([n]) => `band_${n}`),
+  ...BANDS.map(([n]) => `band_${n}`), ...CHROMA_COLS, ...MFCC_COLS,
 ];
 
 // ---------------------------------------------------------------------------
@@ -389,7 +475,111 @@ function summarize(ctx, ranges, isGlobal) {
   };
   // local peak-to-loudness ratio (the global one uses the source peak)
   out.plrDb = peakDb - (ANALYSIS.referenceLufs + loudnessRel);
+
+  // key / mode from the mean chroma of the active frames
+  const chroma = CHROMA_COLS.map((c) => mean(pick(F[c])));
+  const key = detectKey(chroma);
+  out.keyIndex = key.index;
+  out.keyConfidence = key.confidence;
+
+  // voice cues: syllable-rate (3–8 Hz) modulation of the 300–3400 Hz band,
+  // and how much of it is shared with the low band (drums move both)
+  const mod = modulation(ranges, F.midDb, F.lowDb, frameRate);
+  out.midModulation = mod.ratio;
+  out.midLowCorr = mod.corr;
+
+  if (isGlobal) {
+    out.chroma = chroma.map(round4);
+    out.mfccMean = MFCC_COLS.map((c) => round4(mean(pick(F[c]))));
+    out.mfccStd = MFCC_COLS.map((c) => round4(std(pick(F[c]))));
+  }
   return out;
+}
+
+/** Octave-folded window tempi, share of confident windows within ±4 % of the global tempo, alternative octave. */
+function foldTempo(bpm, bpms, confs) {
+  if (!bpm) return { folded: bpms, stability: 0, alt: null };
+  let n = 0, ok = 0;
+  const folded = bpms.map((b, i) => {
+    if (!b) return b;
+    let x = b;
+    while (x / bpm > Math.SQRT2) x /= 2;
+    while (bpm / x > Math.SQRT2) x *= 2;
+    if ((confs[i] ?? 0) > 0.15) {
+      n++;
+      if (Math.abs(x / bpm - 1) <= 0.04) ok++;
+    }
+    return round4(x);
+  });
+  const alt = bpm < 100 ? bpm * 2 : bpm / 2;
+  return { folded, stability: n ? round4(ok / n) : 0, alt: Math.round(alt * 10) / 10 };
+}
+
+/**
+ * Share of the (detrended) mid-band envelope's power at syllable rate,
+ * and its correlation with the low-band envelope, over the given ranges.
+ */
+function modulation(ranges, mid, low, frameRate) {
+  const W = Math.max(3, Math.round(0.5 * frameRate));
+  let num = 0, den = 0, sxy = 0, sxx = 0, syy = 0;
+  for (const [a, b] of ranges) {
+    const n = b - a;
+    if (n < 2 * W) continue;
+    const dm = detrend(mid, a, b, W), dl = detrend(low, a, b, W);
+    for (let i = 0; i < n; i++) { sxy += dm[i] * dl[i]; sxx += dm[i] * dm[i]; syy += dl[i] * dl[i]; }
+    // Goertzel power at 3..8 Hz vs 0.5..20 Hz (0.5 Hz steps)
+    for (let f = 0.5; f <= 20; f += 0.5) {
+      const w = (2 * Math.PI * f) / frameRate;
+      const c = 2 * Math.cos(w);
+      let s1 = 0, s2 = 0;
+      for (let i = 0; i < n; i++) { const s0 = dm[i] + c * s1 - s2; s2 = s1; s1 = s0; }
+      const p = s1 * s1 + s2 * s2 - c * s1 * s2;
+      den += p;
+      if (f >= 3 && f <= 8) num += p;
+    }
+  }
+  return { ratio: den > 0 ? num / den : 0, corr: sxx > 0 && syy > 0 ? sxy / Math.sqrt(sxx * syy) : 0 };
+}
+
+function detrend(col, a, b, W) {
+  const n = b - a;
+  const out = new Float64Array(n);
+  let acc = 0;
+  const pre = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) { acc += col[a + i]; pre[i + 1] = acc; }
+  for (let i = 0; i < n; i++) {
+    const lo = Math.max(0, i - W), hi = Math.min(n, i + W + 1);
+    out[i] = col[a + i] - (pre[hi] - pre[lo]) / (hi - lo);
+  }
+  return out;
+}
+
+/** Block vectors (~0.5 s) for structure detection over one contiguous segment. */
+function structureOf(F, sg, frameRate) {
+  const B = Math.max(1, Math.round(0.5 * frameRate));
+  const vectors = [], level = [];
+  for (let a = sg.start; a + B <= sg.end; a += B) {
+    const v = [];
+    let rms = 0, act = 0;
+    const sums = new Float64Array(12 + MFCC_N + BANDS.length);
+    for (let i = a; i < a + B; i++) {
+      rms += F.rmsDb[i];
+      if (F.silent[i]) continue;
+      act++;
+      for (let c = 0; c < 12; c++) sums[c] += F[CHROMA_COLS[c]][i];
+      for (let c = 0; c < MFCC_N; c++) sums[12 + c] += F[MFCC_COLS[c]][i];
+      BANDS.forEach(([nm], j) => { sums[12 + MFCC_N + j] += F[`band_${nm}`][i]; });
+    }
+    for (let c = 0; c < 12; c++) v.push(act ? sums[c] / act : 0);
+    for (let c = 0; c < MFCC_N; c++) v.push(act ? (sums[12 + c] / act) * 0.5 : 0);
+    const bt = BANDS.reduce((x, _, j) => x + sums[12 + MFCC_N + j], 0) + EPS;
+    BANDS.forEach((_, j) => v.push(Math.log10(sums[12 + MFCC_N + j] / bt + 1e-6)));
+    const lv = rms / B;
+    v.push(lv / 10);
+    vectors.push(v);
+    level.push(lv);
+  }
+  return detectSections(vectors, level, B / frameRate);
 }
 
 // ---------------------------------------------------------------------------
