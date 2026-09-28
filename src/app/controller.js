@@ -7,6 +7,7 @@ import { db } from "../storage/db.js";
 import { buildExport, downloadJson, parseExport, mergeRecord } from "../storage/backup.js";
 import { LocalFileSource } from "../audio/sources.js";
 import { analyzeAudio } from "../audio/analyzer.js";
+import { readTags } from "../util/tags.js";
 import {
   createRecord, applyFeatures, rescore, commitCorrection, clearCorrection, setManualScore,
 } from "../core/track.js";
@@ -100,6 +101,8 @@ async function processSource(source, job, force) {
   const buffer = await source.getArrayBuffer();
   const identity = await source.getIdentity(buffer);
   if (source.file) state.files.set(identity.id, source.file);
+  // tags are read before decoding (decodeAudioData detaches the buffer)
+  meta.tags = readTags(buffer, meta.name);
   return ingest({ identity, meta, sourceDesc: source.describe(), job, force, analyze: (cb) => analyzeAudio(buffer, cb) });
 }
 
@@ -120,6 +123,7 @@ async function ingest({ identity, meta, sourceDesc, job, force, analyze }) {
       // Cache hit: no decoding, no analysis.
       rescore(existing, scoring());
       if (!existing.name) existing.name = meta.name;
+      if (meta.tags && !existing.tags) existing.tags = meta.tags;
       await db.putTrack(existing);
       state.queue.cached++;
       return;
@@ -127,6 +131,7 @@ async function ingest({ identity, meta, sourceDesc, job, force, analyze }) {
 
     record = existing ?? createRecord({ ...meta, id: identity.id, hashAlgorithm: identity.algorithm, source: sourceDesc });
     record.source = sourceDesc;
+    if (meta.tags) record.tags = meta.tags;
     if (!existing) {
       state.records.set(record.id, record);
       await db.putTrack(record);
@@ -304,21 +309,39 @@ export async function clearAllData() {
 
 // ---------- progression ----------
 
+/** Progression input for one analysed record (null if not analysed). */
+export function progressionItem(r) {
+  if (r?.finalScore == null || !r.auto) return null;
+  // a correction shifts the whole curve: apply the same offset to its start / end
+  const offset = r.finalScore - r.auto.score;
+  const stats = r.auto.stats ?? {};
+  return {
+    id: r.id, name: r.name, duration: r.duration, score: r.finalScore,
+    start: (stats.start ?? r.auto.score) + offset,
+    end: (stats.end ?? r.auto.score) + offset,
+    subscores: { ...r.auto.subscores, ...(r.correction?.overrides ?? {}) },
+  };
+}
+
 export function buildProgression(tolerance) {
-  const items = [...state.records.values()]
-    .filter((r) => r.finalScore != null && r.auto)
-    .map((r) => {
-      // a correction shifts the whole curve: apply the same offset to its start / end
-      const offset = r.finalScore - r.auto.score;
-      const stats = r.auto.stats ?? {};
-      return {
-        id: r.id, name: r.name, duration: r.duration, score: r.finalScore,
-        start: (stats.start ?? r.auto.score) + offset,
-        end: (stats.end ?? r.auto.score) + offset,
-        subscores: { ...r.auto.subscores, ...(r.correction?.overrides ?? {}) },
-      };
-    });
+  const items = [...state.records.values()].map(progressionItem).filter(Boolean);
   state.progression = { ...buildOrder(items, { tolerance }), tolerance, builtAt: Date.now() };
   notify();
   return state.progression;
 }
+
+/** Orders any subset of records (e.g. the files matched with a Spotify playlist). */
+export function orderRecords(ids, tolerance = 6) {
+  const items = ids.map((id) => progressionItem(state.records.get(id))).filter(Boolean);
+  return buildOrder(items, { tolerance });
+}
+
+// ---------- Spotify (stored locally, cleared on disconnect) ----------
+
+export const spotifyStore = {
+  get: (key) => db.getSetting(`spotify.${key}`),
+  set: (key, value) => db.setSetting(`spotify.${key}`, value),
+  clear: async () => {
+    for (const k of ["playlist", "matches"]) await db.setSetting(`spotify.${k}`, null);
+  },
+};

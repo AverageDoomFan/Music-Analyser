@@ -67,7 +67,7 @@ src/
   storage/backup.js         export / import JSON avec fusion sans perte de corrections
   playlist/progression.js   algorithme de progression + export M3U / texte
   rhythm/bands.js           bandes log + enveloppes d'attaque SuperFlux (worker : rhythm.worker.js)
-  rhythm/notes.js           regroupement en pistes, détection des notes, suppression des échos
+  rhythm/notes.js           attaques, spectres d'attaque, NMF → instruments, notes, fusion / scission
   rhythm/difficulty.js      KPS, difficulté (strain), statistiques de map
   rhythm/session.js         décodage partagé avec la lecture, cache des bandes pour la session
   audio/engine.js           lecture Web Audio : position, piste isolée, cues planifiés
@@ -88,26 +88,77 @@ Le scoring, le stockage, l'import audio et l'interface sont indépendants : un n
 
 Les fichiers de plus de 12 minutes sont analysés sur 12 extraits de 45 s répartis sur toute la durée.
 
-## Onglet Rythme : créateur de map
+## Onglet Spotify : trier une de tes playlists
+
+L'onglet importe la liste des titres d'une de tes playlists et l'associe à tes fichiers audio locaux (analysés dans l'app), puis crée sur ton compte une **nouvelle** playlist, privée, ordonnée du plus calme au plus intense. La playlist d'origine n'est jamais modifiée.
+
+**Mise en place (une fois)**
+1. Sur [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard), crée une application. Depuis 2026, le compte propriétaire d'une application en mode développement doit être Premium. Ne mets pas « Spotify » dans son nom et coche *Web API*.
+2. *Redirect URIs* : ajoute l'adresse affichée dans l'onglet, par exemple `https://averagedoomfan.github.io/Music-Analyser/`. Pour un test en local, ajoute aussi `http://127.0.0.1:8000/` : Spotify n'accepte plus `localhost`, seulement l'IP de bouclage.
+3. *User Management* : ajoute l'e-mail de ton compte Spotify (mode développement : 5 comptes maximum).
+4. Copie le **Client ID**, qui est public. Le *Client secret* ne sert pas et ne doit jamais être mis dans l'app.
+5. Dans l'onglet Spotify : colle le Client ID, clique « Connecter mon compte Spotify », puis accepte les droits demandés.
+
+**Utilisation** : choisis une playlist dont tu es propriétaire ou collaborateur (règle du mode développement), puis « Importer les titres ». Dépose ensuite tes fichiers dans la zone d'import.
+- **Association automatique** : par ISRC lu dans les tags quand il existe, sinon par titre, artiste et durée. Les tags lus sont ID3 pour le MP3 et Vorbis pour le FLAC ; à défaut, le nom de fichier au format « Artiste - Titre ».
+- **Correction** : une association se corrige ligne par ligne.
+- **Création** : « Aperçu de l'ordre » puis « Créer la playlist sur Spotify ».
+
+**Sécurité et vie privée**
+- **Connexion** : OAuth 2.0 *Authorization Code + PKCE*, le flux prévu pour les applications sans serveur. Pas de secret, et un `state` protège contre les requêtes forgées.
+- **Droits demandés** : lire tes playlists privées et collaboratives, créer et modifier des playlists. Rien d'autre.
+- **Jeton** : il reste dans ce navigateur (localStorage) et n'est envoyé qu'à `accounts.spotify.com` et `api.spotify.com`.
+- **Données conservées** : seule la liste de la dernière playlist importée et tes associations. « Déconnecter et effacer » supprime le jeton et ces données. Tu peux aussi révoquer l'accès sur [spotify.com/account/apps](https://www.spotify.com/account/apps).
+
+**Cadre légal** (résumé, pas un avis juridique) : c'est un usage standard de l'API, la gestion de playlists pour son propre compte. Il reste dans les règles tant que :
+- l'audio analysé est celui de **tes propres fichiers**, achetés ou copiés depuis une source licite (copie privée). L'app ne télécharge rien depuis Spotify, et ce serait interdit ;
+- aucune donnée Spotify ne sert à entraîner un modèle d'IA, ni à produire des statistiques d'écoute (interdit par la *Developer Policy*). Ici, les métadonnées ne servent qu'à l'association et à la création de la playlist, et l'ajustement des pondérations n'utilise que tes corrections sur tes fichiers ;
+- l'application ne se présente pas comme un produit Spotify : le contenu est attribué et ramène vers Spotify par des liens.
+
+
 
 Choisis un morceau importé pendant la session (ou ouvre-le depuis son détail avec « Rythme »). Les notes sont extraites automatiquement.
 
-- **Matrice** pistes × temps. Le fond coloré montre l'énergie captée dans la plage de fréquences de chaque piste, les traits sont les notes (plus opaques = attaque plus forte). Les aigus sont en haut.
+- **Matrice** instruments × temps. Le fond coloré montre le niveau du spectre filtré par le gabarit de chaque instrument, les traits sont les notes (plus opaques = attaque plus forte). Les instruments les plus aigus sont en haut.
 - **Lecture** : clic sur la matrice ou sur une courbe = lecture depuis ce point, re-clic = stop (Espace aussi). La tête de lecture avance et la vue la suit. Molette pour défiler, Ctrl + molette pour zoomer, clic sur la vue d'ensemble pour se déplacer.
 - **Écouter** : la musique originale, les cues seuls, ou **une piste isolée** (filtrage passe-bande sur sa plage : 🎧 sur la piste) pour entendre ce qui a été extrait.
 - **Cues** : chaque piste cochée joue un « tick » à une hauteur qui lui est propre sur chacune de ses notes, planifié à l'échantillon près par-dessus la musique.
 - **Pistes cochées** = la map : elles définissent les cues, les **KPS** (notes par seconde, fenêtre glissante d'1 s) et la **difficulté** (★, modèle de « strain » : chaque note ajoute une charge qui décroît avec le temps, avec un bonus pour les accords et les changements de piste). Les deux sont affichées en courbes, avec des statistiques.
-- **Paramètres de découpage** : nombre de pistes max, mode et seuil de regroupement, sensibilité, écart minimal entre notes, suppression des échos entre pistes, bandes par octave, plage de fréquences. **Correction manuelle** : ✂ scinde une piste, ⤓ la fusionne avec celle du dessous.
+- **Paramètres de découpage** : nombre d'instruments (auto ou fixé), sensibilité, filtre des notes faibles, partage entre instruments, écart minimal entre notes, porte de silence, résolution (bandes par octave), plage de fréquences. **Correction manuelle** : ✂ scinde un instrument en deux, ⤓ le fusionne avec celui du dessous.
 - La map (pistes, notes, paramètres, sélection) est enregistrée dans IndexedDB avec le morceau. L'export de map pour un jeu n'est pas encore prévu.
 
 ### Algorithme (`src/rhythm/`)
 
-1. **Bandes** (`bands.js`) : STFT de 2048 points avec un pas de 256 (5,8 ms), puis bandes logarithmiques (6 par octave par défaut, de 30 Hz à 16 kHz). Pour chaque bande : niveau log et enveloppe d'attaque de type **SuperFlux** (montée par rapport au maximum de la bande et de ses voisines deux trames plus tôt, ce qui neutralise le vibrato et les glissandos). Tourne dans un Web Worker ; les paramètres légers sont ensuite recalculés instantanément, sans refaire ce passage.
-2. **Regroupement en pistes** (`notes.js`) : les bandes voisines sont fusionnées tant qu'elles appartiennent au même son. Critère *timbre* : le rapport de force entre les deux groupes reste constant d'une attaque à l'autre (dispersion du log-rapport). Critère *rythme* : les attaques sont simultanées. Le mode *auto* prend le meilleur des deux, avec un seuil de coïncidence élevé. Les groupes presque silencieux sont absorbés. Une piste = une plage de fréquences contiguë.
-3. **Notes** : pics de l'enveloppe de chaque piste au-dessus d'un seuil adaptatif (moyenne locale + k·écart-type sur ±0,3 s, plus un plancher relatif), avec un écart minimal. Le seuil suit la dynamique locale : attaques douces d'un orchestre comme 25+ notes/s d'un extratone.
-4. **Un son = une piste** : parmi des notes simultanées (±30 ms) de pistes différentes, on compare la **montée d'amplitude perçue** (pondération A) de chaque piste. Les échos faibles disparaissent. Une note forte pour sa propre piste reste (une mélodie sur un kick). Deux pistes dont les notes coïncident presque toujours sont un même son dédoublé (son pitché qui change de bandes) : seule la plus forte garde la note.
+1. **Bandes** (`bands.js`) : STFT de 2048 points avec un pas de 256 (5,8 ms) sur le signal ramené à 44,1 kHz. Bandes logarithmiques au **quart de ton** (24 par octave), niveau log et enveloppe d'attaque de type SuperFlux :
+   - la montée d'une bande est comparée au maximum de ses voisines, mais seulement si elles sont à moins d'un quart de ton. Ça neutralise le vibrato sans masquer une note jouée un demi-ton plus loin (gamme de piano) ;
+   - la montée est pondérée par sa **soudaineté** (part de la montée faite dans les 2 dernières trames).
 
-Testé (`tests/rhythm.test.mjs`) sur un mix kick / charley / mélodie (chaque instrument dans sa piste, timing à ±5 ms), un extratone mélodique à 25 impulsions/s et des cordes legato avec vibrato.
+   Ce passage tourne dans un Web Worker ; les autres réglages se recalculent instantanément.
+2. **Attaques** (`notes.js`) :
+   - **enveloppes** : une pour tout le spectre et une par registre (< 200 Hz, 200 Hz–1 kHz, 1–4 kHz, > 4 kHz), pour qu'un charley discret ne soit pas masqué par la basse ;
+   - **blanchiment par bande** : une bande ne compte qu'au-dessus de 2 × sa moyenne locale ;
+   - **combinaison (Σ flux^⅓)³** : elle récompense les montées simultanées sur beaucoup de bandes (série harmonique d'une note, coup de batterie) par rapport aux battements entre partiels ;
+   - **sélection** : un pic est une attaque si sa **proéminence** (montée depuis le creux qui le précède) atteint une part de l'échelle locale. C'est robuste aussi bien pour des attaques espacées que pour 25+ impulsions/s ;
+   - **porte de silence** : aucune note là où le niveau est à plus de N dB (45 par défaut) sous le niveau fort du morceau, et l'échelle locale a un plancher. Pas de notes dans les silences, les fondus ou après la fin.
+3. **Spectres d'attaque** : pour chaque attaque, la montée du niveau de chaque bande (ce qui est apparu dans le spectre), regroupée par quart d'octave.
+4. **Instruments** : **NMF** (factorisation en matrices non négatives) de la matrice attaques × spectre, qui produit K gabarits spectraux (les instruments) et la part de chaque gabarit dans chaque attaque.
+   - Les gabarits peuvent se chevaucher en fréquence (kick et basse, deux mains au piano).
+   - Une attaque qui contient deux instruments (kick + charley) active les deux.
+   - K est choisi automatiquement (coude de l'erreur de reconstruction) ou fixé.
+   - Les pistes ne sont donc plus des plages de fréquences : la plage affichée n'est qu'un indicatif, celle où se trouve 80 % de l'énergie du gabarit.
+5. **Notes** : une attaque devient une note de chaque instrument qui en porte une part significative. Une note trop faible pour sa piste (reste d'un autre son) est filtrée, et l'écart minimal est appliqué par piste.
+6. **Édition** : ✂ refait une NMF à 2 composantes sur les attaques de la piste, ⤓ fusionne deux pistes.
+
+Testé (`tests/rhythm.test.mjs`, signaux dans `tests/rhythm-fixtures.mjs`) :
+
+| Cas | Résultat |
+|---|---|
+| Mix kick / charley / mélodie | kick et charley chacun dans sa piste, sans note en trop ; timing ±5 ms |
+| Piano (gamme par demi-tons et tons + accords) | toutes les notes trouvées ; la main droite a sa propre piste |
+| Extratone mélodique (16 puis 25 impulsions/s) | impulsions trouvées, aucune note pendant les silences |
+| Cordes legato avec vibrato | une note par changement |
+
+Limite connue : sur un piano très résonant (accords tenus, partiels qui battent), la piste grave reçoit encore des notes parasites. Baisser la sensibilité ou monter le filtre des notes faibles aide.
 
 ### Courbes dans le temps
 

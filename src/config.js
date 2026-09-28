@@ -45,17 +45,16 @@ export const RHYTHM = {
 
 /** Default note-extraction parameters (all editable in the rhythm tab). */
 export const RHYTHM_DEFAULTS = Object.freeze({
-  bandsPerOctave: 6,   // heavy: needs a new spectral pass
+  bandsPerOctave: 24,  // heavy: needs a new spectral pass (24 = quarter tone)
   fMin: 30,            // heavy
   fMax: 16000,         // heavy
-  lanes: 6,            // maximum number of lanes (instrument groups)
-  groupingMode: "auto", // "auto" · "timbre": constant attack-strength ratio · "rhythm": simultaneous attacks
-  grouping: 0.45,      // keep merging neighbouring groups while their similarity is above this
-  boundaries: null,    // manual lanes: band index where each lane starts (null = automatic)
+  instruments: 0,      // number of instruments (lanes); 0 = automatic
+  maxInstruments: 6,   // upper bound for the automatic choice
   sensitivity: 0.5,    // 0 = only strong attacks, 1 = every small attack
-  minGapMs: 35,        // minimum time between two notes of the same lane (35 ms ≈ 28 notes/s)
-  dedupe: 0.35,        // echoes: drop simultaneous notes weaker than this × the strongest (0 = off)
-  mergeNeighbors: false, // keep one note when neighbouring lanes hit together
+  minGapMs: 25,        // minimum time between two notes of the same lane (25 ms = 40 notes/s)
+  silenceDb: 45,       // no notes where the music is this far below its loud level (dB)
+  assignRatio: 0.35,   // an attack also counts for an instrument carrying ≥ this share of the main one
+  minStrength: 0.35,   // drop notes weaker than this × the lane's strong notes (leftovers of other sounds)
 });
 
 /**

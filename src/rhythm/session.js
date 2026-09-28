@@ -3,7 +3,7 @@
 // band data in memory so regrouping / re-detecting is instant.
 
 import { engine } from "../audio/engine.js";
-import { RHYTHM } from "../config.js";
+import { RHYTHM, ANALYSIS } from "../config.js";
 
 let cached = null; // { id, key, data }
 let jobSeq = 0;
@@ -17,15 +17,34 @@ export async function bandData(id, file, params, onProgress = () => {}) {
   onProgress("decode", 0);
   const buffer = await engine.load(id, file);
   if (buffer.duration > RHYTHM.maxDurationSeconds) throw new Error(`Morceau trop long (max ${RHYTHM.maxDurationSeconds / 60} min).`);
+  // The analysis is tuned at a fixed rate (frame-based constants): resample
+  // the playback buffer (native rate) to it, mixed to mono.
+  const mono = await toAnalysisMono(buffer);
+  onProgress("bands", 0);
+  const data = await runWorker(mono, ANALYSIS.sampleRate, params, (p) => onProgress("bands", p));
+  cached = { id, key, data };
+  return data;
+}
+
+async function toAnalysisMono(buffer) {
+  const rate = ANALYSIS.sampleRate;
+  let src = buffer;
+  if (buffer.sampleRate !== rate) {
+    const Ctx = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
+    const ctx = new Ctx(1, Math.ceil(buffer.duration * rate), rate);
+    const node = ctx.createBufferSource();
+    node.buffer = buffer;
+    node.connect(ctx.destination); // channels are mixed down to mono by the 1-channel context
+    node.start();
+    src = await ctx.startRendering();
+    return src.getChannelData(0).slice();
+  }
   const mono = new Float32Array(buffer.length);
   for (let c = 0; c < buffer.numberOfChannels; c++) {
     const ch = buffer.getChannelData(c);
     for (let i = 0; i < mono.length; i++) mono[i] += ch[i] / buffer.numberOfChannels;
   }
-  onProgress("bands", 0);
-  const data = await runWorker(mono, buffer.sampleRate, params, (p) => onProgress("bands", p));
-  cached = { id, key, data };
-  return data;
+  return mono;
 }
 
 export const cachedBandData = (id, params) => (cached?.id === id && cached.key === heavyKey(params) ? cached.data : null);

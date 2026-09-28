@@ -10,6 +10,7 @@ import { initSettings } from "./ui/settings.js";
 import { initProgression, renderProgression } from "./ui/progression.js";
 import { toast } from "./ui/toast.js";
 import { initRhythm, showRhythm } from "./ui/rhythm.js";
+import { initSpotify } from "./ui/spotify.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -72,7 +73,7 @@ async function filesFromDrop(dt) {
 }
 
 function initTabs() {
-  const tabs = [["tab-library", "panel-library"], ["tab-progression", "panel-progression"], ["tab-rhythm", "panel-rhythm"]];
+  const tabs = [["tab-library", "panel-library"], ["tab-progression", "panel-progression"], ["tab-rhythm", "panel-rhythm"], ["tab-spotify", "panel-spotify"]];
   for (const [tabId, panelId] of tabs) {
     $(tabId).addEventListener("click", () => {
       for (const [t, p] of tabs) {
@@ -132,6 +133,8 @@ async function main() {
     toast(`Stockage local indisponible : ${err.message}. Les analyses ne seront pas conservées.`, "error", 8000);
   }
   notify();
+  // after the library is loaded (matching needs it); also finishes a Spotify login redirect
+  initSpotify().catch((err) => console.error(err));
 }
 
 main();
