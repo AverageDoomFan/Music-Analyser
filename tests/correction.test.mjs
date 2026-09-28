@@ -63,3 +63,21 @@ test("a correction shifts the aggregated score by the change it causes", () => {
 });
 
 function mean(a) { return a.reduce((x, y) => x + y, 0) / a.length; }
+
+test("pairwise fit learns that pressure matters more", async () => {
+  const { fitPairwise } = await import("../src/scoring/learning.js");
+  const { DEFAULT_WEIGHTS } = await import("../src/config.js");
+  const mk = (pressure, brightness, harshness) => ({ windows: [{ energy: 50, tempo: 50, density: 50, brightness, harshness, pressure, complexity: 50, noise: 10 }], times: [3], aggregation: "topMean" });
+  // the user feels the heavy, dark track as more intense than the bright, harsh one
+  const pairs = [];
+  for (let i = 0; i < 12; i++) pairs.push({ a: mk(70 + i, 10, 45), b: mk(40, 90, 55 - i), winner: "a" });
+  const res = fitPairwise(pairs, { ...DEFAULT_WEIGHTS });
+  assert.ok(!res.unchanged);
+  assert.ok(res.agreementAfter > res.agreementBefore, `${res.agreementBefore} → ${res.agreementAfter}`);
+  assert.ok(res.weights.pressure > DEFAULT_WEIGHTS.pressure);
+  // random judgements: weights are kept
+  const noisy = [];
+  for (let i = 0; i < 10; i++) noisy.push({ a: mk(50 + i, 50, 50), b: mk(50 - i, 50, 50), winner: i % 2 ? "a" : "b" });
+  const keep = fitPairwise(noisy, { ...DEFAULT_WEIGHTS });
+  assert.deepEqual(keep.weights, { ...DEFAULT_WEIGHTS });
+});

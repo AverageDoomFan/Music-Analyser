@@ -5,6 +5,7 @@ import { state, notify } from "../app/store.js";
 import { statusOf, needsReanalysis } from "../core/track.js";
 import { formatDuration, formatSize, formatScore, formatDelta, escapeHtml } from "../util/format.js";
 import { renderScoreChart, sparkline } from "./charts.js";
+import { moodLabel } from "../scoring/describe.js";
 import * as ctl from "../app/controller.js";
 import { player } from "./player.js";
 
@@ -27,6 +28,7 @@ export function initLibrary({ openDetail }) {
   $("search").addEventListener("input", (e) => { state.ui.search = e.target.value; notify(); });
   $("filter-status").addEventListener("change", (e) => { state.ui.status = e.target.value; notify(); });
   $("filter-stage").addEventListener("change", (e) => { state.ui.stage = e.target.value; notify(); });
+  $("filter-vocals").addEventListener("change", (e) => { state.ui.vocals = e.target.value; notify(); });
   $("aggregation").innerHTML = AGGREGATIONS.map((a) => `<option value="${a.key}" title="${a.hint}">${a.label}</option>`).join("");
   $("aggregation").addEventListener("change", (e) => ctl.setAggregation(e.target.value));
   $("sort-key").innerHTML = SORT_KEYS.map((k) => `<option value="${k.key}" title="${k.hint ?? ""}">${k.label}</option>`).join("");
@@ -71,6 +73,9 @@ const SORT_KEYS = [
   { key: "score", label: "Score", hint: "Score final (méthode choisie, corrections comprises)" },
   ...AGGREGATIONS.map((a) => ({ key: a.key, label: a.label, hint: a.hint })),
   ...CURVE_STATS,
+  { key: "valence", label: "Ambiance", hint: "Sombre → lumineux (mode, brillance, tempo, consonance, paroles)" },
+  { key: "bpm", label: "BPM" },
+  { key: "camelot", label: "Tonalité (Camelot)", hint: "Ordre de la roue Camelot : 1A, 1B, 2A…" },
   { key: "name", label: "Nom" },
   { key: "date", label: "Date d'ajout" },
 ];
@@ -109,6 +114,11 @@ function filterSort(rows) {
   let out = rows.filter((row) => {
     if (q && !row.name.toLowerCase().includes(q)) return false;
     if (state.ui.status !== "all" && rowStatus(row) !== state.ui.status) return false;
+    const vf = state.ui.vocals ?? "all";
+    if (vf !== "all") {
+      const v = row.record?.vocals?.state ?? null;
+      if (vf === "unknown" ? v != null : vf === "torate" ? v !== "vocal" || row.record.lyrics : v !== vf) return false;
+    }
     if (stageIdx != null) {
       const s = row.record?.finalScore;
       if (s == null) return false;
@@ -124,6 +134,12 @@ function filterSort(rows) {
     if (key === "score") return row.record?.finalScore ?? null;
     if (key === "date") return row.record?.addedAt ?? Date.now();
     if (key === "name") return row.name.toLowerCase();
+    if (key === "valence") return row.record?.valence ?? null;
+    if (key === "bpm") return row.record?.auto?.music?.tempo?.bpm ?? null;
+    if (key === "camelot") {
+      const c = row.record?.auto?.music?.key?.camelot;
+      return c ? parseInt(c, 10) * 2 + (c.endsWith("B") ? 1 : 0) : null;
+    }
     return statOf(row.record, key);
   };
   out.sort((a, b) => {
@@ -185,6 +201,7 @@ function rowHtml(row) {
     <td class="col-play"><button class="icon-btn" data-play="${row.id ?? ""}" ${canPlay ? "" : "disabled"} aria-label="${playing ? "Pause" : "Écouter"}" title="${canPlay ? (playing ? "Pause" : "Écouter") : "Lecture disponible pour les fichiers importés pendant cette session"}">${playing ? "❚❚" : "▶"}</button></td>
     <td><div class="track-name">${escapeHtml(row.name)}</div><div class="track-meta">${meta.join(" · ")}</div></td>
     <td class="col-curve hide-sm" title="${r?.auto?.stats ? curveTitle(r) : ""}">${r?.auto?.curves ? sparkline(r.auto.curves.intensity) : ""}</td>
+    <td class="hide-sm">${musicCell(r)}</td>
     <td class="num"><div class="score-cell">${final != null ? `<span class="minibar" aria-hidden="true"><i style="width:${final}%"></i></span>` : ""}<b>${formatScore(final)}</b></div>${sortTag(r)}</td>
     <td class="num hide-sm">${formatScore(auto)}</td>
     <td class="num hide-sm">${corr == null ? "—" : formatDelta(corr)}</td>
@@ -193,10 +210,23 @@ function rowHtml(row) {
   </tr>`;
 }
 
+function musicCell(r) {
+  const m = r?.auto?.music;
+  if (!m) return "";
+  const parts = [];
+  if (m.key) parts.push(`<b title="${escapeHtml(m.key.name)} · fiabilité ${Math.round(m.key.confidence * 100)} %">${escapeHtml(m.key.camelot)}</b>`);
+  if (m.tempo) parts.push(`${Math.round(m.tempo.bpm)} BPM`);
+  const v = r.valence;
+  const mood = v != null ? `<div><span class="mood-dot" style="background:${valenceColor(v)}"></span>${escapeHtml(moodLabel(r.finalScore, v))}${r.vocals?.state === "vocal" ? (r.lyrics ? " · ♪ noté" : " · ♪") : ""}</div>` : "";
+  return `<div class="music-cell">${parts.join(" · ")}${mood}</div>`;
+}
+
+const valenceColor = (v) => `hsl(${Math.round(270 - (v / 100) * 230)}, 70%, 55%)`;
+
 /** When sorting by a curve statistic, show it next to the score. */
 function sortTag(r) {
   const [key] = state.ui.sort.split("-");
-  if (!r || ["score", "name", "date"].includes(key)) return "";
+  if (!r || ["score", "name", "date", "valence", "bpm", "camelot"].includes(key)) return "";
   const v = statOf(r, key);
   if (v == null) return "";
   const label = SORT_KEYS.find((k) => k.key === key)?.label ?? key;

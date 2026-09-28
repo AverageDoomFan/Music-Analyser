@@ -8,6 +8,7 @@ import { toast } from "./toast.js";
 const dialog = () => document.getElementById("settings-dialog");
 let draft = null;
 let proposal = null;
+let lyricsLookup = false;
 
 export function initSettings() {
   document.getElementById("open-settings").addEventListener("click", open);
@@ -20,6 +21,12 @@ export function initSettings() {
     d.querySelector("[data-action=apply-weights]").disabled = false;
   });
   d.addEventListener("change", async (e) => {
+    if (e.target.id === "lyrics-lookup") {
+      lyricsLookup = e.target.checked;
+      await ctl.setLyricsLookup(lyricsLookup);
+      toast(lyricsLookup ? "Recherche des paroles activée : les morceaux sont vérifiés en arrière-plan." : "Recherche des paroles désactivée.");
+      return;
+    }
     if (e.target.name === "aggregation") {
       await ctl.setAggregation(e.target.value);
       toast("Scores recalculés depuis les courbes en cache.");
@@ -89,9 +96,10 @@ export function initSettings() {
   });
 }
 
-function open() {
+async function open() {
   draft = { ...state.weights };
   proposal = null;
+  lyricsLookup = await ctl.lyricsLookupEnabled();
   render();
   dialog().showModal();
 }
@@ -124,6 +132,10 @@ function render() {
       <h3>Apprendre de mes corrections</h3>
       <p class="muted small">Ajuste les pondérations globales pour que le score automatique se rapproche de tes corrections (${corrected} morceau${corrected > 1 ? "x" : ""} corrigé${corrected > 1 ? "s" : ""}).</p>
       ${proposal ? proposalHtml() : `<button class="btn" data-action="learn" ${corrected < 3 ? "disabled title='Il faut au moins 3 morceaux corrigés'" : ""}>Proposer des pondérations</button>`}
+
+      <h3>Paroles</h3>
+      <label class="inline"><input type="checkbox" id="lyrics-lookup" ${lyricsLookup ? "checked" : ""}> Chercher automatiquement les paroles sur LRCLIB</label>
+      <p class="muted small">LRCLIB (lrclib.net) est une base de paroles ouverte. L'app lui envoie seulement l'artiste et le titre, pour savoir si un morceau est chanté ou instrumental et proposer une ambiance d'après les mots. Les paroles ne sont jamais conservées, et tu confirmes toujours la note. Sans cette option, la recherche reste possible titre par titre depuis la fiche d'un morceau.</p>
 
       <h3>Sauvegarde</h3>
       <div class="settings-actions">

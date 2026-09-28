@@ -6,6 +6,7 @@
 
 import { ALGORITHM_VERSION, CALIBRATION, DEFAULT_WEIGHTS, DEFAULT_AGGREGATION } from "../config.js";
 import { aggregate, aggregateAll } from "./aggregate.js";
+import { describeMusic } from "./describe.js";
 
 const clamp01 = (x) => (Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0);
 /** Linear map of x from [lo, hi] to [0, 1], clamped. */
@@ -236,6 +237,7 @@ export function scoreFeatures(features, weights = DEFAULT_WEIGHTS, aggregation =
     stats,
     score: stats[aggregation],
     curves: { times: curves.times, intensity: curves.intensity, subscores: curves.subscores },
+    music: describeMusic(features),
   };
 }
 

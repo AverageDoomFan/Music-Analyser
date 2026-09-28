@@ -44,6 +44,10 @@
 
     <section id="panel-library" role="tabpanel" aria-labelledby="tab-library">
       <div class="overview" id="overview"></div>
+      <div class="notice-bar" id="lyrics-banner" hidden>
+        <span id="lyrics-banner-text"></span>
+        <button class="btn small primary" id="lyrics-rate" type="button">Noter les paroles</button>
+      </div>
       <div class="toolbar">
         <input type="search" id="search" placeholder="Rechercher…" aria-label="Rechercher">
         <select id="filter-status" aria-label="Filtrer par statut">
@@ -54,6 +58,13 @@
           <option value="error">Erreurs</option>
         </select>
         <select id="filter-stage" aria-label="Filtrer par niveau"></select>
+        <select id="filter-vocals" aria-label="Filtrer par voix">
+          <option value="all">Voix : tous</option>
+          <option value="vocal">Chantés</option>
+          <option value="torate">Chantés sans note de paroles</option>
+          <option value="instrumental">Instrumentaux</option>
+          <option value="unknown">Voix inconnue</option>
+        </select>
         <label class="inline">Score
           <select id="aggregation" aria-label="Méthode de calcul du score" title="Comment la courbe d'intensité d'un morceau devient son score"></select>
         </label>
@@ -61,6 +72,7 @@
           <select id="sort-key" aria-label="Trier par"></select>
         </label>
         <button class="btn" id="sort-dir" type="button" aria-label="Inverser l'ordre de tri">↑</button>
+        <button class="btn" id="open-duels" type="button" title="Compare des paires de morceaux pour régler le modèle sur ta perception">Duels</button>
         <button class="btn" id="rescore-all" type="button" title="Recalcule tous les scores depuis les caractéristiques en cache">Recalculer tout</button>
       </div>
       <div class="table-wrap">
@@ -70,6 +82,7 @@
               <th class="col-play"><span class="sr-only">Écouter</span></th>
               <th data-sort="name">Morceau</th>
               <th class="col-curve hide-sm">Courbe</th>
+              <th class="hide-sm" data-sort="camelot">Musique</th>
               <th data-sort="score" class="num">Score</th>
               <th class="num hide-sm">Auto</th>
               <th class="num hide-sm">Correction</th>
@@ -347,6 +360,7 @@
   <dialog id="detail-dialog" class="dialog wide"></dialog>
   <dialog id="correction-dialog" class="dialog"></dialog>
   <dialog id="settings-dialog" class="dialog wide"></dialog>
+  <dialog id="review-dialog" class="dialog wide"></dialog>
   <div class="toasts" id="toasts" aria-live="polite" popover="manual"></div>
 </body>
 </html>

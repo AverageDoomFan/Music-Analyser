@@ -11,12 +11,16 @@
 //   correction: null | { answers, overrides, deltas, previousScore, modelScore, score,
 //                         algorithmVersion, createdAt },
 //   manual: null | { score, createdAt },
-//   finalScore, history: [{ at, kind, score, algorithmVersion }]
+//   vocals: null | { state: "vocal" | "instrumental", source: "user" | "lrclib", at },
+//   lyrics: null | { mood, strength (1..3), at },            // user's rating of the lyrics
+//   lyricsHint: null | { found, instrumental, suggestion, at }, // LRCLIB lookup (text never stored)
+//   finalScore, valence, history: [{ at, kind, score, algorithmVersion }]
 // }
 
 import { ALGORITHM_VERSION, FEATURE_VERSION, DEFAULT_WEIGHTS, DEFAULT_AGGREGATION } from "../config.js";
 import { scoreFeatures } from "../scoring/index.js";
 import { applyCorrection } from "../scoring/correction.js";
+import { lyricsEffect } from "../scoring/describe.js";
 
 const MAX_HISTORY = 30;
 
@@ -112,10 +116,38 @@ export function setManualScore(record, value) {
   pushHistory(record, value == null ? "score manuel retiré" : "score manuel", record.finalScore);
 }
 
+/** Manual score wins; otherwise correction (or automatic) score shifted by the lyrics rating. */
 export function computeFinal(record) {
+  record.valence = computeValence(record);
   if (record.manual) return record.manual.score;
-  if (record.correction) return record.correction.score;
-  return record.auto ? record.auto.score : null;
+  const base = record.correction ? record.correction.score : record.auto ? record.auto.score : null;
+  if (base == null) return null;
+  const d = lyricsEffect(record.lyrics).intensity;
+  return d ? Math.round(Math.max(0, Math.min(100, base + d)) * 10) / 10 : base;
+}
+
+/** Mood axis: model valence shifted by the lyrics rating. */
+export function computeValence(record) {
+  const v = record.auto?.music?.mood?.valence;
+  if (v == null) return null;
+  return Math.round(Math.max(0, Math.min(100, v + lyricsEffect(record.lyrics).valence)) * 10) / 10;
+}
+
+/** Stores (or clears) the user's rating of the lyrics. */
+export function setLyricsRating(record, rating) {
+  record.lyrics = rating?.mood ? { mood: rating.mood, strength: Math.max(1, Math.min(3, rating.strength ?? 2)), at: Date.now() } : null;
+  if (rating?.mood) record.vocals = { state: "vocal", source: "user", at: Date.now() };
+  const prev = record.finalScore;
+  record.finalScore = computeFinal(record);
+  record.updatedAt = Date.now();
+  if (record.finalScore !== prev) pushHistory(record, rating?.mood ? "paroles" : "paroles retirées", record.finalScore);
+}
+
+export function setVocals(record, stateValue, source = "user") {
+  record.vocals = stateValue ? { state: stateValue, source, at: Date.now() } : null;
+  if (stateValue === "instrumental") record.lyrics = null;
+  record.finalScore = computeFinal(record);
+  record.updatedAt = Date.now();
 }
 
 /** "pending" | "analyzed" | "corrected" | "error" */

@@ -59,6 +59,8 @@ export function mergeRecord(existing, incoming) {
   const merged = { ...older, ...newer };
   merged.correction = newer.correction ?? older.correction ?? null;
   merged.manual = newer.manual ?? older.manual ?? null;
+  merged.lyrics = newer.lyrics ?? older.lyrics ?? null;
+  merged.vocals = newer.vocals ?? older.vocals ?? null;
   merged.features = newer.features ?? older.features ?? null;
   merged.featureVersion = newer.features ? newer.featureVersion : older.featureVersion;
   merged.initialAuto = existing.initialAuto ?? incoming.initialAuto ?? null;

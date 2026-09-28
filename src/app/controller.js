@@ -10,8 +10,12 @@ import { analyzeAudio } from "../audio/analyzer.js";
 import { readTags } from "../util/tags.js";
 import {
   createRecord, applyFeatures, rescore, commitCorrection, clearCorrection, setManualScore,
+  setLyricsRating, setVocals,
 } from "../core/track.js";
-import { fitWeights } from "../scoring/learning.js";
+import { lookupLyrics } from "../util/lyrics.js";
+import { parseFileName } from "../util/tags.js";
+import { fingerprints, similarTo } from "../scoring/similarity.js";
+import { fitWeights, fitPairwise } from "../scoring/learning.js";
 import { buildProgression as buildOrder } from "../playlist/progression.js";
 
 const PIPELINE_CONCURRENCY = 2;
@@ -33,6 +37,7 @@ export async function init() {
   }
   if (changed.length) await db.putTracks(changed);
   notify();
+  lookupMissingLyrics();
   return { count: records.length, rescored: changed.length };
 }
 
@@ -146,6 +151,7 @@ async function ingest({ identity, meta, sourceDesc, job, force, analyze }) {
     if (features.sourceLoudnessLufs <= -69) throw new Error("Audio silencieux : rien à analyser.");
     applyFeatures(record, features, scoring());
     await db.putTrack(record);
+    lookupMissingLyrics();
   } catch (err) {
     console.error(err);
     state.queue.errors++;
@@ -212,6 +218,146 @@ export async function setManual(id, value) {
   setManualScore(r, value);
   await save(r);
 }
+
+// ---------- lyrics & vocals ----------
+
+/** User's rating of the lyrics mood ({mood, strength} or null to clear). */
+export async function setLyrics(id, rating) {
+  const r = state.records.get(id);
+  if (!r) return;
+  setLyricsRating(r, rating);
+  await save(r);
+}
+
+export async function setVocalState(id, value) {
+  const r = state.records.get(id);
+  if (!r) return;
+  setVocals(r, value, "user");
+  await save(r);
+}
+
+/** Artist / title of a record for lookups (tags, then file name). */
+export function trackMeta(r) {
+  const fromName = parseFileName((r.name ?? "").replace(/\.[a-z0-9]{2,4}$/i, ""));
+  return {
+    artist: r.tags?.artist || fromName.artist || "",
+    title: r.tags?.title || fromName.title || r.name,
+    durationSec: r.duration ?? null,
+  };
+}
+
+export const lyricsLookupEnabled = () => db.getSetting("lyricsLookup").then((v) => !!v).catch(() => false);
+export async function setLyricsLookup(on) {
+  await db.setSetting("lyricsLookup", !!on);
+  if (on) lookupMissingLyrics();
+}
+
+/** LRCLIB lookup for one record (sends artist / title only). */
+export async function lookupLyricsFor(id) {
+  const r = state.records.get(id);
+  if (!r) return null;
+  const meta = trackMeta(r);
+  const res = await lookupLyrics(meta);
+  r.lyricsHint = { ...res, at: Date.now() };
+  // the database only decides when the user has not
+  if (res.found && r.vocals?.source !== "user") {
+    r.vocals = { state: res.instrumental ? "instrumental" : "vocal", source: "lrclib", at: Date.now() };
+  }
+  await save(r);
+  return res;
+}
+
+let lookupRunning = false;
+/** Background lookups for records never looked up (when enabled), one every 600 ms. */
+export async function lookupMissingLyrics() {
+  if (lookupRunning || !(await lyricsLookupEnabled())) return;
+  lookupRunning = true;
+  try {
+    for (const r of [...state.records.values()]) {
+      if (r.lyricsHint || !r.auto || r.vocals?.source === "user") continue;
+      if (!trackMeta(r).artist) continue;
+      try {
+        await lookupLyricsFor(r.id);
+      } catch (err) {
+        console.warn("LRCLIB", err);
+        break; // network / CORS problem: stop, retry on next start
+      }
+      await new Promise((res) => setTimeout(res, 600));
+    }
+  } finally {
+    lookupRunning = false;
+  }
+}
+
+/** Sung tracks without a lyrics rating (to ask the user). */
+export function lyricsToRate() {
+  return [...state.records.values()].filter((r) => r.auto && r.vocals?.state === "vocal" && !r.lyrics && !r.manual);
+}
+
+// ---------- pairwise judgements ("which one is more intense?") ----------
+
+const DUELS_KEY = "comparisons";
+export async function getComparisons() {
+  return (await db.getSetting(DUELS_KEY).catch(() => null)) ?? [];
+}
+
+export async function addComparison(a, b, winner) {
+  const list = await getComparisons();
+  list.push({ a, b, winner, at: Date.now() });
+  await db.setSetting(DUELS_KEY, list.slice(-500));
+  return list.length;
+}
+
+export async function clearComparisons() {
+  await db.setSetting(DUELS_KEY, []);
+}
+
+const windowsOf = (r) => {
+  const { times, subscores } = r.auto.curves;
+  return { windows: times.map((_, i) => Object.fromEntries(Object.entries(subscores).map(([d, arr]) => [d, arr[i]]))), times, aggregation: state.aggregation };
+};
+
+/**
+ * Next pair to judge: close scores (the model hesitates), not compared yet,
+ * preferably different timbres (the judgement tells more).
+ */
+export async function nextDuel() {
+  const done = new Set((await getComparisons()).map((c) => [c.a, c.b].sort().join("|")));
+  const rs = [...state.records.values()].filter((r) => r.auto?.curves && r.finalScore != null);
+  if (rs.length < 2) return null;
+  const fps = libraryFingerprints();
+  let best = null;
+  for (let tries = 0; tries < 400; tries++) {
+    const a = rs[Math.floor(Math.random() * rs.length)], b = rs[Math.floor(Math.random() * rs.length)];
+    if (a === b || done.has([a.id, b.id].sort().join("|"))) continue;
+    const gap = Math.abs(a.finalScore - b.finalScore);
+    const fa = fps.get(a.id), fb = fps.get(b.id);
+    const far = fa && fb ? Math.min(1, Math.hypot(...fa.map((x, i) => x - fb[i])) / Math.sqrt(fa.length) / 1.5) : 0.5;
+    const value = -gap / 10 + far + Math.random() * 0.3;
+    if (!best || value > best.value) best = { a: a.id, b: b.id, value };
+  }
+  return best;
+}
+
+/** Weights fitted on the duels (not applied). */
+export async function proposeFromDuels() {
+  const pairs = (await getComparisons())
+    .map((c) => ({ a: state.records.get(c.a), b: state.records.get(c.b), winner: c.winner }))
+    .filter((p) => p.a?.auto?.curves && p.b?.auto?.curves)
+    .map((p) => ({ a: windowsOf(p.a), b: windowsOf(p.b), winner: p.winner }));
+  if (pairs.filter((p) => p.winner !== "tie").length < 6) return { error: "Il faut au moins 6 duels tranchés.", n: pairs.length };
+  return fitPairwise(pairs, state.weights);
+}
+
+// ---------- similarity ----------
+
+let fpCache = { key: "", fps: new Map() };
+export function libraryFingerprints() {
+  const key = [...state.records.values()].map((r) => `${r.id}:${r.featureVersion}`).join("|");
+  if (key !== fpCache.key) fpCache = { key, fps: fingerprints([...state.records.values()]) };
+  return fpCache.fps;
+}
+export const similarTracks = (id, k = 5) => similarTo(id, libraryFingerprints(), k);
 
 /** Stores a track's rhythm map (lanes, notes, parameters, selection). */
 export async function saveRhythm(id, rhythm) {
@@ -334,6 +480,29 @@ export function buildProgression(tolerance) {
 export function orderRecords(ids, tolerance = 6) {
   const items = ids.map((id) => progressionItem(state.records.get(id))).filter(Boolean);
   return buildOrder(items, { tolerance });
+}
+
+// ---------- set generator ----------
+
+/** Generator input for one analysed record (null if not analysed). */
+export function setItem(r, fps = libraryFingerprints()) {
+  const base = progressionItem(r);
+  if (!base) return null;
+  const m = r.auto.music ?? {};
+  return {
+    ...base,
+    artist: trackMeta(r).artist?.toLowerCase() || null,
+    valence: r.valence ?? null,
+    bpm: m.tempo?.bpm ?? null, bpmStart: m.tempo?.start ?? null, bpmEnd: m.tempo?.end ?? null,
+    key: m.key?.index ?? null, keyStart: m.key?.start ?? null, keyEnd: m.key?.end ?? null,
+    fp: fps.get(r.id) ?? null,
+  };
+}
+
+export function setPool(ids = null) {
+  const fps = libraryFingerprints();
+  const list = ids ? ids.map((id) => state.records.get(id)) : [...state.records.values()];
+  return list.map((r) => setItem(r, fps)).filter(Boolean);
 }
 
 // ---------- live scan (audio captured from the Spotify app) ----------

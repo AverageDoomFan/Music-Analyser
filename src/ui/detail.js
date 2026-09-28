@@ -1,6 +1,7 @@
 // Track detail dialog: why a track got its score, manual edit, actions.
 
-import { DIMENSIONS, stageFor, ALGORITHM_VERSION, ANALYSIS, AGGREGATIONS, CURVE_STATS } from "../config.js";
+import { DIMENSIONS, stageFor, ALGORITHM_VERSION, ANALYSIS, AGGREGATIONS, CURVE_STATS, LYRICS_MOODS, LYRICS_LEVELS } from "../config.js";
+import { moodLabel, lyricsEffect } from "../scoring/describe.js";
 import { aggregate } from "../scoring/aggregate.js";
 import { renderTimeline } from "./charts.js";
 import { state, subscribe } from "../app/store.js";
@@ -43,6 +44,36 @@ export function initDetail() {
         break;
       }
       case "manual-clear": await ctl.setManual(id, null); break;
+      case "vocals": {
+        const v = e.target.closest("[data-value]").dataset.value || null;
+        await ctl.setVocalState(id, v);
+        break;
+      }
+      case "lyrics-mood": {
+        const mood = e.target.closest("[data-mood]").dataset.mood;
+        await ctl.setLyrics(id, r.lyrics?.mood === mood ? null : { mood, strength: r.lyrics?.strength ?? 2 });
+        break;
+      }
+      case "lyrics-level":
+        if (r.lyrics) await ctl.setLyrics(id, { mood: r.lyrics.mood, strength: Number(e.target.closest("[data-level]").dataset.level) });
+        break;
+      case "lyrics-suggest": {
+        const sg = r.lyricsHint?.suggestion;
+        if (sg) await ctl.setLyrics(id, { mood: sg.mood, strength: sg.strength });
+        break;
+      }
+      case "lyrics-lookup":
+        try {
+          const res = await ctl.lookupLyricsFor(id);
+          toast(!res.found ? "Aucune parole trouvée sur LRCLIB pour ce titre." : res.instrumental ? "LRCLIB : titre instrumental." : "Paroles trouvées : suggestion d'ambiance ajoutée.");
+        } catch (err) {
+          toast(`LRCLIB indisponible : ${err.message}`, "error");
+        }
+        break;
+      case "open": openDetail(e.target.closest("[data-id]").dataset.id); break;
+      case "seek":
+        if (state.files.has(id)) player.playAt(id, Number(e.target.closest("[data-t]").dataset.t));
+        break;
       case "correction-clear": await ctl.removeCorrection(id); toast("Correction retirée."); break;
       case "recompute": await ctl.recompute(id); toast("Score recalculé depuis les caractéristiques en cache."); break;
       case "reanalyze":
@@ -105,6 +136,8 @@ function render(force = false) {
       ${r.error && !auto ? `<div class="notice">⚠ ${escapeHtml(r.error)}</div>` : ""}
       ${needsReanalysis(r) ? `<div class="notice">Caractéristiques extraites par une ancienne version de l'analyse (${escapeHtml(r.featureVersion)}). Le score reste valable ; réimporte le fichier pour une réanalyse complète.</div>` : ""}
       ${auto ? scoreBlock(r, final) : `<p class="muted">Pas encore analysé.</p>`}
+      ${auto ? musicBlock(r, canPlay) : ""}
+      ${auto ? lyricsBlock(r) : ""}
       ${auto?.curves ? `
         <h3>Évolution dans le temps</h3>
         <div class="card">
@@ -127,6 +160,7 @@ function render(force = false) {
           ${r.manual ? `<button class="btn small" data-action="manual-clear">Retirer le score manuel</button>` : ""}
           <span class="muted small">Prioritaire sur le score automatique et la correction.</span>
         </div>
+        ${similarBlock(r)}
         <h3>Caractéristiques audio</h3>
         ${featuresBlock(r.features)}
       ` : ""}
@@ -222,6 +256,67 @@ function animatePlayhead(id) {
     if (player.isPlaying(id)) rafId = requestAnimationFrame(step);
   };
   step();
+}
+
+// ---------- music, lyrics, similar ----------
+
+const SECTION_COLORS = { Intro: "#60a5fa", Montée: "#fbbf24", Pic: "#ef4444", Break: "#a78bfa", Section: "#94a3b8", Outro: "#34d399" };
+
+function musicBlock(r, canPlay) {
+  const m = r.auto.music;
+  if (!m) return "";
+  const k = m.key, t = m.tempo;
+  const val = r.valence ?? m.mood?.valence;
+  const keyTxt = k ? `<b>${escapeHtml(k.name)} · ${escapeHtml(k.camelot)}</b><small>fiab. ${Math.round(k.confidence * 100)} %${k.startCamelot && (k.startCamelot !== k.camelot || k.endCamelot !== k.camelot) ? ` · début ${k.startCamelot}, fin ${k.endCamelot}` : ""}</small>` : "—";
+  const tempoTxt = t ? `<b>${Math.round(t.bpm)} BPM</b><small>${t.stability != null ? `stable à ${Math.round(t.stability * 100)} %` : ""}${t.alt ? ` · ou ${Math.round(t.alt)}` : ""}${Math.round(t.start) !== Math.round(t.end) ? ` · ${Math.round(t.start)} → ${Math.round(t.end)}` : ""}</small>` : "—";
+  const moodTip = (m.mood?.explain ?? []).map((p) => `${p.label} : ${Math.round(p.value * 100)}`).join("\n");
+  const secs = m.sections;
+  const dur = r.duration || secs?.at(-1)?.end || 1;
+  return `<h3>Musique</h3>
+    <div class="music-grid">
+      <div class="music-tile"><span>Tonalité</span>${keyTxt}</div>
+      <div class="music-tile"><span>Tempo</span>${tempoTxt}</div>
+      <div class="music-tile" title="${escapeHtml(moodTip)}"><span>Ambiance</span><b>${escapeHtml(moodLabel(r.finalScore, val))}</b>
+        <div class="valence-bar" aria-label="Ambiance ${Math.round(val ?? 0)} sur 100"><i style="left:${val ?? 50}%"></i></div>
+        <small>sombre · ${Math.round(val ?? 0)} · lumineux${r.lyrics ? " (paroles comprises)" : ""}</small></div>
+    </div>
+    ${secs?.length ? `<div class="sections-bar" role="img" aria-label="Structure du morceau">${secs.map((sc) => `<button type="button" class="section" data-action="seek" data-t="${sc.start}" style="flex:${Math.max(0.5, sc.end - sc.start)};background:${SECTION_COLORS[sc.label] ?? "#94a3b8"}" title="${escapeHtml(sc.label)} · ${formatDuration(sc.start)} – ${formatDuration(sc.end)} · niveau ${sc.level.toFixed(1)} dB${canPlay ? " · clic : lire" : ""}" ${canPlay ? "" : "tabindex=\"-1\""}>${sc.end - sc.start > dur * 0.07 ? escapeHtml(sc.label) : ""}</button>`).join("")}</div>
+      <p class="muted small">Structure détectée (changements de timbre, d'harmonie et de niveau).</p>`
+      : `<p class="muted small">Structure : ${r.features?.excerpted ? "non disponible pour une analyse par extraits" : "à calculer (réanalyse nécessaire)"}.</p>`}`;
+}
+
+function lyricsBlock(r) {
+  const v = r.vocals?.state ?? null;
+  const src = r.vocals?.source === "lrclib" ? " (d'après LRCLIB)" : "";
+  const eff = lyricsEffect(r.lyrics);
+  const hint = r.lyricsHint;
+  const sg = hint?.suggestion;
+  const sgMood = sg && LYRICS_MOODS.find((x) => x.key === sg.mood);
+  const btn = (value, label) => `<button type="button" class="chip-btn" data-action="vocals" data-value="${value}" aria-pressed="${v === (value || null)}">${label}</button>`;
+  return `<h3>Paroles</h3>
+    <div class="lyrics-box">
+      <div class="lyrics-row">${btn("vocal", "Chanté")}${btn("instrumental", "Instrumental")}${btn("", "Je ne sais pas")}<span class="muted small">${src}</span></div>
+      ${v === "vocal" ? `
+        <p class="small">Quelle ambiance donnent les paroles ? Elles changent la perception : l'intensité et l'ambiance sont ajustées.</p>
+        <div class="lyrics-row">${LYRICS_MOODS.map((m) => `<button type="button" class="chip-btn mood" data-action="lyrics-mood" data-mood="${m.key}" aria-pressed="${r.lyrics?.mood === m.key}">${m.icon} ${m.label}</button>`).join("")}</div>
+        ${r.lyrics ? `<div class="lyrics-row"><span class="small">Force :</span>${[1, 2, 3].map((l) => `<button type="button" class="chip-btn" data-action="lyrics-level" data-level="${l}" aria-pressed="${r.lyrics.strength === l}">${LYRICS_LEVELS[l]}</button>`).join("")}
+          <span class="small muted">effet : intensité ${eff.intensity >= 0 ? "+" : ""}${eff.intensity}, ambiance ${eff.valence >= 0 ? "+" : ""}${eff.valence}${r.manual ? " (score manuel prioritaire)" : ""}</span></div>` : ""}` : ""}
+      <div class="lyrics-row small muted">
+        ${hint ? (hint.found ? (hint.instrumental ? "LRCLIB : instrumental." : `LRCLIB : paroles trouvées${sgMood ? ` · suggestion : <b>${escapeHtml(sgMood.label)}</b> (${LYRICS_LEVELS[sg.strength]})` : ""}.`) : "LRCLIB : rien trouvé.") : ""}
+        ${sgMood && r.lyrics?.mood !== sg.mood ? `<button type="button" class="link-btn" data-action="lyrics-suggest">appliquer la suggestion</button>` : ""}
+        <button type="button" class="link-btn" data-action="lyrics-lookup" title="Envoie l'artiste et le titre à lrclib.net (base de paroles ouverte). Les paroles ne sont pas conservées.">${hint ? "rechercher à nouveau" : "chercher sur LRCLIB"}</button>
+      </div>
+    </div>`;
+}
+
+function similarBlock(r) {
+  const list = ctl.similarTracks(r.id, 5);
+  if (!list.length) return "";
+  return `<h3>Morceaux au timbre proche</h3>
+    <ul class="similar">${list.map((x) => {
+      const o = state.records.get(x.id);
+      return o ? `<li><button type="button" class="link-btn" data-action="open" data-id="${escapeHtml(o.id)}">${escapeHtml(o.name)}</button><span class="muted small">${Math.round(x.similarity * 100)} % · ${formatScore(o.finalScore)}${o.auto?.music?.key ? ` · ${escapeHtml(o.auto.music.key.camelot)}` : ""}</span></li>` : "";
+    }).join("")}</ul>`;
 }
 
 function scoreBlock(r, final) {

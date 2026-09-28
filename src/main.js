@@ -12,6 +12,7 @@ import { toast } from "./ui/toast.js";
 import { initRhythm, showRhythm } from "./ui/rhythm.js";
 import { initSpotify } from "./ui/spotify.js";
 import { initLive, showLive } from "./ui/live.js";
+import { initReview } from "./ui/review.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -115,6 +116,7 @@ async function main() {
   initProgression({ openDetail });
   initRhythm();
   initLive({ openDetail });
+  initReview();
   ctl.onToast(toast);
   $("rescore-all").addEventListener("click", async () => {
     const n = await ctl.recomputeAll();

@@ -468,3 +468,42 @@ table.library { width: 100%; border-collapse: collapse; }
   .lv-loud { grid-template-columns: 90px 1fr; }
   .lv-loud canvas { width: 90px; }
 }
+
+/* Detail: music, lyrics, similar */
+.music-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+.music-tile { background: var(--surface-2); border-radius: 8px; padding: 8px 10px; display: grid; gap: 2px; min-width: 0; }
+.music-tile > span { font-size: 0.75rem; color: var(--muted); }
+.music-tile b { font-size: 1.05rem; }
+.music-tile small { color: var(--muted); font-size: 0.75rem; }
+.valence-bar { position: relative; height: 6px; border-radius: 3px; margin: 4px 0 2px; background: linear-gradient(90deg, #6d28d9, #64748b 50%, #f59e0b); }
+.valence-bar i { position: absolute; top: -3px; width: 4px; height: 12px; margin-left: -2px; border-radius: 2px; background: var(--text); }
+.sections-bar { display: flex; gap: 2px; margin-top: 10px; height: 26px; border-radius: 6px; overflow: hidden; }
+.sections-bar .section { border: none; padding: 0 4px; min-width: 3px; color: #fff; font: inherit; font-size: 0.72rem; font-weight: 600; cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-shadow: 0 1px 2px rgba(0,0,0,0.4); }
+.lyrics-box { display: grid; gap: 8px; }
+.lyrics-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip-btn { font: inherit; font-size: 0.82rem; padding: 4px 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); cursor: pointer; }
+.chip-btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.similar { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.similar li { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.music-cell { font-size: 0.8rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.music-cell .mood-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: 0; }
+.notice-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--accent-soft); border-radius: var(--radius); padding: 8px 12px; margin-bottom: 12px; font-size: 0.9rem; }
+.notice-bar span { flex: 1 1 200px; }
+
+/* Review dialogs */
+.review-head { display: grid; grid-template-columns: 52px 1fr auto; gap: 12px; align-items: center; margin-bottom: 8px; }
+.review-head img, .review-thumb { width: 52px; height: 52px; border-radius: 8px; object-fit: cover; background: var(--surface-2); display: grid; place-items: center; color: var(--muted); }
+.review-head .nm { min-width: 0; }
+.review-head .nm b { display: block; overflow-wrap: anywhere; }
+.review-moods { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 10px 0; }
+.review-mood { font: inherit; display: flex; align-items: center; gap: 8px; padding: 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; text-align: left; }
+.review-mood:hover { border-color: var(--accent); }
+.review-mood.hinted { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.review-mood .k { font-size: 0.72rem; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+.review-mood .ic { font-size: 1.2rem; }
+kbd { font: 0.72rem ui-monospace, monospace; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; margin-left: 4px; color: var(--muted); }
+.duel { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: stretch; margin: 12px 0; }
+.duel-side { border: 1px solid var(--border); border-radius: 12px; padding: 12px; display: grid; gap: 10px; align-content: space-between; }
+.duel-vs { align-self: center; color: var(--muted); font-weight: 600; }
+.duel-pick { justify-content: center; }
+@media (max-width: 640px) { .duel { grid-template-columns: 1fr; } .duel-vs { justify-self: center; } }
