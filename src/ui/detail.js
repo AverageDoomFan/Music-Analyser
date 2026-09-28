@@ -13,9 +13,11 @@ import { openCorrection } from "./correction.js";
 import { toast } from "./toast.js";
 import { player } from "./player.js";
 import { openInRhythm } from "./rhythm.js";
+import { t } from "../i18n/index.js";
 
 const dialog = () => document.getElementById("detail-dialog");
 let currentId = null;
+let reportOpen = false;
 
 export function initDetail() {
   const d = dialog();
@@ -38,9 +40,9 @@ export function initDetail() {
       case "rhythm": d.close(); openInRhythm(id); break;
       case "manual-save": {
         const v = Number(d.querySelector("#manual-score").value);
-        if (!Number.isFinite(v) || v < 0 || v > 100) return toast("Score entre 0 et 100.", "error");
+        if (!Number.isFinite(v) || v < 0 || v > 100) return toast(t("Score between 0 and 100."), "error");
         await ctl.setManual(id, v);
-        toast(`Score manuel : ${Math.round(v)}`);
+        toast(t("Manual score: {n}", { n: Math.round(v) }));
         break;
       }
       case "manual-clear": await ctl.setManual(id, null); break;
@@ -65,31 +67,42 @@ export function initDetail() {
       case "lyrics-lookup":
         try {
           const res = await ctl.lookupLyricsFor(id);
-          toast(!res.found ? "Aucune parole trouvée sur LRCLIB pour ce titre." : res.instrumental ? "LRCLIB : titre instrumental." : "Paroles trouvées : suggestion d'ambiance ajoutée.");
+          toast(!res.found ? t("No lyrics found on LRCLIB for this track.") : res.instrumental ? t("LRCLIB: instrumental track.") : t("Lyrics found: mood suggestion added."));
         } catch (err) {
-          toast(`LRCLIB indisponible : ${err.message}`, "error");
+          toast(t("LRCLIB unavailable: {msg}", { msg: err.message }), "error");
         }
         break;
       case "open": openDetail(e.target.closest("[data-id]").dataset.id); break;
       case "genre-save": {
         const v = d.querySelector("#genre-input").value.trim();
         await ctl.setGenre(id, v || null);
-        if (v) toast(`Genre : ${v}`);
+        if (v) toast(t("Genre: {g}", { g: v }));
         break;
       }
       case "genre-apply": await ctl.setGenre(id, e.target.closest("[data-label]").dataset.label); break;
       case "genre-clear": await ctl.setGenre(id, null); break;
       case "seek":
-        if (state.files.has(id)) player.playAt(id, Number(e.target.closest("[data-t]").dataset.t));
+        if (player.canPlay(id)) player.playAt(id, Number(e.target.closest("[data-t]").dataset.t));
         break;
-      case "correction-clear": await ctl.removeCorrection(id); toast("Correction retirée."); break;
-      case "recompute": await ctl.recompute(id); toast("Score recalculé depuis les caractéristiques en cache."); break;
+      case "correction-clear": await ctl.removeCorrection(id); toast(t("Correction removed.")); break;
+      case "recompute": await ctl.recompute(id); toast(t("Score recomputed from the cached features.")); break;
       case "reanalyze":
-        if (ctl.reanalyze(id)) toast("Réanalyse de l'audio lancée.");
-        else toast("Fichier audio non disponible dans cette session : réimporte-le (il sera reconnu par son empreinte).", "error");
+        if (ctl.reanalyze(id)) toast(t("Audio re-analysis started."));
+        else toast(t(r.source?.kind === "spotify" ? "Captured from Spotify: scan it again in the Live tab (tick “Re-analyse”)." : "Audio file not available in this session: import it again (it is recognised by its fingerprint)."), "error");
         break;
+      case "report": reportOpen = !reportOpen; render(true); break;
+      case "report-save":
+      case "report-download": {
+        const exp = d.querySelector("#report-expected").value;
+        await ctl.reportTrack(id, { comment: d.querySelector("#report-comment").value, expected: exp === "" ? null : Number(exp) });
+        if (action === "report-download") await ctl.exportReports([id]);
+        toast(t("Report saved. Export every report from Settings."));
+        reportOpen = false;
+        render(true);
+        break;
+      }
       case "delete":
-        if (confirm(`Supprimer « ${r.name} » et ses corrections de la base locale ?`)) {
+        if (confirm(t("Delete “{name}” and its corrections from the local database?", { name: r.name }))) {
           await ctl.deleteTrack(id);
           d.close();
         }
@@ -100,7 +113,7 @@ export function initDetail() {
   player.onChange(() => {
     if (!currentId || !dialog().open) return;
     const btn = dialog().querySelector("[data-action=play]");
-    if (btn) btn.textContent = player.isPlaying(currentId) ? "Pause" : "Écouter";
+    if (btn) btn.textContent = player.isPlaying(currentId) ? t("Pause") : t("Play");
     animatePlayhead(currentId);
   });
 }
@@ -108,6 +121,7 @@ export function initDetail() {
 export function openDetail(id) {
   if (!state.records.has(id)) return;
   seriesKey = "intensity";
+  if (currentId !== id) reportOpen = false;
   currentId = id;
   render(true);
   if (!dialog().open) dialog().showModal();
@@ -130,59 +144,61 @@ function render(force = false) {
   const auto = r.auto;
   const final = r.finalScore;
   const overrides = r.correction?.overrides ?? {};
-  const canPlay = state.files.has(r.id);
+  const canPlay = player.canPlay(r.id);
 
   d.innerHTML = `
     <div class="dialog-head">
       <div>
         <h2>${escapeHtml(r.name)}</h2>
-        <div class="muted small">${formatSize(r.size)} · ${formatDuration(r.duration)} · ajouté le ${formatDate(r.addedAt)}</div>
+        <div class="muted small">${r.size ? `${formatSize(r.size)} · ` : ""}${formatDuration(r.duration)} · ${t("added on {d}", { d: formatDate(r.addedAt) })}</div>
       </div>
-      <button class="icon-btn" data-action="close" aria-label="Fermer">✕</button>
+      <button class="icon-btn" data-action="close" aria-label="${t("Close")}">✕</button>
     </div>
     <div class="dialog-body">
       ${r.error && !auto ? `<div class="notice">⚠ ${escapeHtml(r.error)}</div>` : ""}
-      ${needsReanalysis(r) ? `<div class="notice">Caractéristiques extraites par une ancienne version de l'analyse (${escapeHtml(r.featureVersion)}). Le score reste valable ; réimporte le fichier pour une réanalyse complète.</div>` : ""}
-      ${auto ? scoreBlock(r, final) : `<p class="muted">Pas encore analysé.</p>`}
+      ${needsReanalysis(r) ? `<div class="notice">${t("Features extracted by an older version of the analysis ({v}). The score stays valid; analyse the track again to use the new measures.", { v: escapeHtml(r.featureVersion) })}</div>` : ""}
+      ${reportOpen && auto ? reportBlock(r) : ""}
+      ${auto ? scoreBlock(r, final) : `<p class="muted">${t("Not analysed yet.")}</p>`}
       ${auto ? musicBlock(r, canPlay) : ""}
       ${auto ? genreBlock(r) : ""}
       ${auto ? lyricsBlock(r) : ""}
       ${auto?.curves ? `
-        <h3>Évolution dans le temps</h3>
+        <h3>${t("Over time")}</h3>
         <div class="card">
           <div class="timeline-head">
-            <select id="timeline-series" aria-label="Courbe affichée">${seriesFor(r).map((sr) => `<option value="${sr.key}" ${sr.key === seriesKey ? "selected" : ""}>${sr.label}</option>`).join("")}</select>
-            <span class="muted small">fenêtres de ${r.features?.timeline?.windowSeconds ?? "—"} s${r.features?.excerpted ? " · extraits répartis sur le morceau" : ""}${canPlay ? " · clic sur la courbe : lire à partir de là, re-clic : stop" : ""}</span>
+            <select id="timeline-series" aria-label="${t("Curve shown")}">${seriesFor(r).map((sr) => `<option value="${sr.key}" ${sr.key === seriesKey ? "selected" : ""}>${sr.label}</option>`).join("")}</select>
+            <span class="muted small">${t("{n} s windows", { n: r.features?.timeline?.windowSeconds ?? "—" })}${r.features?.excerpted ? t(" · excerpts spread over the track") : ""}${canPlay ? t(" · click the curve: play from there, click again: stop") : ""}</span>
           </div>
           <div id="timeline-chart"></div>
           <div class="agg-stats" id="timeline-stats"></div>
         </div>` : ""}
       ${auto ? `
-        <h3>Pourquoi ce score ?</h3>
+        <h3>${t("Why this score?")}</h3>
         <div class="subs">${DIMENSIONS.map((dim) => subRow(dim, auto, overrides)).join("")}</div>
-        <p class="muted small">La barre montre le sous-score automatique (même méthode d'agrégation que le score, appliquée à sa courbe), le trait vertical la valeur corrigée. « fiab. » = cohérence des indicateurs qui composent la dimension.</p>
+        <p class="muted small">${t("The bar shows the automatic sub-score (same aggregation as the score, applied to its curve), the vertical line the corrected value. “rel.” = how consistent the measures making up the dimension are.")}</p>
         ${correctionBlock(r)}
-        <h3>Score manuel</h3>
+        <h3>${t("Manual score")}</h3>
         <div class="manual-edit">
-          <input type="number" id="manual-score" min="0" max="100" step="1" value="${manualValue ?? (r.manual ? r.manual.score : Math.round(final))}" aria-label="Score manuel">
-          <button class="btn small" data-action="manual-save">Appliquer</button>
-          ${r.manual ? `<button class="btn small" data-action="manual-clear">Retirer le score manuel</button>` : ""}
-          <span class="muted small">Prioritaire sur le score automatique et la correction.</span>
+          <input type="number" id="manual-score" min="0" max="100" step="1" value="${manualValue ?? (r.manual ? r.manual.score : Math.round(final))}" aria-label="${t("Manual score")}">
+          <button class="btn small" data-action="manual-save">${t("Apply")}</button>
+          ${r.manual ? `<button class="btn small" data-action="manual-clear">${t("Remove the manual score")}</button>` : ""}
+          <span class="muted small">${t("Overrides the automatic score and the correction.")}</span>
         </div>
         ${similarBlock(r)}
-        <h3>Caractéristiques audio</h3>
+        <h3>${t("Audio features")}</h3>
         ${featuresBlock(r.features)}
       ` : ""}
-      ${r.history?.length ? `<h3>Historique</h3><ul class="history">${r.history.slice(-8).reverse().map((h) => `<li>${formatDate(h.at)} — ${escapeHtml(h.kind)} : ${formatScore(h.score)} <span class="muted">(v${escapeHtml(h.algorithmVersion)})</span></li>`).join("")}</ul>` : ""}
+      ${r.history?.length ? `<h3>${t("History")}</h3><ul class="history">${r.history.slice(-8).reverse().map((h) => `<li>${formatDate(h.at)} — ${escapeHtml(t(h.kind))}: ${formatScore(h.score)} <span class="muted">(v${escapeHtml(h.algorithmVersion)})</span></li>`).join("")}</ul>` : ""}
     </div>
     <div class="dialog-actions">
-      <button class="btn danger" data-action="delete">Supprimer</button>
+      <button class="btn danger" data-action="delete">${t("Delete")}</button>
       <span class="spacer"></span>
-      ${canPlay ? `<button class="btn" data-action="play">${player.isPlaying(r.id) ? "Pause" : "Écouter"}</button>` : ""}
-      ${canPlay || r.rhythm ? `<button class="btn" data-action="rhythm" title="Découper en notes pour une map de jeu de rythme">Rythme</button>` : ""}
-      ${r.features ? `<button class="btn" data-action="recompute" title="Recalcule depuis les caractéristiques en cache, sans relire l'audio">Recalculer</button>` : ""}
-      <button class="btn" data-action="reanalyze" title="Relit et réanalyse le fichier audio">Réanalyser l'audio</button>
-      ${auto ? `<button class="btn primary" data-action="mismatch">Le score ne correspond pas</button>` : ""}
+      ${canPlay ? `<button class="btn" data-action="play">${player.isPlaying(r.id) ? t("Pause") : t("Play")}</button>` : ""}
+      ${state.files.has(r.id) || r.rhythm ? `<button class="btn" data-action="rhythm" title="${t("Split into notes for a rhythm game map")}">${t("Rhythm")}</button>` : ""}
+      ${r.features ? `<button class="btn" data-action="recompute" title="${t("Recomputes from the cached features, without reading the audio")}">${t("Recompute")}</button>` : ""}
+      <button class="btn" data-action="reanalyze" title="${t("Reads and analyses the audio file again")}">${t("Re-analyse the audio")}</button>
+      ${auto ? `<button class="btn" data-action="report" aria-pressed="${reportOpen}" title="${t("Save everything about this track for a closer look at the model")}">⚑ ${t("Report for analysis")}</button>` : ""}
+      ${auto ? `<button class="btn primary" data-action="mismatch">${t("The score is off")}</button>` : ""}
     </div>`;
   if (auto?.curves) renderTimelineSection(r);
   if (focusedId) d.querySelector(`#${focusedId}`)?.focus();
@@ -200,21 +216,25 @@ function seriesFor(r) {
   const c = r.auto.curves;
   const tl = r.features?.timeline;
   const list = [
-    { key: "intensity", label: "Intensité", values: c.intensity, score: true },
-    ...DIMENSIONS.map((d) => ({ key: `sub:${d.key}`, label: `Sous-score · ${d.label}`, values: c.subscores[d.key], score: true })),
+    { key: "intensity", label: t("Intensity"), values: c.intensity, score: true },
+    ...DIMENSIONS.map((d) => ({ key: `sub:${d.key}`, label: `${t("Sub-score")} · ${d.label}`, values: c.subscores[d.key], score: true })),
   ];
   if (tl?.series) {
     const sr = tl.series;
     list.push(
       // BPM only where the beat is reliable enough
-      { key: "bpm", label: "BPM (si fiable)", values: sr.bpm.map((v, i) => (v && sr.bpmConfidence[i] >= 0.3 ? v : null)), format: (v) => v.toFixed(0) },
-      { key: "loudnessRel", label: "Volume relatif au morceau (LU)", values: sr.loudnessRel, format: (v) => signed(v) },
-      { key: "onsetRate", label: "Attaques / s", values: sr.onsetRate, format: (v) => v.toFixed(1) },
-      { key: "lowPulse", label: "Attaques dans le grave", values: sr.lowPulse, format: (v) => v.toFixed(3) },
-      { key: "bassRatio", label: "Poids du grave (%)", values: sr.bassRatio.map((v) => v * 100), format: (v) => v.toFixed(0) },
-      { key: "centroidMean", label: "Brillance · centroïde (Hz)", values: sr.centroidMean, format: (v) => v.toFixed(0) },
-      { key: "flatnessMedian", label: "Planéité spectrale (dB)", values: sr.flatnessMedian.map(db10), format: (v) => v.toFixed(1) },
-      { key: "plrDb", label: "Pic / loudness (dB)", values: sr.plrDb, format: (v) => v.toFixed(1) },
+      { key: "bpm", label: t("BPM (when reliable)"), values: sr.bpm.map((v, i) => (v && sr.bpmConfidence[i] >= 0.3 ? v : null)), format: (v) => v.toFixed(0) },
+      { key: "loudnessRel", label: t("Level relative to the track (LU)"), values: sr.loudnessRel, format: (v) => signed(v) },
+      { key: "onsetRate", label: t("Attacks / s"), values: sr.onsetRate, format: (v) => v.toFixed(1) },
+      { key: "lowPulse", label: t("Low-end attacks"), values: sr.lowPulse, format: (v) => v.toFixed(3) },
+      { key: "bassRatio", label: t("Low-end weight (%)"), values: sr.bassRatio.map((v) => v * 100), format: (v) => v.toFixed(0) },
+      { key: "centroidMean", label: t("Brightness · centroid (Hz)"), values: sr.centroidMean, format: (v) => v.toFixed(0) },
+      { key: "flatnessMedian", label: t("Spectral flatness (dB)"), values: sr.flatnessMedian.map(db10), format: (v) => v.toFixed(1) },
+      { key: "plrDb", label: t("Peak / loudness (dB)"), values: sr.plrDb, format: (v) => v.toFixed(1) },
+    );
+    if (sr.midFlatnessMedian) list.push({ key: "midFlatnessMedian", label: t("Distortion · mid flatness (dB)"), values: sr.midFlatnessMedian.map(db10), format: (v) => v.toFixed(1) });
+    if (sr.pulseRate) list.push({ key: "pulseRate", label: t("Kick speed (/s)"), values: sr.pulseRate.map((v, i) => (sr.pulseStrength[i] >= 0.3 ? v : null)), format: (v) => v.toFixed(1) });
+    list.push(
     );
   }
   return list;
@@ -238,9 +258,9 @@ function renderTimelineSection(r) {
     format: fmt,
     bands: sr.key === "intensity",
     ref: sr.key === "intensity" ? r.auto.score : undefined,
-    refLabel: sr.key === "intensity" ? `score auto · ${aggLabel}` : undefined,
+    refLabel: sr.key === "intensity" ? `${t("auto score")} · ${aggLabel}` : undefined,
     duration: r.duration ?? undefined,
-    onSeek: state.files.has(r.id) ? (t) => {
+    onSeek: player.canPlay(r.id) ? (t) => {
       if (player.isPlaying(r.id)) player.stop();
       else player.playAt(r.id, t);
     } : undefined,
@@ -251,7 +271,7 @@ function renderTimelineSection(r) {
   const values = sr.values.map((v) => (v == null ? NaN : v));
   d.querySelector("#timeline-stats").innerHTML = values.some(Number.isFinite)
     ? keys.map((k) => `<div class="${sr.score && k === agg ? "active" : ""}" title="${escapeHtml(AGGREGATIONS.find((a) => a.key === k)?.hint ?? CURVE_STATS.find((c) => c.key === k)?.hint ?? "")}"><span>${label(k)}</span><b>${fmt(aggregate(values, k, times))}</b></div>`).join("")
-    : `<p class="muted small">Pas de valeur fiable sur ce morceau.</p>`;
+    : `<p class="muted small">${t("No reliable value on this track.")}</p>`;
 }
 
 let rafId = 0;
@@ -269,32 +289,32 @@ function animatePlayhead(id) {
 
 // ---------- music, lyrics, similar ----------
 
-const SECTION_COLORS = { Intro: "#60a5fa", Montée: "#fbbf24", Pic: "#ef4444", Break: "#a78bfa", Section: "#94a3b8", Outro: "#34d399" };
+const SECTION_COLORS = { Intro: "#60a5fa", "Build-up": "#fbbf24", Peak: "#ef4444", Break: "#a78bfa", Section: "#94a3b8", Outro: "#34d399" };
 
 function musicBlock(r, canPlay) {
   const m = r.auto.music;
   if (!m) return "";
-  const k = m.key, t = m.tempo;
+  const k = m.key, tp = m.tempo;
   const val = r.valence ?? m.mood?.valence;
-  const keyTxt = k ? `<b>${escapeHtml(k.name)} · ${escapeHtml(k.camelot)}</b><small>fiab. ${Math.round(k.confidence * 100)} %${k.startCamelot && (k.startCamelot !== k.camelot || k.endCamelot !== k.camelot) ? ` · début ${k.startCamelot}, fin ${k.endCamelot}` : ""}</small>` : "—";
-  const tempoTxt = t ? `<b>${Math.round(t.bpm)} BPM</b><small>${t.stability != null ? `stable à ${Math.round(t.stability * 100)} %` : ""}${t.alt ? ` · ou ${Math.round(t.alt)}` : ""}${Math.round(t.start) !== Math.round(t.end) ? ` · ${Math.round(t.start)} → ${Math.round(t.end)}` : ""}</small>` : "—";
-  const moodTip = (m.mood?.explain ?? []).map((p) => `${p.label} : ${Math.round(p.value * 100)}`).join("\n");
+  const keyTxt = k ? `<b>${escapeHtml(k.name)} · ${escapeHtml(k.camelot)}</b><small>${t("rel. {n} %", { n: Math.round(k.confidence * 100) })}${k.startCamelot && (k.startCamelot !== k.camelot || k.endCamelot !== k.camelot) ? ` · ${t("start {a}, end {b}", { a: k.startCamelot, b: k.endCamelot })}` : ""}</small>` : "—";
+  const tempoTxt = tp ? `<b>${Math.round(tp.bpm)} BPM</b><small>${tp.stability != null ? t("{n} % steady", { n: Math.round(tp.stability * 100) }) : ""}${tp.alt ? ` · ${t("or {n}", { n: Math.round(tp.alt) })}` : ""}${Math.round(tp.start) !== Math.round(tp.end) ? ` · ${Math.round(tp.start)} → ${Math.round(tp.end)}` : ""}</small>` : "—";
+  const moodTip = (m.mood?.explain ?? []).map((p) => `${t(p.label)}: ${Math.round(p.value * 100)}`).join("\n");
   const secs = m.sections;
   const dur = r.duration || secs?.at(-1)?.end || 1;
-  return `<h3>Musique</h3>
+  return `<h3>${t("Music")}</h3>
     <div class="music-grid">
-      <div class="music-tile"><span>Tonalité</span>${keyTxt}</div>
+      <div class="music-tile"><span>${t("Key")}</span>${keyTxt}</div>
       <div class="music-tile"><span>Tempo</span>${tempoTxt}</div>
-      <div class="music-tile" title="${escapeHtml(moodTip)}"><span>Ambiance</span><b>${escapeHtml(moodLabel(r.finalScore, val))}</b>
-        <div class="valence-bar" aria-label="Ambiance ${Math.round(val ?? 0)} sur 100"><i style="left:${val ?? 50}%"></i></div>
-        <small>sombre · ${Math.round(val ?? 0)} · lumineux${r.lyrics ? " (paroles comprises)" : ""}</small></div>
+      <div class="music-tile" title="${escapeHtml(moodTip)}"><span>${t("Mood")}</span><b>${escapeHtml(moodLabel(r.finalScore, val))}</b>
+        <div class="valence-bar" aria-label="${t("Mood {n} out of 100", { n: Math.round(val ?? 0) })}"><i style="left:${val ?? 50}%"></i></div>
+        <small>${t("dark")} · ${Math.round(val ?? 0)} · ${t("bright")}${r.lyrics ? t(" (lyrics included)") : ""}</small></div>
     </div>
-    ${secs?.length ? `<div class="sections-bar" role="img" aria-label="Structure du morceau">${secs.map((sc) => `<button type="button" class="section" data-action="seek" data-t="${sc.start}" style="flex:${Math.max(0.5, sc.end - sc.start)};background:${SECTION_COLORS[sc.label] ?? "#94a3b8"}" title="${escapeHtml(sc.label)} · ${formatDuration(sc.start)} – ${formatDuration(sc.end)} · niveau ${sc.level.toFixed(1)} dB${canPlay ? " · clic : lire" : ""}" ${canPlay ? "" : "tabindex=\"-1\""}>${sc.end - sc.start > dur * 0.07 ? escapeHtml(sc.label) : ""}</button>`).join("")}</div>
-      <p class="muted small">Structure détectée (changements de timbre, d'harmonie et de niveau).</p>`
-      : `<p class="muted small">Structure : ${r.features?.excerpted ? "non disponible pour une analyse par extraits" : "à calculer (réanalyse nécessaire)"}.</p>`}`;
+    ${secs?.length ? `<div class="sections-bar" role="img" aria-label="${t("Track structure")}">${secs.map((sc) => `<button type="button" class="section" data-action="seek" data-t="${sc.start}" style="flex:${Math.max(0.5, sc.end - sc.start)};background:${SECTION_COLORS[sc.label] ?? "#94a3b8"}" title="${escapeHtml(t(sc.label))} · ${formatDuration(sc.start)} – ${formatDuration(sc.end)} · ${t("level {n} dB", { n: sc.level.toFixed(1) })}${canPlay ? t(" · click: play") : ""}" ${canPlay ? "" : "tabindex=\"-1\""}>${sc.end - sc.start > dur * 0.07 ? escapeHtml(t(sc.label)) : ""}</button>`).join("")}</div>
+      <p class="muted small">${t("Detected structure (changes of timbre, harmony and level).")}</p>`
+      : `<p class="muted small">${r.features?.excerpted ? t("Structure: not available for an analysis by excerpts.") : t("Structure: to compute (re-analysis needed).")}</p>`}`;
 }
 
-const SOURCE_LABEL = { user: "ton étiquette", spotify: "genres Spotify de l'artiste", voisins: "suggestion (morceaux proches)" };
+const SOURCE_LABEL = { user: "your label", spotify: "the artist's Spotify genres", musicbrainz: "the artist's MusicBrainz tags", neighbours: "suggestion (close tracks)" };
 const pct = (p) => `${Math.round(p * 100)} %`;
 
 function genreBlock(r) {
@@ -302,46 +322,47 @@ function genreBlock(r) {
   const known = ctl.allGenres();
   const chips = [];
   const seen = new Set([r.genre?.label, g.label]);
-  for (const s of g.suggestions) if (!seen.has(s.label)) { seen.add(s.label); chips.push({ label: s.label, why: `morceaux proches · ${pct(s.confidence)}` }); }
-  for (const sp of g.spotify) if (!seen.has(sp.label)) { seen.add(sp.label); chips.push({ label: sp.label, why: `Spotify · ${sp.raw}` }); }
-  return `<h3>Genre</h3>
+  const srcName = r.extGenres?.source === "musicbrainz" ? "MusicBrainz" : "Spotify";
+  for (const s of g.suggestions) if (!seen.has(s.label)) { seen.add(s.label); chips.push({ label: s.label, why: `${t("close tracks")} · ${pct(s.confidence)}`, tag: pct(s.confidence) }); }
+  for (const sp of g.spotify) if (!seen.has(sp.label)) { seen.add(sp.label); chips.push({ label: sp.label, why: `${srcName} · ${sp.raw}`, tag: srcName }); }
+  return `<h3>${t("Genre")}</h3>
     <div class="genre-box">
       <div class="lyrics-row">
-        ${g.label ? `<span class="genre-label ${g.source === "user" ? "sure" : ""}">${escapeHtml(g.label)}</span><span class="muted small">${SOURCE_LABEL[g.source]}${g.source === "voisins" ? ` · ${pct(g.confidence)}` : ""}</span>` : `<span class="muted small">Pas encore de genre.</span>`}
-        ${g.label && g.source !== "user" ? `<button type="button" class="btn small" data-action="genre-apply" data-label="${escapeHtml(g.label)}">✓ C'est ça</button>` : ""}
-        ${r.genre ? `<button type="button" class="link-btn" data-action="genre-clear">retirer mon étiquette</button>` : ""}
+        ${g.label ? `<span class="genre-label ${g.source === "user" ? "sure" : ""}">${escapeHtml(g.label)}</span><span class="muted small">${t(SOURCE_LABEL[g.source] ?? g.source)}${g.source === "neighbours" ? ` · ${pct(g.confidence)}` : ""}</span>` : `<span class="muted small">${t("No genre yet.")}</span>`}
+        ${g.label && g.source !== "user" ? `<button type="button" class="btn small" data-action="genre-apply" data-label="${escapeHtml(g.label)}">✓ ${t("That's it")}</button>` : ""}
+        ${r.genre ? `<button type="button" class="link-btn" data-action="genre-clear">${t("remove my label")}</button>` : ""}
       </div>
       <div class="lyrics-row">
-        <input type="text" id="genre-input" list="genre-list" placeholder="ex. Électro › Hardstyle › Rawstyle" value="${escapeHtml(r.genre?.label ?? "")}" aria-label="Genre">
+        <input type="text" id="genre-input" list="genre-list" placeholder="${t("e.g. Electronic › Hardstyle › Rawstyle")}" value="${escapeHtml(r.genre?.label ?? "")}" aria-label="Genre">
         <datalist id="genre-list">${known.map((k) => `<option value="${escapeHtml(k)}">`).join("")}</datalist>
-        <button type="button" class="btn small primary" data-action="genre-save">Enregistrer</button>
+        <button type="button" class="btn small primary" data-action="genre-save">${t("Save")}</button>
       </div>
-      ${chips.length ? `<div class="lyrics-row small">Suggestions : ${chips.map((c) => `<button type="button" class="chip-btn" data-action="genre-apply" data-label="${escapeHtml(c.label)}" title="${escapeHtml(c.why)}">${escapeHtml(c.label)} <span class="muted">${escapeHtml(c.why.startsWith("Spotify") ? "Spotify" : c.why.split(" · ")[1] ?? "")}</span></button>`).join("")}</div>` : ""}
-      <p class="muted small">Ta propre taxonomie, aussi précise que tu veux (niveaux séparés par ›). Par défaut : les genres Spotify de l'artiste ; sans eux, une suggestion d'après les morceaux proches. Ton étiquette prime toujours.</p>
-      ${g.spotify.length ? `<div class="small muted">Genres Spotify de l'artiste : ${g.spotify.map((x) => escapeHtml(x.raw)).join(", ")}</div>` : ""}
+      ${chips.length ? `<div class="lyrics-row small">${t("Suggestions:")} ${chips.map((c) => `<button type="button" class="chip-btn" data-action="genre-apply" data-label="${escapeHtml(c.label)}" title="${escapeHtml(c.why)}">${escapeHtml(c.label)} <span class="muted">${escapeHtml(c.tag)}</span></button>`).join("")}</div>` : ""}
+      <p class="muted small">${t("Your own taxonomy, as precise as you like (levels separated by ›). By default: the artist's Spotify genres (fetched automatically), else MusicBrainz tags, else a suggestion from close tracks. Your label always wins.")}</p>
+      ${g.spotify.length ? `<div class="small muted">${t(r.extGenres?.source === "musicbrainz" ? "The artist's MusicBrainz tags:" : "The artist's Spotify genres:")} ${g.spotify.map((x) => escapeHtml(x.raw)).join(", ")}</div>` : ""}
     </div>`;
 }
 
 function lyricsBlock(r) {
   const v = r.vocals?.state ?? null;
-  const src = r.vocals?.source === "lrclib" ? " (d'après LRCLIB)" : "";
+  const src = r.vocals?.source === "lrclib" ? t(" (from LRCLIB)") : "";
   const eff = lyricsEffect(r.lyrics);
   const hint = r.lyricsHint;
   const sg = hint?.suggestion;
   const sgMood = sg && LYRICS_MOODS.find((x) => x.key === sg.mood);
   const btn = (value, label) => `<button type="button" class="chip-btn" data-action="vocals" data-value="${value}" aria-pressed="${v === (value || null)}">${label}</button>`;
-  return `<h3>Paroles</h3>
+  return `<h3>${t("Lyrics")}</h3>
     <div class="lyrics-box">
-      <div class="lyrics-row">${btn("vocal", "Chanté")}${btn("instrumental", "Instrumental")}${btn("", "Je ne sais pas")}<span class="muted small">${src}</span></div>
+      <div class="lyrics-row">${btn("vocal", t("Sung"))}${btn("instrumental", t("Instrumental"))}${btn("", t("Don't know"))}<span class="muted small">${src}</span></div>
       ${v === "vocal" ? `
-        <p class="small">Quelle ambiance donnent les paroles ? Elles changent la perception : l'intensité et l'ambiance sont ajustées.</p>
+        <p class="small">${t("What mood do the lyrics give? They change how the track feels: intensity and mood are adjusted.")}</p>
         <div class="lyrics-row">${LYRICS_MOODS.map((m) => `<button type="button" class="chip-btn mood" data-action="lyrics-mood" data-mood="${m.key}" aria-pressed="${r.lyrics?.mood === m.key}">${m.icon} ${m.label}</button>`).join("")}</div>
-        ${r.lyrics ? `<div class="lyrics-row"><span class="small">Force :</span>${[1, 2, 3].map((l) => `<button type="button" class="chip-btn" data-action="lyrics-level" data-level="${l}" aria-pressed="${r.lyrics.strength === l}">${LYRICS_LEVELS[l]}</button>`).join("")}
-          <span class="small muted">effet : intensité ${eff.intensity >= 0 ? "+" : ""}${eff.intensity}, ambiance ${eff.valence >= 0 ? "+" : ""}${eff.valence}${r.manual ? " (score manuel prioritaire)" : ""}</span></div>` : ""}` : ""}
+        ${r.lyrics ? `<div class="lyrics-row"><span class="small">${t("Strength:")}</span>${[1, 2, 3].map((l) => `<button type="button" class="chip-btn" data-action="lyrics-level" data-level="${l}" aria-pressed="${r.lyrics.strength === l}">${LYRICS_LEVELS[l]}</button>`).join("")}
+          <span class="small muted">${t("effect: intensity {i}, mood {v}", { i: `${eff.intensity >= 0 ? "+" : ""}${eff.intensity}`, v: `${eff.valence >= 0 ? "+" : ""}${eff.valence}` })}${r.manual ? t(" (manual score wins)") : ""}</span></div>` : ""}` : ""}
       <div class="lyrics-row small muted">
-        ${hint ? (hint.found ? (hint.instrumental ? "LRCLIB : instrumental." : `LRCLIB : paroles trouvées${sgMood ? ` · suggestion : <b>${escapeHtml(sgMood.label)}</b> (${LYRICS_LEVELS[sg.strength]})` : ""}.`) : "LRCLIB : rien trouvé.") : ""}
-        ${sgMood && r.lyrics?.mood !== sg.mood ? `<button type="button" class="link-btn" data-action="lyrics-suggest">appliquer la suggestion</button>` : ""}
-        <button type="button" class="link-btn" data-action="lyrics-lookup" title="Envoie l'artiste et le titre à lrclib.net (base de paroles ouverte). Les paroles ne sont pas conservées.">${hint ? "rechercher à nouveau" : "chercher sur LRCLIB"}</button>
+        ${hint ? (hint.found ? (hint.instrumental ? t("LRCLIB: instrumental.") : `${t("LRCLIB: lyrics found")}${sgMood ? ` · ${t("suggestion:")} <b>${escapeHtml(sgMood.label)}</b> (${LYRICS_LEVELS[sg.strength]})` : ""}.`) : t("LRCLIB: nothing found.")) : ""}
+        ${sgMood && r.lyrics?.mood !== sg.mood ? `<button type="button" class="link-btn" data-action="lyrics-suggest">${t("apply the suggestion")}</button>` : ""}
+        <button type="button" class="link-btn" data-action="lyrics-lookup" title="${t("Sends the artist and title to lrclib.net (open lyrics database). Lyrics are not kept.")}">${hint ? t("search again") : t("search on LRCLIB")}</button>
       </div>
     </div>`;
 }
@@ -349,7 +370,7 @@ function lyricsBlock(r) {
 function similarBlock(r) {
   const list = ctl.similarTracks(r.id, 5);
   if (!list.length) return "";
-  return `<h3>Morceaux au timbre proche</h3>
+  return `<h3>${t("Tracks with a close timbre")}</h3>
     <ul class="similar">${list.map((x) => {
       const o = state.records.get(x.id);
       return o ? `<li><button type="button" class="link-btn" data-action="open" data-id="${escapeHtml(o.id)}">${escapeHtml(o.name)}</button><span class="muted small">${Math.round(x.similarity * 100)} % · ${formatScore(o.finalScore)}${o.auto?.music?.key ? ` · ${escapeHtml(o.auto.music.key.camelot)}` : ""}</span></li>` : "";
@@ -362,14 +383,14 @@ function scoreBlock(r, final) {
   return `
     <div class="score-head">
       <span class="big-score">${formatScore(final)}</span>
-      <span><strong>${stageFor(final).label}</strong><br><span class="muted small">${statusOf(r) === "corrected" ? `automatique : ${formatScore(auto)}` : "score automatique"} · ${escapeHtml(AGGREGATIONS.find((a) => a.key === r.auto.aggregation)?.label ?? "")} de la courbe · algorithme v${escapeHtml(r.auto.algorithmVersion)}</span></span>
+      <span><strong>${stageFor(final).label}</strong><br><span class="muted small">${statusOf(r) === "corrected" ? t("automatic: {n}", { n: formatScore(auto) }) : t("automatic score")} · ${t("{agg} of the curve", { agg: escapeHtml(AGGREGATIONS.find((a) => a.key === r.auto.aggregation)?.label ?? "") })} · ${t("algorithm")} v${escapeHtml(r.auto.algorithmVersion)}</span></span>
     </div>
     <div class="intensity" aria-hidden="true">
       <div class="intensity-scale">
-        ${showGhost ? `<span class="intensity-marker ghost" style="left:${auto}%" title="Automatique"></span>` : ""}
+        ${showGhost ? `<span class="intensity-marker ghost" style="left:${auto}%" title="${t("Automatic")}"></span>` : ""}
         <span class="intensity-marker" style="left:${final}%"></span>
       </div>
-      <div class="intensity-ends"><span>0 · calme</span><span>100 · extrême / bruitiste</span></div>
+      <div class="intensity-ends"><span>0 · ${t("Ambient")}</span><span>100 · ${t("Paroxysmal")}</span></div>
     </div>`;
 }
 
@@ -378,12 +399,12 @@ function subRow(dim, auto, overrides) {
   const conf = auto.confidences?.[dim.key];
   const ov = overrides[dim.key];
   const parts = auto.explain?.[dim.key] ?? [];
-  const tip = [dim.hint, ...parts.map((p) => `${p.label} : ${Math.round(p.value * 100)}`)].join("\n");
+  const tip = [dim.hint, ...parts.map((p) => `${t(p.label)}: ${Math.round(p.value * 100)}`)].join("\n");
   return `<div class="sub-row" title="${escapeHtml(tip)}">
     <span>${dim.label}</span>
-    <span class="sub-bar" role="img" aria-label="${dim.label} ${Math.round(v)} sur 100${ov != null ? `, corrigé à ${Math.round(ov)}` : ""}"><i style="width:${v}%"></i>${ov != null ? `<span class="override" style="left:calc(${ov}% - 1px)"></span>` : ""}</span>
+    <span class="sub-bar" role="img" aria-label="${dim.label} ${Math.round(v)}/100${ov != null ? `, ${t("corrected to {n}", { n: Math.round(ov) })}` : ""}"><i style="width:${v}%"></i>${ov != null ? `<span class="override" style="left:calc(${ov}% - 1px)"></span>` : ""}</span>
     <span class="num">${Math.round(ov ?? v)}</span>
-    <span class="conf">${conf != null ? `fiab. ${Math.round(conf * 100)}%` : ""}</span>
+    <span class="conf">${conf != null ? t("rel. {n} %", { n: Math.round(conf * 100) }) : ""}</span>
   </div>`;
 }
 
@@ -394,41 +415,60 @@ function correctionBlock(r) {
     const q = questionById(qid);
     return q ? `<li><span>${escapeHtml(q.text)}</span><strong>${escapeHtml(q.options[idx])}</strong></li>` : "";
   }).join("");
-  return `<h3>Correction utilisateur</h3>
+  return `<h3>${t("Your correction")}</h3>
     <ul class="delta-list">${answers}</ul>
-    <p class="small">Score automatique ${formatScore(c.previousScore)} → corrigé ${formatScore(c.score)}
-      <span class="muted">(v${escapeHtml(c.algorithmVersion)}${c.algorithmVersion !== ALGORITHM_VERSION ? ", sera réappliquée" : ""})</span>
-      · <button class="link-btn" data-action="correction-clear">retirer la correction</button></p>`;
+    <p class="small">${t("Automatic score {a} → corrected {b}", { a: formatScore(c.previousScore), b: formatScore(c.score) })}
+      <span class="muted">(v${escapeHtml(c.algorithmVersion)}${c.algorithmVersion !== ALGORITHM_VERSION ? t(", will be re-applied") : ""})</span>
+      · <button class="link-btn" data-action="correction-clear">${t("remove the correction")}</button></p>`;
 }
 
 function featuresBlock(f) {
   if (!f) return "";
   const n = (v, d = 0, unit = "") => (v == null || !Number.isFinite(v) ? "—" : `${v.toFixed(d)}${unit}`);
   const pct = (v) => (v == null ? "—" : `${(v * 100).toFixed(1)} %`);
+  const dB = (v) => (v != null ? n(db10(v), 1, " dB") : "—");
   const items = [
-    ["BPM estimé", f.bpm ? `${n(f.bpm)} (fiab. ${Math.round(f.bpmConfidence * 100)} %)` : "—"],
-    ["Onsets / s", n(f.onsetRate, 1)],
-    ["Loudness du fichier*", n(f.sourceLoudnessLufs ?? f.loudnessLufs, 1, " LUFS")],
-    ["Plage dynamique", n(f.loudnessRange, 1, " LU")],
-    ["Crest factor", n(f.crestDb, 1, " dB")],
-    ["Pic / loudness (PLR)", n(f.plrDb, 1, " dB")],
-    ["Pic", n(f.channelPeakDb, 1, " dBFS")],
-    ["Attaques dans le grave", n(f.lowPulse, 3)],
-    ["Kicks nets / s", n(f.kickRate, 1)],
-    ["Variation du grave", n(f.lowBandDbStd, 1, " dB")],
-    ["Planéité du grave", f.lowFlatnessMedian != null ? n(10 * Math.log10(Math.max(f.lowFlatnessMedian, 1e-12)), 1, " dB") : "—"],
-    ["Clipping", pct(f.clippingRatio)],
-    ["Centroïde", n(f.centroidMean, 0, " Hz")],
-    ["Largeur de bande", n(f.bandwidthMean, 0, " Hz")],
-    ["Rolloff 85 %", n(f.rolloffMean, 0, " Hz")],
-    ["Planéité", n(10 * Math.log10(Math.max(f.flatnessMedian, 1e-12)), 1, " dB")],
-    ["Flux spectral", n(f.fluxMean, 3)],
-    ["Zero crossing", n(f.zcrMean, 3)],
-    ["Remplissage spectral", pct(f.spectralFill)],
-    ["Graves / médiums / aigus", `${pct(f.bassRatio)} / ${pct(f.midRatio)} / ${pct(f.highRatio)}`],
-    ["Silences", pct(f.silenceRatio)],
-    ["Durée analysée", `${formatDuration(f.analyzedSeconds)}${f.excerpted ? " (extraits)" : ""}`],
+    [t("Estimated BPM"), f.bpm ? `${n(f.bpm)} (${t("rel. {n} %", { n: Math.round(f.bpmConfidence * 100) })})` : "—"],
+    [t("Onsets / s"), n(f.onsetRate, 1)],
+    [t("File loudness*"), n(f.sourceLoudnessLufs ?? f.loudnessLufs, 1, " LUFS")],
+    [t("Loudness range"), n(f.loudnessRange, 1, " LU")],
+    [t("Crest factor"), n(f.crestDb, 1, " dB")],
+    [t("Peak / loudness (PLR)"), n(f.plrDb, 1, " dB")],
+    [t("Peak"), n(f.channelPeakDb, 1, " dBFS")],
+    [t("Low-end attacks"), n(f.lowPulse, 3)],
+    [t("Clear kicks / s"), n(f.kickRate, 1)],
+    [t("Kick speed (/s)"), f.pulseRate != null ? `${n(f.pulseRate, 1)} (${t("regularity {n} %", { n: Math.round((f.pulseStrength ?? 0) * 100) })})` : "—"],
+    [t("Low-end variation"), n(f.lowBandDbStd, 1, " dB")],
+    [t("Low-end flatness"), dB(f.lowFlatnessMedian)],
+    [t("Distortion · mid flatness"), dB(f.midFlatnessMedian)],
+    [t("Clipping"), pct(f.clippingRatio)],
+    [t("Centroid"), n(f.centroidMean, 0, " Hz")],
+    [t("Bandwidth"), n(f.bandwidthMean, 0, " Hz")],
+    [t("Rolloff 85 %"), n(f.rolloffMean, 0, " Hz")],
+    [t("Flatness"), dB(f.flatnessMedian)],
+    [t("Spectral flux"), n(f.fluxMean, 3)],
+    [t("Zero crossing"), n(f.zcrMean, 3)],
+    [t("Spectral fill"), pct(f.spectralFill)],
+    [t("Lows / mids / highs"), `${pct(f.bassRatio)} / ${pct(f.midRatio)} / ${pct(f.highRatio)}`],
+    [t("Silence"), pct(f.silenceRatio)],
+    [t("Analysed length"), `${formatDuration(f.analyzedSeconds)}${f.excerpted ? t(" (excerpts)") : ""}`],
   ];
   return `<div class="features">${items.map(([k, v]) => `<div><span>${k}</span><span>${v}</span></div>`).join("")}</div>
-    <p class="muted small">* Informatif seulement : chaque fichier est normalisé à ${ANALYSIS.referenceLufs} LUFS avant l'analyse, son volume n'influence pas le score.</p>`;
+    <p class="muted small">${t("* For information only: every file is normalised to {n} LUFS before the analysis, its volume does not change the score.", { n: ANALYSIS.referenceLufs })}</p>`;
+}
+
+function reportBlock(r) {
+  return `<div class="card report-box">
+    <h3>⚑ ${t("Report for analysis")}</h3>
+    <p class="muted small">${t("Saves every measure of this track (and its curves), the sub-scores and how they are built, with your comment. Export the reports from Settings and send the file. No audio, no file path.")}</p>
+    <div class="report-grid">
+      <label>${t("Expected score")}<input type="number" id="report-expected" min="0" max="100" step="1" placeholder="${Math.round(r.finalScore)}"></label>
+      <label class="wide">${t("What is wrong?")}<textarea id="report-comment" rows="3" placeholder="${escapeHtml(t("e.g. calm piano, 2–3 notes: should be much lower"))}"></textarea></label>
+    </div>
+    <div class="settings-actions">
+      <button class="btn primary" data-action="report-save">${t("Save the report")}</button>
+      <button class="btn" data-action="report-download">${t("Save and download")}</button>
+      <button class="btn ghost" data-action="report">${t("Cancel")}</button>
+    </div>
+  </div>`;
 }

@@ -4,18 +4,19 @@
 
 import { ANALYSIS } from "../config.js";
 import { measureClipping } from "./features.js";
+import { t } from "../i18n/index.js";
 
 const OfflineCtx = () => globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
 
 export async function decodeToMono(arrayBuffer) {
   const Ctx = OfflineCtx();
-  if (!Ctx) throw new Error("Web Audio API indisponible dans ce navigateur.");
+  if (!Ctx) throw new Error(t("Web Audio API unavailable in this browser."));
   const ctx = new Ctx(1, 1, ANALYSIS.sampleRate);
   let audio;
   try {
     audio = await ctx.decodeAudioData(arrayBuffer);
   } catch {
-    throw new Error("Format non décodable par ce navigateur.");
+    throw new Error(t("Format not decodable by this browser."));
   }
   return audioBufferToMono(audio);
 }

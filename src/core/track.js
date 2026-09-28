@@ -58,7 +58,7 @@ export function applyFeatures(record, features, scoring) {
   record.duration = features.duration;
   record.error = null;
   record.auto = null; // force a fresh score
-  rescore(record, scoring, "analyse");
+  rescore(record, scoring, "analysis");
   return record;
 }
 
@@ -66,7 +66,7 @@ export function applyFeatures(record, features, scoring) {
  * Recomputes the automatic score from cached features (no audio needed) and
  * re-applies the stored correction answers. Returns true if anything changed.
  */
-export function rescore(record, scoring, reason = "recalcul") {
+export function rescore(record, scoring, reason = "recompute") {
   if (!record.features) return false;
   const { weights, aggregation } = normalizeScoring(scoring);
   const key = scoringKey(scoring);
@@ -106,14 +106,14 @@ export function clearCorrection(record) {
   record.correction = null;
   record.finalScore = computeFinal(record);
   record.updatedAt = Date.now();
-  pushHistory(record, "correction annulée", record.finalScore);
+  pushHistory(record, "correction removed", record.finalScore);
 }
 
 export function setManualScore(record, value) {
   record.manual = value == null ? null : { score: Math.max(0, Math.min(100, Math.round(value))), createdAt: Date.now() };
   record.finalScore = computeFinal(record);
   record.updatedAt = Date.now();
-  pushHistory(record, value == null ? "score manuel retiré" : "score manuel", record.finalScore);
+  pushHistory(record, value == null ? "manual score removed" : "manual score", record.finalScore);
 }
 
 /** Manual score wins; otherwise correction (or automatic) score shifted by the lyrics rating. */
@@ -140,7 +140,7 @@ export function setLyricsRating(record, rating) {
   const prev = record.finalScore;
   record.finalScore = computeFinal(record);
   record.updatedAt = Date.now();
-  if (record.finalScore !== prev) pushHistory(record, rating?.mood ? "paroles" : "paroles retirées", record.finalScore);
+  if (record.finalScore !== prev) pushHistory(record, rating?.mood ? "lyrics" : "lyrics removed", record.finalScore);
 }
 
 export function setVocals(record, stateValue, source = "user") {

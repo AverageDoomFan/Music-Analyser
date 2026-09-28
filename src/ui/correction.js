@@ -1,4 +1,4 @@
-// "Le score ne correspond pas" dialog: targeted questions with a live
+// "The score is off" dialog: targeted questions with a live
 // preview of the recalculated score, then accept or cancel.
 
 import { DIMENSIONS } from "../config.js";
@@ -7,6 +7,7 @@ import * as ctl from "../app/controller.js";
 import { QUESTIONS, questionById, selectFollowUps, applyCorrection, deltaSymbol } from "../scoring/correction.js";
 import { formatScore, formatDelta, escapeHtml } from "../util/format.js";
 import { toast } from "./toast.js";
+import { t } from "../i18n/index.js";
 
 const dialog = () => document.getElementById("correction-dialog");
 let ctx = null; // { id, answers, followUps, showAll }
@@ -29,7 +30,7 @@ export function initCorrection() {
     if (action === "show-all") { ctx.showAll = true; render(); }
     if (action === "accept") {
       await ctl.saveCorrection(ctx.id, cleanAnswers());
-      toast("Correction enregistrée.");
+      toast(t("Correction saved."));
       d.close();
     }
   });
@@ -74,24 +75,24 @@ function render() {
 
   dialog().innerHTML = `
     <div class="dialog-head">
-      <div><h2>Le score ne correspond pas</h2><div class="muted small">${escapeHtml(r.name)}</div></div>
-      <button class="icon-btn" data-action="cancel" aria-label="Fermer">✕</button>
+      <div><h2>${t("The score is off")}</h2><div class="muted small">${escapeHtml(r.name)}</div></div>
+      <button class="icon-btn" data-action="cancel" aria-label="${t("Close")}">✕</button>
     </div>
     <div class="dialog-body">
       ${questions.map((q) => questionHtml(q, r)).join("")}
-      ${ctx.answers.overall != null && hidden > 0 ? `<p class="small muted">${ctx.followUps.length ? "Questions choisies là où l'analyse est la moins sûre." : "L'analyse est déjà fiable sur les autres dimensions."} <button class="link-btn" data-action="show-all">Afficher toutes les questions</button></p>` : ""}
+      ${ctx.answers.overall != null && hidden > 0 ? `<p class="small muted">${ctx.followUps.length ? t("Questions picked where the analysis is least sure.") : t("The analysis is already reliable on the other dimensions.")} <button class="link-btn" data-action="show-all">${t("Show all questions")}</button></p>` : ""}
       ${result ? previewHtml(r, result) : ""}
     </div>
     <div class="dialog-actions">
-      <button class="btn" data-action="cancel">Annuler</button>
-      <button class="btn primary" data-action="accept" ${hasAnswers ? "" : "disabled"}>Accepter la correction</button>
+      <button class="btn" data-action="cancel">${t("Cancel")}</button>
+      <button class="btn primary" data-action="accept" ${hasAnswers ? "" : "disabled"}>${t("Accept the correction")}</button>
     </div>`;
 }
 
 function questionHtml(q, r) {
   const dim = q.dims[0];
   const conf = dim ? r.auto.confidences?.[dim] : null;
-  const hint = dim ? `analyse : ${Math.round(r.auto.subscores[dim])}/100${conf != null ? `, fiabilité ${Math.round(conf * 100)} %` : ""}` : `analyse : ${formatScore(r.auto.score)}/100`;
+  const hint = dim ? `${t("analysis")}: ${Math.round(r.auto.subscores[dim])}/100${conf != null ? `, ${t("reliability {n} %", { n: Math.round(conf * 100) })}` : ""}` : `${t("analysis")}: ${formatScore(r.auto.score)}/100`;
   return `<div class="question" role="group" aria-label="${escapeHtml(q.text)}">
     <p>${escapeHtml(q.text)}<span class="hint">${hint}</span></p>
     <div class="choices">${q.options.map((o, i) => `<button type="button" data-q="${q.id}" data-i="${i}" aria-pressed="${ctx.answers[q.id] === i}">${escapeHtml(o)}</button>`).join("")}</div>
@@ -103,11 +104,11 @@ function previewHtml(r, result) {
   const label = (k) => DIMENSIONS.find((d) => d.key === k)?.label ?? k;
   return `
     <div class="compare card">
-      <div><div class="muted small">Score automatique</div><div class="big-score">${formatScore(r.auto.score)}</div></div>
+      <div><div class="muted small">${t("Automatic score")}</div><div class="big-score">${formatScore(r.auto.score)}</div></div>
       <div class="muted">→</div>
-      <div><div class="muted small">Nouveau score</div><div class="big-score">${formatScore(result.score)}</div></div>
+      <div><div class="muted small">${t("New score")}</div><div class="big-score">${formatScore(result.score)}</div></div>
     </div>
-    ${deltas.length ? `<div class="small"><strong>Correction utilisateur :</strong></div>
+    ${deltas.length ? `<div class="small"><strong>${t("Your correction:")}</strong></div>
     <ul class="delta-list">${deltas.map(([k, d]) => `<li><span>${label(k)}</span><span><code>${deltaSymbol(d)}</code> <span class="muted">(${formatDelta(d)})</span></span></li>`).join("")}</ul>` : ""}
-    ${Math.round(result.modelScore) !== Math.round(result.score) ? `<p class="muted small">Le modèle recalculé donne ${formatScore(result.modelScore)} ; le score est ramené dans la zone de ton ressenti général.</p>` : ""}`;
+    ${Math.round(result.modelScore) !== Math.round(result.score) ? `<p class="muted small">${t("The recomputed model gives {n}; the score is brought back into the zone of your overall impression.", { n: formatScore(result.modelScore) })}</p>` : ""}`;
 }

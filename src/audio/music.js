@@ -201,10 +201,10 @@ export function detectSections(vectors, levelDb, blockSec, { kernelSec = 6, minS
   return secs.map((s, i) => {
     let label = "Section";
     const next = secs[i + 1];
-    if (s.mean >= hi - 1.5) label = "Pic";
+    if (s.mean >= hi - 1.5) label = "Peak";
     else if (i === 0 && s.mean < med - 1) label = "Intro";
     else if (i === secs.length - 1 && s.mean < med - 1) label = "Outro";
-    else if (s.rise > 4 && next && next.mean >= hi - 1.5) label = "Montée";
+    else if (s.rise > 4 && next && next.mean >= hi - 1.5) label = "Build-up";
     else if (s.mean <= lo && i > 0 && i < secs.length - 1) label = "Break";
     return { start: round2(s.a * blockSec), end: round2(s.b * blockSec), label, level: round2(s.mean - top) };
   });

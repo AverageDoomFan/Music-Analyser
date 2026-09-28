@@ -4,6 +4,7 @@
 
 import { keyName, camelot } from "../audio/music.js";
 import { LYRICS_MOODS } from "../config.js";
+import { t } from "../i18n/index.js";
 
 const clamp01 = (x) => (Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0);
 const lin = (x, lo, hi) => clamp01((x - lo) / (hi - lo));
@@ -48,11 +49,11 @@ export function computeMood(f) {
   const bpmConf = clamp01(f.bpmConfidence);
   const tempoV = f.bpm ? bpmConf * lin(f.bpm, 70, 150) + (1 - bpmConf) * lin(f.onsetRate, 1, 8) : lin(f.onsetRate, 1, 8);
   const comps = [
-    ["Mode majeur / mineur", modeV, hasKey ? 0.4 : 0.1],
-    ["Brillance", lin(f.centroidMean, 700, 4000), 0.2],
+    ["Major / minor mode", modeV, hasKey ? 0.4 : 0.1],
+    ["Brightness", lin(f.centroidMean, 700, 4000), 0.2],
     ["Tempo", tempoV, 0.15],
-    ["Consonance (spectre tonal)", 1 - lin(db(f.flatnessMedian), -40, -10), 0.15],
-    ["Son peu saturé", lin(f.crestDb, 5, 14), 0.1],
+    ["Consonance (tonal spectrum)", 1 - lin(db(f.flatnessMedian), -40, -10), 0.15],
+    ["Unsaturated sound", lin(f.crestDb, 5, 14), 0.1],
   ];
   let s = 0, w = 0;
   for (const [, v, wi] of comps) { s += v * wi; w += wi; }
@@ -67,16 +68,19 @@ export function moodLabel(intensity, valence) {
   if (intensity == null || valence == null) return "—";
   const hi = intensity >= 55, lo = intensity < 35;
   const bright = valence >= 58, dark = valence < 42;
-  if (hi && bright) return "Euphorique";
-  if (hi && dark) return "Sombre / rageur";
-  if (hi) return "Énergique";
-  if (lo && bright) return "Serein";
-  if (lo && dark) return "Mélancolique";
-  if (lo) return "Posé";
-  if (bright) return "Enjoué";
-  if (dark) return "Tendu";
-  return "Neutre";
+  if (hi && bright) return t("Euphoric");
+  if (hi && dark) return t("Dark / raging");
+  if (hi) return t("Energetic");
+  if (lo && bright) return t("Serene");
+  if (lo && dark) return t("Melancholic");
+  if (lo) return t("Laid-back");
+  if (bright) return t("Cheerful");
+  if (dark) return t("Tense");
+  return t("Neutral");
 }
+
+// section labels of extractor ≤ 1.3
+const LEGACY_SECTIONS = { "Montée": "Build-up", "Pic": "Peak" };
 
 export function describeMusic(f) {
   const tl = f.timeline;
@@ -91,7 +95,7 @@ export function describeMusic(f) {
       bpm: f.bpm, confidence: f.bpmConfidence ?? 0, stability: f.bpmStability ?? null, alt: f.bpmAlt ?? null,
       start: edgeTempo(tl, "start", f.bpm), end: edgeTempo(tl, "end", f.bpm),
     } : null,
-    sections: f.sections ?? null,
+    sections: f.sections?.map((x) => ({ ...x, label: LEGACY_SECTIONS[x.label] ?? x.label })) ?? null,
     mood: computeMood(f),
   };
 }

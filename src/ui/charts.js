@@ -3,6 +3,7 @@
 
 import { STAGES } from "../config.js";
 import { escapeHtml } from "../util/format.js";
+import { t as tr } from "../i18n/index.js";
 
 const NS = "http://www.w3.org/2000/svg";
 
@@ -40,7 +41,7 @@ function drawChart(container, points, { height = 200, onSelect, xLabel = "" }) {
   const m = { top: 10, right: 12, bottom: 24, left: 34 };
   const w = width - m.left - m.right;
   const h = height - m.top - m.bottom;
-  const svg = el("svg", { width, height, viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "Scores dans l'ordre" }, container);
+  const svg = el("svg", { width, height, viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": tr("Scores in order") }, container);
   const g = el("g", { transform: `translate(${m.left},${m.top})` }, svg);
   const y = (s) => h - (s / 100) * h;
   const n = points.length;
@@ -153,7 +154,7 @@ function drawTimeline(container, { times, values, min, max, format = (v) => v.to
   const m = { top: 10, right: 12, bottom: 22, left: 44 };
   const w = width - m.left - m.right;
   const h = height - m.top - m.bottom;
-  const svg = el("svg", { width, height, viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "Courbe dans le temps" }, container);
+  const svg = el("svg", { width, height, viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": tr("Curve over time") }, container);
   const g = el("g", { transform: `translate(${m.left},${m.top})` }, svg);
   const [lo, hi] = niceRange(values, min, max);
   const y = (v) => h - ((v - lo) / (hi - lo)) * h;
@@ -238,7 +239,7 @@ function drawTimeline(container, { times, values, min, max, format = (v) => v.to
       focus.setAttribute("visibility", "visible");
     } else focus.setAttribute("visibility", "hidden");
     tip.hidden = false;
-    tip.innerHTML = `${mmss(times[i])} · <b>${Number.isFinite(v) ? escapeHtml(format(v)) : "—"}</b>${onSeek ? ` <span class="muted">· clic : lire / stop</span>` : ""}`;
+    tip.innerHTML = `${mmss(times[i])} · <b>${Number.isFinite(v) ? escapeHtml(format(v)) : "—"}</b>${onSeek ? ` <span class="muted">· ${tr("click: play / stop")}</span>` : ""}`;
     tip.style.left = `${Math.min(Math.max(m.left + x(times[i]), 60), width - 60)}px`;
     tip.style.top = `${m.top + (Number.isFinite(v) ? y(v) : h / 2)}px`;
   });

@@ -26,6 +26,7 @@
 //    several lanes), then a minimum gap is enforced per lane.
 
 import { RHYTHM_DEFAULTS, RHYTHM } from "../config.js";
+import { t } from "../i18n/index.js";
 
 const REGIONS = [0, 200, 1000, 4000, Infinity]; // Hz, per-register envelopes
 const POOL_PER_OCTAVE = 4;                        // attack-spectrum resolution
@@ -465,11 +466,11 @@ function withLanes(map, lanes) {
   return copy;
 }
 
-/** Descriptive label: register of the template's centre, "large bande" for spread templates. */
+/** Descriptive label: register of the template's centre, "wide band" for spread templates. */
 export function laneLabel(lane) {
   const c = lane.centroid || Math.sqrt(lane.lo * lane.hi);
-  const register = c < 120 ? "Grave" : c < 400 ? "Bas-médium" : c < 1500 ? "Médium" : c < 5000 ? "Haut-médium" : "Aigu";
-  const wide = lane.hi / Math.max(1, lane.lo) > 24 ? " · large bande" : "";
+  const register = c < 120 ? t("Low") : c < 400 ? t("Low-mid") : c < 1500 ? t("Mid") : c < 5000 ? t("High-mid") : t("High");
+  const wide = lane.hi / Math.max(1, lane.lo) > 24 ? t(" · wide band") : "";
   const f = (hz) => (hz >= 1000 ? `${(hz / 1000).toFixed(hz >= 10000 ? 0 : 1)} k` : `${hz}`);
   return { name: `${register}${wide}`, range: `${f(lane.lo)}–${f(lane.hi)} Hz` };
 }

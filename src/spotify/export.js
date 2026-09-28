@@ -7,6 +7,7 @@ import * as ctl from "../app/controller.js";
 import * as auth from "./auth.js";
 import * as api from "./api.js";
 import { matchPlaylist } from "./match.js";
+import { t } from "../i18n/index.js";
 
 /** recordId → spotify:track URI, for every record we can place on Spotify. */
 export async function recordUris() {
@@ -30,10 +31,10 @@ export async function recordUris() {
  * @returns {Promise<{url:string|null, added:number, missing:number}>}
  */
 export async function createFromRecords(name, ids, description = "") {
-  if (!auth.isLoggedIn()) throw new Error("Connecte d'abord ton compte Spotify (onglet Spotify).");
+  if (!auth.isLoggedIn()) throw new Error(t("Log in to Spotify first (Spotify tab)."));
   const uris = await recordUris();
   const list = ids.map((id) => uris.get(id)).filter(Boolean);
-  if (!list.length) throw new Error("Aucun de ces morceaux n'est associé à un titre Spotify.");
+  if (!list.length) throw new Error(t("None of these tracks is matched to a Spotify track."));
   const me = await api.me();
   const created = await api.createPlaylist(me.id, name, description);
   await api.addTracks(created.id, list);

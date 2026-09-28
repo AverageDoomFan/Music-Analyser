@@ -2,6 +2,8 @@
 //   tracks   – one record per audio file (keyPath: id = content hash)
 //   settings – key/value pairs (weights, preferences)
 
+import { t } from "../i18n/index.js";
+
 const DB_NAME = "music-energy-analyzer";
 const DB_VERSION = 1;
 
@@ -21,7 +23,7 @@ function open() {
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
-    req.onblocked = () => reject(new Error("Base IndexedDB bloquée par un autre onglet."));
+    req.onblocked = () => reject(new Error(t("IndexedDB database blocked by another tab.")));
   });
   return dbPromise;
 }

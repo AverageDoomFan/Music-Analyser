@@ -6,6 +6,7 @@ import { toM3U, toText } from "../playlist/progression.js";
 import { formatDuration, formatScore, formatDelta, escapeHtml } from "../util/format.js";
 import { renderScoreChart } from "./charts.js";
 import { toast } from "./toast.js";
+import { t, tn } from "../i18n/index.js";
 
 let onOpen = () => {};
 
@@ -27,7 +28,7 @@ export function initProgression({ openDetail }) {
 
 function build() {
   const p = ctl.buildProgression(Number(document.getElementById("tolerance").value), { byStyle: document.getElementById("prog-mode").value === "style" });
-  if (!p.steps.length) toast("Aucun morceau analysé.", "error");
+  if (!p.steps.length) toast(t("No analysed track."), "error");
   renderProgression();
 }
 
@@ -49,7 +50,7 @@ export function renderProgression() {
   if (out._builtAt === p.builtAt) return;
   out._builtAt = p.builtAt;
   if (!p.steps.length) {
-    out.innerHTML = `<p class="empty">Aucun morceau analysé pour l'instant.</p>`;
+    out.innerHTML = `<p class="empty">${t("No analysed track yet.")}</p>`;
     return;
   }
   const totalDuration = p.steps.reduce((a, s) => a + (s.duration ?? 0), 0);
@@ -61,24 +62,24 @@ export function renderProgression() {
   }
   out.innerHTML = `
     <div class="card">
-      <div class="chart-title"><strong>Courbe d'intensité de la playlist</strong><span class="muted small">points creux = sauts ≥ 12 points</span></div>
+      <div class="chart-title"><strong>${t("Playlist intensity curve")}</strong><span class="muted small">${t("hollow points = jumps ≥ 12 points")}</span></div>
       <div class="chart-host"></div>
     </div>
     <div class="stats">
-      <span><b>${p.stats.count}</b> morceaux</span>
-      <span><b>${formatDuration(totalDuration)}</b> au total</span>
-      <span>plus grand saut <b>${Math.round(p.stats.maxJump)}</b> points</span>
-      <span><b>${p.stats.bigJumps}</b> saut${p.stats.bigJumps > 1 ? "s" : ""} important${p.stats.bigJumps > 1 ? "s" : ""}</span>
+      <span>${tn(p.stats.count, "<b>{n}</b> track", "<b>{n}</b> tracks")}</span>
+      <span>${t("<b>{d}</b> in total", { d: formatDuration(totalDuration) })}</span>
+      <span>${t("biggest jump <b>{n}</b> points", { n: Math.round(p.stats.maxJump) })}</span>
+      <span>${tn(p.stats.bigJumps, "<b>{n}</b> big jump", "<b>{n}</b> big jumps")}</span>
     </div>
-    ${p.stats.bigJumps ? `<p class="notice">Les sauts importants signalent des zones où il manque des morceaux intermédiaires dans ta bibliothèque.</p>` : ""}
+    ${p.stats.bigJumps ? `<p class="notice">${t("Big jumps show zones where your library lacks in-between tracks.")}</p>` : ""}
     ${groups.map((g) => `
       <div class="stage-group">
-        <h3>${escapeHtml(g.stage)} <small>${g.items.length} morceau${g.items.length > 1 ? "x" : ""}</small></h3>
+        <h3>${escapeHtml(g.stage)} <small>${tn(g.items.length, "{n} track", "{n} tracks")}</small></h3>
         <ol class="progression-list">${g.items.map(itemHtml).join("")}</ol>
       </div>`).join("")}`;
   renderScoreChart(out.querySelector(".chart-host"), p.steps.map((s) => ({ id: s.id, label: s.name, score: s.score, flag: s.bigJump })), {
     height: 220,
-    xLabel: "ordre de lecture →",
+    xLabel: t("play order →"),
     onSelect: onOpen,
   });
 }
@@ -88,6 +89,6 @@ function itemHtml(s) {
     <span class="pos">${s.position}</span>
     <span><span class="track-name">${escapeHtml(s.name)}</span></span>
     <span class="num"><b>${formatScore(s.score)}</b></span>
-    <span class="jump${s.bigJump ? " big" : ""}" title="écart de score avec le morceau précédent · fin du précédent → début de celui-ci : ${formatDelta(s.seam)}">${s.position > 1 ? formatDelta(s.jump) : ""}</span>
+    <span class="jump${s.bigJump ? " big" : ""}" title="${t("score gap with the previous track · end of the previous → start of this one: {d}", { d: formatDelta(s.seam) })}">${s.position > 1 ? formatDelta(s.jump) : ""}</span>
   </li>`;
 }

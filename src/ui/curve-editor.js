@@ -4,6 +4,7 @@
 import { STAGES } from "../config.js";
 import { curveAt } from "../playlist/set.js";
 import { intensityColor } from "./live-draw.js";
+import { t as tr } from "../i18n/index.js";
 
 export class CurveEditor {
   /**
@@ -162,8 +163,8 @@ export class CurveEditor {
     } else {
       ctx.textAlign = "center";
       ctx.fillStyle = muted;
-      ctx.fillText("début", l + 16, h - 6);
-      ctx.fillText("fin", l + pw - 10, h - 6);
+      ctx.fillText(tr("start"), l + 16, h - 6);
+      ctx.fillText(tr("end"), l + pw - 10, h - 6);
     }
     // target curve
     ctx.strokeStyle = text;

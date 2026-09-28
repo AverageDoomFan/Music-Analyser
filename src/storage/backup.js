@@ -1,6 +1,7 @@
 // JSON export / import of the local database (music-energy-database.json).
 
 import { ALGORITHM_VERSION, FEATURE_VERSION, EXPORT_SCHEMA_VERSION } from "../config.js";
+import { t } from "../i18n/index.js";
 
 export function buildExport(records, settings) {
   return {
@@ -38,10 +39,10 @@ export function parseExport(text) {
     throw new Error("Fichier JSON invalide.");
   }
   if (data?.app !== "music-energy-analyzer" || !Array.isArray(data.tracks)) {
-    throw new Error("Ce fichier n'est pas une base Music Energy Analyzer.");
+    throw new Error(t("This file is not a Music Energy Analyzer database."));
   }
   if (data.schemaVersion > EXPORT_SCHEMA_VERSION) {
-    throw new Error("Export produit par une version plus récente de l'application.");
+    throw new Error(t("Export made by a newer version of the app."));
   }
   const tracks = data.tracks.filter((t) => t && typeof t.id === "string" && typeof t.name === "string");
   return { tracks, settings: data.settings ?? {} };

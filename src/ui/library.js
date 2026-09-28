@@ -8,21 +8,23 @@ import { renderScoreChart, sparkline } from "./charts.js";
 import { moodLabel } from "../scoring/describe.js";
 import * as ctl from "../app/controller.js";
 import { player } from "./player.js";
+import { t, tn } from "../i18n/index.js";
+import { genreLine } from "./home.js";
 
 const STATUS_LABEL = {
-  pending: "○ Non analysé",
-  analyzed: "✓ Analysé",
-  corrected: "✎ Corrigé",
-  error: "⚠ Erreur",
+  pending: t("○ Not analysed"),
+  analyzed: t("✓ Analysed"),
+  corrected: t("✎ Corrected"),
+  error: t("⚠ Error"),
 };
-const STAGE_LABEL = { queued: "En attente", hash: "Lecture…", decode: "Décodage…", features: "Analyse" };
+const STAGE_LABEL = { queued: t("Waiting"), hash: t("Reading…"), decode: t("Decoding…"), features: t("Analysing") };
 
 let onOpen = () => {};
 
 export function initLibrary({ openDetail }) {
   onOpen = openDetail;
   const $ = (id) => document.getElementById(id);
-  $("filter-stage").innerHTML = `<option value="all">Tous les niveaux</option>` +
+  $("filter-stage").innerHTML = `<option value="all">${t("All levels")}</option>` +
     STAGES.map((s, i) => `<option value="${i}">${s.label}</option>`).join("");
 
   $("search").addEventListener("input", (e) => { state.ui.search = e.target.value; notify(); });
@@ -73,15 +75,15 @@ export function initLibrary({ openDetail }) {
 }
 
 const SORT_KEYS = [
-  { key: "score", label: "Score", hint: "Score final (méthode choisie, corrections comprises)" },
+  { key: "score", label: "Score", hint: t("Final score (chosen method, corrections included)") },
   ...AGGREGATIONS.map((a) => ({ key: a.key, label: a.label, hint: a.hint })),
   ...CURVE_STATS,
-  { key: "valence", label: "Ambiance", hint: "Sombre → lumineux (mode, brillance, tempo, consonance, paroles)" },
+  { key: "valence", label: t("Mood"), hint: t("Dark → bright (mode, brightness, tempo, consonance, lyrics)") },
   { key: "bpm", label: "BPM" },
-  { key: "genre", label: "Genre" },
-  { key: "camelot", label: "Tonalité (Camelot)", hint: "Ordre de la roue Camelot : 1A, 1B, 2A…" },
-  { key: "name", label: "Nom" },
-  { key: "date", label: "Date d'ajout" },
+  { key: "genre", label: t("Genre") },
+  { key: "camelot", label: t("Key (Camelot)"), hint: t("Camelot wheel order: 1A, 1B, 2A…") },
+  { key: "name", label: t("Name") },
+  { key: "date", label: t("Date added") },
 ];
 
 /**
@@ -158,7 +160,7 @@ function filterSort(rows) {
     if (va == null && vb == null) return a.name.localeCompare(b.name);
     if (va == null) return 1; // unscored always last
     if (vb == null) return -1;
-    if (typeof va === "string") return sign * va.localeCompare(vb, "fr");
+    if (typeof va === "string") return sign * va.localeCompare(vb);
     return sign * (va - vb) || a.name.localeCompare(b.name);
   });
   return out;
@@ -166,6 +168,7 @@ function filterSort(rows) {
 
 export function renderLibrary() {
   const rows = collectRows();
+  renderGenreStatus();
   document.getElementById("library-count").textContent = state.records.size;
   renderOverview();
   renderGenreFilter();
@@ -174,7 +177,7 @@ export function renderLibrary() {
   body.innerHTML = state.ui.group && state.ui.group !== "none" ? groupedHtml(visible) : visible.map(rowHtml).join("");
   const empty = document.getElementById("library-empty");
   empty.hidden = visible.length > 0;
-  empty.textContent = rows.length ? "Aucun morceau ne correspond aux filtres." : "Aucun morceau pour l'instant. Importe des fichiers pour commencer.";
+  empty.textContent = rows.length ? t("No track matches the filters.") : t("No track yet. Import files to start.");
   const [sortKey, sortDir] = state.ui.sort.split("-");
   document.getElementById("sort-key").value = sortKey;
   document.getElementById("sort-dir").textContent = sortDir === "asc" ? "↑" : "↓";
@@ -191,16 +194,16 @@ function rowHtml(row) {
   const final = r?.finalScore;
   const auto = r?.auto?.score;
   const corr = r && final != null && auto != null && (r.correction || r.manual) ? final - auto : null;
-  const canPlay = row.id && state.files.has(row.id);
+  const canPlay = player.canPlay(row.id);
   const playing = canPlay && player.isPlaying(row.id);
   const src = r?.source;
   const meta = src?.kind === "test"
-    ? [`<span class="test-tag" title="Morceau de synthèse du banc d'essai">Test</span>`, formatDuration(r?.duration)]
+    ? [`<span class="test-tag" title="${t("Synthetic track from the test bench")}">Test</span>`, formatDuration(r?.duration)]
     : src?.kind === "spotify"
-    ? [`<span class="src-tag" title="Analysé en captant la lecture Spotify">Spotify · ${src.mode === "full" ? "entier" : `${Math.round((src.coverage ?? 0) * 100)} % écouté`}</span>`, formatDuration(r?.duration)]
+    ? [`<span class="src-tag" title="${t("Analysed by capturing Spotify playback")}">Spotify · ${src.mode === "full" ? t("whole") : t("{n} % heard", { n: Math.round((src.coverage ?? 0) * 100) })}</span>`, formatDuration(r?.duration)]
     : [formatSize(row.size), formatDuration(r?.duration)];
   if (final != null) meta.push(`<span class="stage-tag">${stageFor(final).label}</span>`);
-  if (r && needsReanalysis(r)) meta.push("réanalyse conseillée");
+  if (r && needsReanalysis(r)) meta.push(t("re-analysis advised"));
 
   let statusHtml = `<span class="status ${status}">${STATUS_LABEL[status]}</span>`;
   if (row.job) {
@@ -212,7 +215,7 @@ function rowHtml(row) {
   }
 
   return `<tr ${row.id ? `data-id="${row.id}" tabindex="0"` : ""}>
-    <td class="col-play"><button class="icon-btn" data-play="${row.id ?? ""}" ${canPlay ? "" : "disabled"} aria-label="${playing ? "Pause" : "Écouter"}" title="${canPlay ? (playing ? "Pause" : "Écouter") : "Lecture disponible pour les fichiers importés pendant cette session"}">${playing ? "❚❚" : "▶"}</button></td>
+    <td class="col-play"><button class="icon-btn" data-play="${row.id ?? ""}" ${canPlay ? "" : "disabled"} aria-label="${playing ? t("Pause") : t("Play")}" title="${canPlay ? (playing ? t("Pause") : player.kind(row.id) === "spotify" ? t("Play on Spotify") : t("Play")) : t("Playback available for files imported in this session, and for Spotify captures when logged in")}">${playing ? "❚❚" : "▶"}</button></td>
     <td><div class="track-name">${escapeHtml(row.name)}</div><div class="track-meta">${meta.join(" · ")}</div></td>
     <td class="col-curve hide-sm" title="${r?.auto?.stats ? curveTitle(r) : ""}">${r?.auto?.curves ? sparkline(r.auto.curves.intensity) : ""}</td>
     <td class="hide-sm">${musicCell(r)}</td>
@@ -220,7 +223,7 @@ function rowHtml(row) {
     <td class="num hide-sm">${formatScore(auto)}</td>
     <td class="num hide-sm">${corr == null ? "—" : formatDelta(corr)}</td>
     <td>${statusHtml}</td>
-    <td class="num hide-sm">${row.id && r ? `<button class="btn small" type="button">Détails</button>` : ""}</td>
+    <td class="num hide-sm">${row.id && r ? `<button class="btn small" type="button">${t("Details")}</button>` : ""}</td>
   </tr>`;
 }
 
@@ -240,7 +243,7 @@ function groupedHtml(rows) {
   const groups = new Map();
   for (const row of rows) {
     const label = row.record?.auto ? ctl.genreInfo(row.record).label : null;
-    const key = label ? label.split(" › ").slice(0, depth).join(" › ") : "Sans genre";
+    const key = label ? label.split(" › ").slice(0, depth).join(" › ") : t("No genre");
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(row);
   }
@@ -249,12 +252,24 @@ function groupedHtml(rows) {
     return v.length ? v[v.length >> 1] : 999;
   };
   return [...groups.entries()]
-    .sort((a, b) => (a[0] === "Sans genre") - (b[0] === "Sans genre") || med(a[1]) - med(b[1]))
+    .sort((a, b) => (a[0] === t("No genre")) - (b[0] === t("No genre")) || med(a[1]) - med(b[1]))
     .map(([key, list]) => {
       const m = med(list);
       const subs = new Set(list.map((r) => r.record?.auto && ctl.genreInfo(r.record).label).filter((l) => l && l !== key).map((l) => l.split(" › ").slice(depth).join(" › ")).filter(Boolean));
-      return `<tr class="group-row"><td colspan="9"><b>${escapeHtml(key)}</b> <span class="muted small">${list.length} morceau${list.length > 1 ? "x" : ""}${m !== 999 ? ` · intensité médiane ${Math.round(m)}` : ""}${subs.size ? ` · ${escapeHtml([...subs].slice(0, 6).join(", "))}${subs.size > 6 ? "…" : ""}` : ""}</span></td></tr>` + list.map(rowHtml).join("");
+      return `<tr class="group-row"><td colspan="9"><b>${escapeHtml(key)}</b> <span class="muted small">${tn(list.length, "{n} track", "{n} tracks")}${m !== 999 ? ` · ${t("median intensity {n}", { n: Math.round(m) })}` : ""}${subs.size ? ` · ${escapeHtml([...subs].slice(0, 6).join(", "))}${subs.size > 6 ? "…" : ""}` : ""}</span></td></tr>` + list.map(rowHtml).join("");
     }).join("");
+}
+
+let genreStatusAt = 0;
+/** One line under the filters: where the genres come from (refreshed at most every 2 s). */
+function renderGenreStatus() {
+  if (Date.now() - genreStatusAt < 2000) return;
+  genreStatusAt = Date.now();
+  ctl.genreStatus().then((g) => {
+    const el = document.getElementById("library-genre-status");
+    if (!el || !g.analysed) { if (el) el.textContent = ""; return; }
+    el.textContent = `${t("Genres")}: ${genreLine(g)}`;
+  }).catch(() => {});
 }
 
 let genreKey = "";
@@ -265,7 +280,7 @@ function renderGenreFilter() {
   genreKey = key;
   const sel = document.getElementById("filter-genre");
   const cur = state.ui.genre ?? "all";
-  sel.innerHTML = `<option value="all">Genre : tous</option><option value="none">Sans genre</option>` +
+  sel.innerHTML = `<option value="all">${t("Genre: all")}</option><option value="none">${t("No genre")}</option>` +
     list.map((g) => `<option value="${escapeHtml(g)}">${"· ".repeat(g.split(" › ").length - 1)}${escapeHtml(g.split(" › ").at(-1))}</option>`).join("");
   sel.value = [...sel.options].some((o) => o.value === cur) ? cur : "all";
 }
@@ -274,14 +289,16 @@ function musicCell(r) {
   const m = r?.auto?.music;
   if (!m) return "";
   const parts = [];
-  if (m.key) parts.push(`<b title="${escapeHtml(m.key.name)} · fiabilité ${Math.round(m.key.confidence * 100)} %">${escapeHtml(m.key.camelot)}</b>`);
+  if (m.key) parts.push(`<b title="${escapeHtml(m.key.name)} · ${t("reliability {n} %", { n: Math.round(m.key.confidence * 100) })}">${escapeHtml(m.key.camelot)}</b>`);
   if (m.tempo) parts.push(`${Math.round(m.tempo.bpm)} BPM`);
   const v = r.valence;
-  const mood = v != null ? `<div><span class="mood-dot" style="background:${valenceColor(v)}"></span>${escapeHtml(moodLabel(r.finalScore, v))}${r.vocals?.state === "vocal" ? (r.lyrics ? " · ♪ noté" : " · ♪") : ""}</div>` : "";
+  const mood = v != null ? `<div><span class="mood-dot" style="background:${valenceColor(v)}"></span>${escapeHtml(moodLabel(r.finalScore, v))}${r.vocals?.state === "vocal" ? (r.lyrics ? t(" · ♪ rated") : " · ♪") : ""}</div>` : "";
   const g = ctl.genreInfo(r);
-  const genre = g.label ? `<div class="genre-cell ${g.source === "user" ? "" : "guess"}" title="${g.source === "user" ? "Ton étiquette" : `Suggestion (${g.source}) · ${Math.round(g.confidence * 100)} %`}">${escapeHtml(g.label)}${g.source === "user" ? "" : " ?"}</div>` : "";
+  const genre = g.label ? `<div class="genre-cell ${g.source === "user" ? "" : "guess"}" title="${g.source === "user" ? t("Your label") : `${t(SOURCE_NAME[g.source] ?? g.source)} · ${Math.round(g.confidence * 100)} %`}">${escapeHtml(g.label)}${g.source === "user" ? "" : " ?"}</div>` : "";
   return `<div class="music-cell">${parts.join(" · ")}${mood}${genre}</div>`;
 }
+
+const SOURCE_NAME = { spotify: "Spotify genres", musicbrainz: "MusicBrainz tags", neighbours: "Suggestion (close tracks)" };
 
 const valenceColor = (v) => `hsl(${Math.round(270 - (v / 100) * 230)}, 70%, 55%)`;
 
@@ -298,7 +315,7 @@ function sortTag(r) {
 function curveTitle(r) {
   const s = r.auto.stats;
   const f = (v) => Math.round(v);
-  return `Moyenne ${f(s.mean)} · Pic ${f(s.peak)} · Moy. des pics ${f(s.topMean)} · Début ${f(s.start)} → Fin ${f(s.end)}`;
+  return `${t("Mean")} ${f(s.mean)} · ${t("Peak")} ${f(s.peak)} · ${t("Mean of peaks")} ${f(s.topMean)} · ${t("Start")} ${f(s.start)} → ${t("End")} ${f(s.end)}`;
 }
 
 function renderOverview() {
@@ -312,7 +329,7 @@ function renderOverview() {
   const key = scored.map((r) => `${r.id}:${r.finalScore}`).join(",");
   if (container._key === key) return; // avoid re-rendering the chart during analysis progress
   container._key = key;
-  container.innerHTML = `<div class="card"><div class="chart-title"><strong>Progression des scores</strong><span class="muted small">${scored.length} morceaux, du plus calme au plus intense</span></div><div class="chart-host"></div></div>`;
+  container.innerHTML = `<div class="card"><div class="chart-title"><strong>${t("Scores from calmest to most intense")}</strong><span class="muted small">${tn(scored.length, "{n} track", "{n} tracks")}</span></div><div class="chart-host"></div></div>`;
   renderScoreChart(container.querySelector(".chart-host"), scored.map((r) => ({ id: r.id, label: r.name, score: r.finalScore })), {
     height: 180,
     onSelect: (id) => onOpen(id),

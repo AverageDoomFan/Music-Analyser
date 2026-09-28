@@ -4,6 +4,7 @@
 
 import { engine } from "../audio/engine.js";
 import { RHYTHM, ANALYSIS } from "../config.js";
+import { t } from "../i18n/index.js";
 
 let cached = null; // { id, key, data }
 let jobSeq = 0;
@@ -16,7 +17,7 @@ export async function bandData(id, file, params, onProgress = () => {}) {
   if (cached?.id === id && cached.key === key) return cached.data;
   onProgress("decode", 0);
   const buffer = await engine.load(id, file);
-  if (buffer.duration > RHYTHM.maxDurationSeconds) throw new Error(`Morceau trop long (max ${RHYTHM.maxDurationSeconds / 60} min).`);
+  if (buffer.duration > RHYTHM.maxDurationSeconds) throw new Error(t("Track too long (max {n} min).", { n: RHYTHM.maxDurationSeconds / 60 }));
   // The analysis is tuned at a fixed rate (frame-based constants): resample
   // the playback buffer (native rate) to it, mixed to mono.
   const mono = await toAnalysisMono(buffer);
@@ -82,7 +83,7 @@ function runWorker(mono, sampleRate, params, onProgress) {
       e.preventDefault?.();
       worker.terminate();
       if (!started) onMainThread().then(resolve, reject);
-      else reject(new Error("Échec de l'extraction (worker)."));
+      else reject(new Error(t("Extraction failed (worker).")));
     };
   });
 }

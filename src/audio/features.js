@@ -132,7 +132,7 @@ export const TIMELINE_KEYS = [
   "centroidMean", "centroidStd", "bandwidthMean", "rolloffMean", "fluxMean", "fluxStd",
   "flatnessMean", "flatnessMedian", "zcrMean", "spectralCrestMean", "spectralFill",
   "bandSub", "bandBass", "bandLowMid", "bandHighMid", "bandHigh", "bassRatio", "midRatio", "highRatio",
-  "lowPulse", "kickRate", "kickPunch", "lowBandDbStd", "lowFlatnessMedian",
+  "lowPulse", "kickRate", "kickPunch", "lowBandDbStd", "lowFlatnessMedian", "midFlatnessMedian", "pulseRate", "pulseStrength",
   "plrDb", "crestDb", "loudnessRel",
   "keyIndex", "keyConfidence", "midModulation", "midLowCorr",
 ];
@@ -170,6 +170,7 @@ function analyzeFrames(mono, sampleRate, segments, onProgress) {
   const melLog = new Float64Array(mel.length);
   const mfccLast = new Float64Array(MFCC_N);
   const kMidLo = bin(300), kMidHi = bin(3400);
+  const kMfLo = bin(400), kMfHi = bin(5000);
 
   let total = 0;
   for (const [s, e] of segments) total += Math.max(1, Math.floor((e - s - N) / H) + 1);
@@ -278,6 +279,16 @@ function analyzeFrames(mono, sampleRate, segments, onProgress) {
         ls += Math.log(p + EPS);
         ll += p;
       }
+      // flatness of the mids: distorted guitars and saturated synths fill
+      // 400 Hz – 5 kHz with harmonics and noise, clean voices and instruments
+      // leave it peaky
+      let ms = 0, ml = 0;
+      const nm = kMfHi - kMfLo + 1;
+      for (let k = kMfLo; k <= kMfHi; k++) {
+        const p = mag[k] * mag[k];
+        ms += Math.log(p + EPS);
+        ml += p;
+      }
       // normalised flux (level independent timbre change)
       let flux = 0;
       for (let k = kLo; k <= kHi; k++) {
@@ -295,6 +306,7 @@ function analyzeFrames(mono, sampleRate, segments, onProgress) {
       cols.crest[f] = maxM / (sumM / (kHi - kLo + 1) + EPS);
       cols.fill[f] = fillCount / nFlat;
       cols.lowFlat[f] = Math.exp(ls / nl) / (ll / nl + EPS);
+      cols.midFlat[f] = Math.exp(ms / nm) / (ml / nm + EPS);
       cols.flux[f] = flux;
       for (const [name, lo, hi] of bandRanges) {
         let p = 0;
@@ -362,7 +374,7 @@ const CHROMA_COLS = Array.from({ length: 12 }, (_, i) => `chroma_${i}`);
 const MFCC_COLS = Array.from({ length: MFCC_N }, (_, i) => `mfcc_${i + 1}`);
 const FRAME_COLUMNS = [
   "time", "sumSq", "peak", "rmsDb", "zcr", "od", "lowOd", "lowDb", "midDb",
-  "centroid", "bandwidth", "rolloff", "flatness", "crest", "fill", "lowFlat", "flux",
+  "centroid", "bandwidth", "rolloff", "flatness", "crest", "fill", "lowFlat", "midFlat", "flux",
   ...BANDS.map(([n]) => `band_${n}`), ...CHROMA_COLS, ...MFCC_COLS,
 ];
 
@@ -469,6 +481,7 @@ function summarize(ctx, ranges, isGlobal) {
     kickPunch: mean(kicks.map((k) => k[1])),
     lowBandDbStd: std(pick(F.lowDb)),
     lowFlatnessMedian: median(pick(F.lowFlat)),
+    midFlatnessMedian: median(pick(F.midFlat)),
     crestDb: peakDb - 20 * Math.log10(rms + EPS),
     peakDb,
     loudnessRel,
@@ -484,6 +497,9 @@ function summarize(ctx, ranges, isGlobal) {
 
   // voice cues: syllable-rate (3–8 Hz) modulation of the 300–3400 Hz band,
   // and how much of it is shared with the low band (drums move both)
+  const pulse = lowPulseRate(ranges, F.lowOd, frameRate);
+  out.pulseRate = pulse.rate;
+  out.pulseStrength = pulse.strength;
   const mod = modulation(ranges, F.midDb, F.lowDb, frameRate);
   out.midModulation = mod.ratio;
   out.midLowCorr = mod.corr;
@@ -544,6 +560,40 @@ function modulation(ranges, mid, low, frameRate) {
     }
   }
   return { ratio: den > 0 ? num / den : 0, corr: sxx > 0 && syy > 0 ? sxy / Math.sqrt(sxx * syy) : 0 };
+}
+
+/**
+ * Fastest regular pulse of the low band (kicks / bass attacks per second),
+ * from the autocorrelation of the low-band onset envelope. Unlike the BPM,
+ * never folded into 60–180: speedcore at 280 BPM or extratone at 600+ BPM
+ * (kicks too close to be picked one by one) come out as 4.7 or 10+ per second.
+ */
+function lowPulseRate(ranges, env, frameRate) {
+  const lagMin = Math.max(2, Math.round(0.045 * frameRate));
+  const lagMax = Math.round(0.75 * frameRate);
+  const ac = new Float64Array(lagMax + 2);
+  let zero = 0;
+  for (const [a, b] of ranges) {
+    const n = b - a;
+    if (n < 3 * lagMax) continue;
+    const x = detrend(env, a, b, Math.round(0.4 * frameRate));
+    for (let i = 0; i < n; i++) zero += x[i] * x[i];
+    for (let lag = lagMin - 1; lag <= lagMax + 1; lag++) {
+      let s = 0;
+      for (let i = 0; i + lag < n; i++) s += x[i] * x[i + lag];
+      ac[lag] += s;
+    }
+  }
+  if (zero <= 0) return { rate: 0, strength: 0 };
+  const peaks = [];
+  for (let lag = lagMin; lag <= lagMax; lag++) {
+    const v = ac[lag] / zero;
+    if (v > 0 && ac[lag] >= ac[lag - 1] && ac[lag] > ac[lag + 1]) peaks.push([lag, v]);
+  }
+  if (!peaks.length) return { rate: 0, strength: 0 };
+  const top = Math.max(...peaks.map((p) => p[1]));
+  const [lag, v] = peaks.find((p) => p[1] >= 0.7 * top);
+  return { rate: frameRate / lag, strength: v };
 }
 
 function detrend(col, a, b, W) {

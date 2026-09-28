@@ -18,6 +18,7 @@ import { LoudnessMeter } from "./meter.js";
 import {
   SCAN_DEFAULTS, fullPlan, fixedPlan, probePlan, focusPlan, focusBudget, estimateTrackSeconds, coveredSeconds,
 } from "./plan.js";
+import { t } from "../i18n/index.js";
 
 const SILENCE_RMS = 10 ** (-70 / 20);
 const SOUND_RMS = 10 ** (-58 / 20);
@@ -66,7 +67,7 @@ export class Scanner {
         err ? reject(err) : resolve(v);
       };
       // safety net when no audio arrives at all (capture stopped)
-      const wall = setTimeout(() => done(null, new Error("Plus aucun son n'arrive de la capture : le partage audio a été interrompu ?")), (timeout + 4) * 1000);
+      const wall = setTimeout(() => done(null, new Error(t("No more sound from the capture: was the audio sharing interrupted?"))), (timeout + 4) * 1000);
       this.consumer = (block) => {
         const r = fn(block);
         if (r !== undefined) return done(r);
@@ -145,7 +146,7 @@ export class Scanner {
     for (const q of queue) {
       if (!q.track.uri?.startsWith("spotify:track:") || !q.track.durationMs) {
         q.state = "skipped";
-        q.message = "non lisible via l'API";
+        q.message = t("not playable through the API");
       } else if (!opts.rescan && this.isDone(q.track, opts)) {
         q.state = "cached";
       }
@@ -167,7 +168,7 @@ export class Scanner {
             q.coverage = res.coverage;
           } else {
             q.state = this.stopRequested ? "pending" : "skipped";
-            q.message = this.stopRequested ? "" : "passé";
+            q.message = this.stopRequested ? "" : t("skipped");
           }
         } catch (err) {
           if (err instanceof Abort) {
@@ -191,7 +192,7 @@ export class Scanner {
       this.status.running = false;
       this.status.paused = false;
       this.status.current = null;
-      this.status.phase = this.stopRequested ? "Scan arrêté" : "Scan terminé";
+      this.status.phase = this.stopRequested ? t("Scan stopped") : t("Scan finished");
       this.emit();
     }
     return this.status;
@@ -250,11 +251,11 @@ export class Scanner {
       }
     }
     await this.player.pause().catch(() => {});
-    if (!heard.length) throw new Error("Rien n'a été capté pour ce titre.");
+    if (!heard.length) throw new Error(t("Nothing was captured for this track."));
 
     // final analysis: same extractor as for files, on the excerpts kept in memory
     cur.finalizing = true;
-    this.status.phase = "Analyse finale…";
+    this.status.phase = t("Final analysis…");
     this.emit();
     const keep = selectForFinal(heard, this.sampleRate);
     keep.sort((a, b) => a.trackTime - b.trackTime);
@@ -269,7 +270,7 @@ export class Scanner {
     }
     const clip = measureClipping([mono]);
     const features = await this.analyze(mono, this.sampleRate, { ...clip, segments, duration });
-    if (features.sourceLoudnessLufs <= -69) throw new Error("Audio capté silencieux.");
+    if (features.sourceLoudnessLufs <= -69) throw new Error(t("Captured audio is silent."));
     const covered = coveredSeconds(keep.map((h) => ({ pos: h.trackTime, len: h.data.length / this.sampleRate })));
     const coverage = Math.min(1, covered / duration);
     const info = {
@@ -297,7 +298,7 @@ export class Scanner {
     if (this.pendingPause) await this.pendingPause;
     if (this.skipRequested || this.stopRequested) throw new Abort(this.stopRequested ? "stop" : "skip");
     seg.state = "seeking";
-    this.status.phase = seg.kind === "probe" ? "Sondage" : seg.kind === "focus" ? "Écoute ciblée" : seg.kind === "full" ? "Écoute" : "Extrait";
+    this.status.phase = seg.kind === "probe" ? t("Probing") : seg.kind === "focus" ? t("Focused listening") : seg.kind === "full" ? t("Listening") : t("Excerpt");
     this.emit();
 
     // 1. silence (so the start of the excerpt can be found in the audio)
@@ -317,7 +318,7 @@ export class Scanner {
       // silent passage (or long intro): align with the player's own position
       const st = await this.player.state().catch(() => null);
       if (!st?.isPlaying) {
-        const e = new Error("Aucun son capté : vérifie que Spotify joue sur ce PC et que le partage de l'audio système (ou l'entrée VB-Cable) est actif.");
+        const e = new Error(t("No sound captured: check that Spotify plays on this PC and that system audio sharing (or the VB-Cable input) is on."));
         e.fatal = true;
         throw e;
       }
@@ -372,7 +373,7 @@ export class Scanner {
       if (first.length) take(first);
       if (out.filled < need) {
         const r = await this.wait(take, seg.len + 8);
-        if (r === null) throw new Error("La lecture s'est arrêtée avant la fin de l'extrait.");
+        if (r === null) throw new Error(t("Playback stopped before the end of the excerpt."));
       }
     } catch (err) {
       if (!(err instanceof Abort)) throw err;
@@ -382,7 +383,7 @@ export class Scanner {
     seg.state = "done";
 
     if (aborted?.reason === "mismatch") {
-      const e = new Error("Spotify ne joue pas le titre demandé (lecture modifiée dans Spotify ?).");
+      const e = new Error(t("Spotify is not playing the requested track (playback changed in Spotify?)."));
       throw e;
     }
     const got = { kind: out.kind, trackTime, data: out.data.subarray(0, out.filled) };

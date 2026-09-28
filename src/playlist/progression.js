@@ -116,7 +116,7 @@ export function buildGroupedProgression(items, groupOf, options = {}) {
 
 /** Extended M3U playlist (file names only: the app never knows local paths). */
 export function toM3U(steps) {
-  const lines = ["#EXTM3U", "#PLAYLIST:Progression d'intensité"];
+  const lines = ["#EXTM3U", "#PLAYLIST:Intensity progression"];
   for (const s of steps) {
     lines.push(`#EXTINF:${Math.round(s.duration ?? -1)},${s.name} [${Math.round(s.score)}]`);
     lines.push(s.name);

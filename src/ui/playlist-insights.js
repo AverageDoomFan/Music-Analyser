@@ -7,6 +7,7 @@ import { matchPlaylist } from "../spotify/match.js";
 import { keyName } from "../audio/music.js";
 import { escapeHtml } from "../util/format.js";
 import { intensityColor } from "./live-draw.js";
+import { t } from "../i18n/index.js";
 
 /** Analysed records of a playlist: [{ track, record, score, valence }]. */
 export function playlistPoints(pl) {
@@ -71,11 +72,11 @@ export function drawMap(canvas, { main, other = [] }, hoverId = null) {
   ctx.fillStyle = muted;
   ctx.globalAlpha = 0.45;
   ctx.textAlign = "left";
-  ctx.fillText("Serein", X(3), Y(95));
-  ctx.fillText("Mélancolique", X(3), Y(5) - 4);
+  ctx.fillText(t("Serene"), X(3), Y(95));
+  ctx.fillText(t("Melancholic"), X(3), Y(5) - 4);
   ctx.textAlign = "right";
-  ctx.fillText("Euphorique", X(97), Y(95));
-  ctx.fillText("Sombre / rageur", X(97), Y(5) - 4);
+  ctx.fillText(t("Euphoric"), X(97), Y(95));
+  ctx.fillText(t("Dark / raging"), X(97), Y(5) - 4);
   ctx.globalAlpha = 1;
   ctx.strokeStyle = grid;
   ctx.lineWidth = 1;
@@ -88,11 +89,11 @@ export function drawMap(canvas, { main, other = [] }, hoverId = null) {
     ctx.textAlign = "right"; ctx.fillText(String(v), m.l - 6, Y(v) + 3);
   }
   ctx.textAlign = "center";
-  ctx.fillText("calme → intensité → bruitiste", m.l + pw / 2, h - 3);
+  ctx.fillText(t("calm → intensity → extreme"), m.l + pw / 2, h - 3);
   ctx.save();
   ctx.translate(11, m.t + ph / 2);
   ctx.rotate(-Math.PI / 2);
-  ctx.fillText("sombre → ambiance → lumineux", 0, 0);
+  ctx.fillText(t("dark → mood → bright"), 0, 0);
   ctx.restore();
   const hits = [];
   // comparison playlist: hollow squares
@@ -116,7 +117,7 @@ export function drawMap(canvas, { main, other = [] }, hoverId = null) {
   }
   // centroids
   const cen = (pts) => pts.length && [pts.reduce((a, p) => a + p.score, 0) / pts.length, pts.reduce((a, p) => a + p.valence, 0) / pts.length];
-  for (const [pts, label] of [[main, "moyenne"], [other, "moyenne (comparée)"]]) {
+  for (const [pts, label] of [[main, t("mean")], [other, t("mean (compared)")]]) {
     const c = cen(pts);
     if (!c) continue;
     ctx.strokeStyle = text;
@@ -133,20 +134,20 @@ export function drawMap(canvas, { main, other = [] }, hoverId = null) {
 export function compareHtml(a, b) {
   const f = (v, d = 0) => (v == null ? "—" : v.toFixed(d));
   const rows = [
-    ["Titres analysés", (s) => `${s.analysed} / ${s.total}`],
-    ["Intensité moyenne", (s) => f(s.intensity)],
-    ["Ambiance moyenne", (s) => f(s.valence)],
-    ["Étendue d'intensité (p10–p90)", (s) => f(s.spread)],
-    ["Tempo médian", (s) => (s.bpm ? `${Math.round(s.bpm)} BPM` : "—")],
-    ["Morceaux chantés", (s) => String(s.sung)],
-    ["Tonalités fréquentes", (s) => s.topKeys.join(", ") || "—"],
+    [t("Analysed tracks"), (s) => `${s.analysed} / ${s.total}`],
+    [t("Mean intensity"), (s) => f(s.intensity)],
+    [t("Mean mood"), (s) => f(s.valence)],
+    [t("Intensity spread (p10–p90)"), (s) => f(s.spread)],
+    [t("Median tempo"), (s) => (s.bpm ? `${Math.round(s.bpm)} BPM` : "—")],
+    [t("Sung tracks"), (s) => String(s.sung)],
+    [t("Frequent keys"), (s) => s.topKeys.join(", ") || "—"],
   ];
   const bars = (s) => {
     const max = Math.max(1, ...s.stages);
-    return `<div class="stage-bars">${s.stages.map((c, i) => `<i title="${escapeHtml(STAGES[i].label)} : ${c}" style="height:${(c / max) * 100}%;background:${intensityColor((STAGES[i].min + (STAGES[i + 1]?.min ?? 100)) / 2)}"></i>`).join("")}</div>`;
+    return `<div class="stage-bars">${s.stages.map((c, i) => `<i title="${escapeHtml(STAGES[i].label)}: ${c}" style="height:${(c / max) * 100}%;background:${intensityColor((STAGES[i].min + (STAGES[i + 1]?.min ?? 100)) / 2)}"></i>`).join("")}</div>`;
   };
   return `<table class="pl-compare">
     <thead><tr><th></th><th>${escapeHtml(a.name)}</th>${b ? `<th>${escapeHtml(b.name)}</th>` : ""}</tr></thead>
     <tbody>${rows.map(([k, fn]) => `<tr><td>${k}</td><td>${fn(a)}</td>${b ? `<td>${fn(b)}</td>` : ""}</tr>`).join("")}
-    <tr><td>Répartition par palier</td><td>${bars(a)}</td>${b ? `<td>${bars(b)}</td>` : ""}</tr></tbody></table>`;
+    <tr><td>${t("Spread by level")}</td><td>${bars(a)}</td>${b ? `<td>${bars(b)}</td>` : ""}</tr></tbody></table>`;
 }

@@ -10,7 +10,7 @@ import { DEFAULT_WEIGHTS } from "../src/config.js";
 test("test bench: min / mid / max of every variable", () => {
   const map = new Map();
   for (const t of suiteTracks(12)) {
-    if (t.level === "balayage") continue;
+    if (t.level === "sweep") continue;
     const x = t.render();
     const f = extractFeatures(x.slice(), 44100, measureClipping([x]));
     const auto = scoreFeatures(f, DEFAULT_WEIGHTS, "topMean");

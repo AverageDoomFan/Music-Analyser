@@ -428,6 +428,11 @@ table.library { width: 100%; border-collapse: collapse; }
 .lv-cover { width: 132px; height: 132px; border-radius: 12px; background: linear-gradient(135deg, #273049, #121622); display: grid; place-items: center; font-size: 42px; color: #5b6580; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); overflow: hidden; }
 .lv-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .lv-now { min-width: 0; }
+.lv-lyrics { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.lv-lyrics .chip-btn { font-size: 0.8rem; padding: 3px 9px; background: rgba(255, 255, 255, 0.07); border-color: rgba(255, 255, 255, 0.18); color: inherit; }
+.lv-lyrics .chip-btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.lv-lyrics-k { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--st-muted); margin-right: 2px; }
+.lv-lyrics-sep { width: 1px; height: 18px; background: rgba(255, 255, 255, 0.18); margin: 0 2px; }
 .lv-phase { display: flex; align-items: center; gap: 8px; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--st-muted); }
 .lv-pulse { width: 9px; height: 9px; border-radius: 50%; background: #475069; }
 .lv-pulse.on { background: #ff3b5c; animation: lv-ping 1.6s infinite; }
@@ -611,3 +616,52 @@ table.pl-compare td:first-child { color: var(--muted); }
 .sp-genres { margin-top: 12px; }
 .library tr.group-row td { background: var(--surface-2); padding: 7px 10px; border-bottom: 1px solid var(--border); cursor: default; }
 .library tbody tr.group-row:hover { background: inherit; }
+
+/* ---------- games ---------- */
+.gm-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+.gm-head .seg { display: flex; gap: 6px; }
+.gm-head p { flex-basis: 100%; margin: 0; }
+.gm-stage { margin-top: 12px; min-height: 260px; }
+.gm-intro { max-width: 60ch; }
+.gm-round { display: grid; grid-template-columns: minmax(200px, 280px) 1fr; gap: 24px; align-items: start; }
+.gm-track { display: grid; gap: 8px; justify-items: start; }
+.gm-label { font-weight: 800; font-size: 1.1rem; color: var(--muted); }
+.gm-cover { width: 100%; max-width: 280px; aspect-ratio: 1; border-radius: 12px; background: var(--surface-2); display: grid; place-items: center; overflow: hidden; font-size: 3rem; color: var(--muted); }
+.gm-cover img { width: 100%; height: 100%; object-fit: cover; }
+.gm-name { font-weight: 600; overflow-wrap: anywhere; }
+.gm-play { display: flex; gap: 6px; flex-wrap: wrap; }
+.gm-guess, .gm-reveal { display: grid; gap: 12px; align-content: start; }
+.gm-guess-value { display: flex; align-items: baseline; gap: 12px; }
+.gm-guess-value b { font-size: 3.4rem; line-height: 1; font-variant-numeric: tabular-nums; }
+.gm-guess-value span { color: var(--muted); font-weight: 600; }
+.gm-guess input[type=range] { width: 100%; }
+.gm-scale { display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--muted); }
+.gm-guess .btn.primary, .gm-reveal > .btn { justify-self: start; }
+.gm-versus { display: flex; gap: 28px; }
+.gm-versus > div, .gm-duel-result > div { display: grid; gap: 4px; justify-items: start; }
+.gm-score { display: inline-block; font-weight: 800; font-size: 1.8rem; padding: 2px 14px; border-radius: 12px; color: #0b0d12; font-variant-numeric: tabular-nums; }
+.gm-verdict { margin: 0; font-weight: 600; }
+.gm-edit { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.gm-edit input { width: 70px; }
+.gm-duel { display: grid; grid-template-columns: 1fr auto 1fr; gap: 20px; align-items: start; }
+.gm-duel-side { display: grid; gap: 10px; }
+.gm-duel-mid { display: grid; gap: 10px; align-self: center; justify-items: center; }
+.gm-answer { min-width: 110px; font-weight: 700; font-size: 1.05rem; }
+.gm-duel-result { display: flex; gap: 20px; flex-wrap: wrap; }
+.gm-duel-result b { font-size: 1.4rem; }
+.gm-duel-result p { flex-basis: 100%; margin: 0; }
+.linklike { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; text-decoration: underline; font: inherit; }
+@media (max-width: 720px) {
+  .gm-round, .gm-duel { grid-template-columns: 1fr; }
+  .gm-cover { max-width: 180px; }
+}
+
+/* ---------- reports, genre status ---------- */
+.genre-status { margin: 4px 0 8px; }
+.report-box { margin-bottom: 14px; border-color: var(--accent); }
+.report-box h3 { margin-top: 0; }
+.report-grid { display: grid; grid-template-columns: 140px 1fr; gap: 10px; margin: 8px 0; }
+.report-grid label { display: grid; gap: 4px; font-size: 0.85rem; }
+.report-grid textarea { font: inherit; resize: vertical; }
+.report-list { margin: 6px 0; padding-left: 18px; font-size: 0.88rem; }
+@media (max-width: 600px) { .report-grid { grid-template-columns: 1fr; } }

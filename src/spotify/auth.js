@@ -2,6 +2,8 @@
 // apps without a server (no client secret exists in this app). The token
 // stays in this browser (localStorage) and is only ever sent to Spotify.
 
+import { t } from "../i18n/index.js";
+
 const AUTH_URL = "https://accounts.spotify.com/authorize";
 const TOKEN_URL = "https://accounts.spotify.com/api/token";
 export const SCOPES = [
@@ -37,7 +39,7 @@ export function redirectUri() {
 export const getClientId = () => store.get(CLIENT_KEY) ?? "";
 export function setClientId(id) {
   const v = String(id ?? "").trim();
-  if (v && !/^[0-9a-f]{32}$/i.test(v)) throw new Error("Un Client ID Spotify fait 32 caractères hexadécimaux.");
+  if (v && !/^[0-9a-f]{32}$/i.test(v)) throw new Error(t("A Spotify Client ID is 32 hexadecimal characters."));
   if (v) store.set(CLIENT_KEY, v);
   else store.del(CLIENT_KEY);
 }
@@ -76,8 +78,8 @@ export async function s256(text) {
 /** Leaves the page for Spotify's consent screen. */
 export async function beginLogin() {
   const clientId = getClientId();
-  if (!clientId) throw new Error("Renseigne d'abord le Client ID de ton application Spotify.");
-  if (!globalThis.crypto?.subtle) throw new Error("Connexion impossible : page non sécurisée (il faut https ou 127.0.0.1).");
+  if (!clientId) throw new Error(t("Enter your Spotify app's Client ID first."));
+  if (!globalThis.crypto?.subtle) throw new Error(t("Cannot log in: insecure page (https or 127.0.0.1 required)."));
   const { verifier, challenge } = await pkcePair();
   const state = base64url(crypto.getRandomValues(new Uint8Array(16)));
   store.set(PKCE_KEY, { verifier, state, clientId, redirect: redirectUri() }, true);
@@ -107,8 +109,8 @@ export async function handleRedirect() {
   // remove code / state from the address bar and history
   history.replaceState(null, "", redirectUri() + location.hash);
   store.del(PKCE_KEY, true);
-  if (error) return { ok: false, error: error === "access_denied" ? "Connexion refusée." : `Spotify : ${error}` };
-  if (!pending || pending.state !== params.get("state")) return { ok: false, error: "Réponse de connexion inattendue (state invalide) : réessaie." };
+  if (error) return { ok: false, error: error === "access_denied" ? t("Login refused.") : `Spotify : ${error}` };
+  if (!pending || pending.state !== params.get("state")) return { ok: false, error: t("Unexpected login response (invalid state): try again.") };
   const res = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -121,7 +123,7 @@ export async function handleRedirect() {
     }),
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) return { ok: false, error: `Échec de la connexion : ${json.error_description || json.error || res.status}` };
+  if (!res.ok) return { ok: false, error: t("Login failed: {msg}", { msg: json.error_description || json.error || res.status }) };
   saveToken(json);
   return { ok: true };
 }
@@ -138,11 +140,11 @@ function saveToken(json, previous = null) {
 /** A valid access token, refreshed when it is about to expire. */
 export async function accessToken({ force = false } = {}) {
   const tok = store.get(TOKEN_KEY);
-  if (!tok) throw new Error("Non connecté à Spotify.");
+  if (!tok) throw new Error(t("Not logged in to Spotify."));
   if (!force && tok.access_token && tok.expires_at - Date.now() > 60_000) return tok.access_token;
   if (!tok.refresh_token) {
     logout();
-    throw new Error("Session Spotify expirée : reconnecte-toi.");
+    throw new Error(t("Spotify session expired: log in again."));
   }
   const res = await fetch(TOKEN_URL, {
     method: "POST",
@@ -152,7 +154,7 @@ export async function accessToken({ force = false } = {}) {
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     logout();
-    throw new Error("Session Spotify expirée : reconnecte-toi.");
+    throw new Error(t("Spotify session expired: log in again."));
   }
   saveToken(json, tok);
   return json.access_token;
