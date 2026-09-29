@@ -16,7 +16,8 @@ import { DIMENSIONS, stageFor, LYRICS_MOODS, LYRICS_LEVELS } from "../config.js"
 import { t, tn } from "../i18n/index.js";
 import { escapeHtml, formatDuration } from "../util/format.js";
 import { toast } from "./toast.js";
-import { rememberDevice } from "./player.js";
+import { rememberDevice, savedDevice } from "./player.js";
+import { pickDevice } from "../spotify/devices.js";
 import {
   drawGauge, gaugeState, stepGauge, drawTimeline, drawCurve, drawRadar, drawHistogram, SpectrumView, Spectrogram, Meters,
   intensityColor, sparkSvg, fmtTime, DIM_COLORS,
@@ -250,11 +251,11 @@ async function loadDevices() {
   if (!auth.isLoggedIn()) return;
   lv.devices = await api.devices();
   const sel = $("lv-spdevice");
-  const cur = sel.value;
+  const cur = sel.value || savedDevice();
   sel.innerHTML = lv.devices.length
     ? lv.devices.map((d) => `<option value="${escapeHtml(d.id)}" ${d.restricted ? "disabled" : ""}>${escapeHtml(d.name)} · ${escapeHtml(d.type)}${d.active ? t(" (active)") : ""}</option>`).join("")
-    : `<option value="">${t("No device: open Spotify on this PC")}</option>`;
-  const pick = lv.devices.find((d) => d.id === cur) ?? lv.devices.find((d) => d.active && d.type === "Computer") ?? lv.devices.find((d) => d.type === "Computer") ?? lv.devices.find((d) => d.active);
+    : `<option value="">${t("No device: open Spotify (the app or open.spotify.com)")}</option>`;
+  const pick = pickDevice(lv.devices, cur);
   if (pick) sel.value = pick.id;
 }
 
@@ -404,10 +405,11 @@ async function startScan(first = null, only = null) {
   if (demo) {
     player = lv.demo.player;
   } else {
-    if (!$("lv-spdevice").value) await loadDevices();
+    // always refresh: the device chosen earlier may be closed (desktop app vs Web Player)
+    await loadDevices();
     const deviceId = $("lv-spdevice").value;
+    if (!deviceId) throw new Error(t("No Spotify device: open Spotify (the app or open.spotify.com), play a track once, then “Refresh”."));
     rememberDevice(deviceId);
-    if (!deviceId) throw new Error(t("No Spotify device: open the Spotify app on this PC, then “Refresh”."));
     player = {
       play: (uri, ms) => api.play(deviceId, uri, ms),
       pause: () => api.pause(deviceId),

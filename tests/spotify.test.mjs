@@ -102,3 +102,17 @@ test("a captured record matches its own Spotify track only", () => {
   const m = matchPlaylist([{ ...t1, isrc: "X1" }], [rec, file]);
   assert.equal(m.get("t1").recordId, "f");
 });
+
+test("the Spotify device falls back to the one that is online (Web Player or app)", async () => {
+  const { pickDevice } = await import("../src/spotify/devices.js");
+  const web = { id: "web", name: "Web Player (Chrome)", type: "Computer", active: false, restricted: false };
+  const app = { id: "app", name: "PC", type: "Computer", active: false, restricted: false };
+  const phone = { id: "phone", name: "Phone", type: "Smartphone", active: true, restricted: false };
+  // the desktop app chosen earlier is closed: the Web Player takes over
+  assert.equal(pickDevice([web], "app").id, "web");
+  assert.equal(pickDevice([web, app], "app").id, "app");
+  assert.equal(pickDevice([app, { ...web, active: true }], null).id, "web");
+  assert.equal(pickDevice([phone, web], null).id, "phone");
+  assert.equal(pickDevice([{ ...web, restricted: true }], "web"), null);
+  assert.equal(pickDevice([], "app"), null);
+});
