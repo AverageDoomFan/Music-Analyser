@@ -31,11 +31,13 @@ function components(raw) {
   // file to a reference loudness, so the mastering level never counts.
   // Ranges follow real libraries (not theoretical extremes): a loud, dense
   // modern pop mix must not max out what a metal or hardcore track reaches.
-  // a low peak-to-loudness ratio (limiter, clipping) or a steady level only
-  // mean "crushed" when there are attacks: a sustained pad has both naturally
+  // a low peak-to-loudness ratio (limiter, clipping) only means "crushed"
+  // when there are attacks: a sustained pad has it naturally
   const active = lin(f.onsetRate, 0.5, 3);
-  const squash = (1 - lin(f.plrDb, 7, 14)) * active;
-  const steady = (1 - lin(f.loudnessRange, 3, 16)) * active;
+  // 2.3: a wider PLR range and more weight (heavy genres sit at 5-8 dB, loud
+  // pop at 9-11). A steady level no longer counts: loud pop is steadier than
+  // metal, it said nothing about intensity.
+  const squash = (1 - lin(f.plrDb, 4.5, 13)) * active;
   const onsets = lin(f.onsetRate, 0.5, 12);
   const motion = lin(f.onsetEnvMean, 0.05, 0.17);
   const clip = lin(Math.log10(f.clippingRatio + 1e-6), -5, -1.5);
@@ -48,16 +50,16 @@ function components(raw) {
   const kickSpeed = f.pulseRate != null
     ? lin(f.pulseRate, 2.5, 9) * lin(f.pulseStrength, 0.3, 0.5) * lin(f.lowPulse, 0.06, 0.12) * bassPresence
     : null;
-  // distortion: flatness of the mids (extractor 1.4+), else the whole spectrum
-  const distortion = f.midFlatnessMedian != null ? lin(db(f.midFlatnessMedian), -30, -10) : lin(flatDb, -34, -10);
+  // distortion: flatness of the mids (extractor 1.4+), else the whole spectrum.
+  // 2.3: range up to -4 dB, it was saturated on nearly every real master.
+  const distortion = f.midFlatnessMedian != null ? lin(db(f.midFlatnessMedian), -32, -4) : lin(flatDb, -34, -10);
 
   return {
     energy: [
       ["Spectral motion", motion, 0.35],
       ["Attack density", lin(f.onsetRate, 1, 8), 0.15],
       ["Low-end attacks", kicks, 0.2],
-      ["Crushed master", squash, 0.2],
-      ["Tight dynamics", steady, 0.1],
+      ["Crushed master", squash, 0.6],
     ],
     tempo: [
       ["Onsets / s", onsets, 0.55],
@@ -68,7 +70,7 @@ function components(raw) {
       ["Spectral fill", lin(f.spectralFill, 0.13, 0.65), 0.4],
       ["Bandwidth", lin(f.bandwidthMean, 1000, 4500), 0.25],
       ["Attack density", lin(f.onsetRate, 1, 10), 0.2],
-      ["Tight dynamics", steady, 0.15],
+      ["Tight dynamics", (1 - lin(f.loudnessRange, 3, 16)) * active, 0.15],
     ],
     brightness: [
       ["Centroid", lin(f.centroidMean, 500, 5000), 0.4],
@@ -76,7 +78,7 @@ function components(raw) {
       ["Energy > 2 kHz", lin(hf, 0.01, 0.3), 0.3],
     ],
     harshness: [
-      ["Distortion", distortion, 0.35],
+      ["Distortion", distortion, 0.84],
       ["High-frequency energy", lin(hf, 0.02, 0.35), 0.1],
       ["Centroid", lin(f.centroidMean, 1500, 4500), 0.15],
       ["Spectral flux", lin(f.fluxMean, 0.15, 0.23), 0.15],
@@ -89,12 +91,12 @@ function components(raw) {
     pressure: [
       ["Low-end attacks (kicks)", kicks, 0.45],
       ["Kick punch", lin(f.kickPunch, 0.6, 1.1) * bassPresence, 0.15],
-      ["Crushed master (low PLR)", squash * bassPresence, 0.25],
+      ["Crushed master (low PLR)", squash * bassPresence, 0.75],
       ["Low-end weight", lin(f.bassRatio, 0.4, 0.9), 0.15],
     ],
     complexity: [
       // unpredictability, not busyness: a dense but perfectly regular loop is simple
-      ["Irregular rhythm", lin(f.ioiCv, 0.2, 0.65) * lin(f.onsetRate, 0.5, 3), 0.35],
+      ["Irregular rhythm", lin(f.ioiCv, 0.3, 0.6) * lin(f.onsetRate, 0.5, 3), 0.35],
       ["Non-repetitive pulse", (1 - conf) * lin(f.onsetRate, 0.5, 3), 0.25],
       ["Centroid variation", lin(f.centroidStd, 300, 2000), 0.2],
       ["Flux variation", lin(f.fluxStd, 0.03, 0.12), 0.2],
@@ -171,8 +173,20 @@ export function computeSubscores(features) {
  * towards 100, but only once the track is already intense or harsh, so a
  * noisy yet soft texture (rain, tape hiss) is not ranked as extreme.
  */
-export function computeIntensity(subscores, weights = DEFAULT_WEIGHTS) {
-  return round1(calibrate(rawIntensity(subscores, weights)));
+export function computeIntensity(subscores, weights = DEFAULT_WEIGHTS, gain = 1) {
+  return round1(calibrate(rawIntensity(subscores, weights) * gain));
+}
+
+/**
+ * How loud the track actually plays, before the extractor's normalisation:
+ * a very quiet recording (a solo violin at -40 LUFS) is heard as calm, even
+ * when normalised its measures look like any other. 1 down to -24 LUFS, then
+ * down to 0.5 at -40 LUFS. Captures share the same Spotify settings, files
+ * their master level, so levels compare.
+ */
+export function playedLevelGain(features) {
+  const L = features?.sourceLoudnessLufs;
+  return Number.isFinite(L) ? 1 - 0.5 * lin(-L, 24, 40) : 1;
 }
 
 /** Intensity before calibration, 0..1. */
@@ -254,10 +268,11 @@ export function computeCurves(features, weights = DEFAULT_WEIGHTS) {
   const intensity = [];
   const subscores = {};
   const perWindow = [];
+  const gain = playedLevelGain(features);
   for (const w of windows) {
     const s = computeSubscores(w).subscores;
     perWindow.push(s);
-    intensity.push(computeIntensity(s, weights));
+    intensity.push(computeIntensity(s, weights, gain));
     for (const [dim, v] of Object.entries(s)) (subscores[dim] ??= []).push(v);
   }
   return { times, intensity, subscores, perWindow };

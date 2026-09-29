@@ -8,7 +8,7 @@ import { t } from "./i18n/index.js";
  * Bump it whenever the scoring changes: stored tracks whose version differs are
  * re-scored automatically from their cached features, without re-decoding audio.
  */
-export const ALGORITHM_VERSION = "2.2";
+export const ALGORITHM_VERSION = "2.3";
 
 /**
  * Version of the feature extractor (audio -> raw features).
@@ -65,15 +65,20 @@ export const RHYTHM_DEFAULTS = Object.freeze({
  * "extremeness" push that only matters once the track is already intense.
  */
 export const DEFAULT_WEIGHTS = Object.freeze({
-  energy: 0.6,
-  tempo: 0.5,
-  density: 0.25,
-  brightness: 0.2,
-  harshness: 2.6,
-  pressure: 1.5,
-  complexity: 0.15,
+  energy: 0.7,
+  tempo: 0.6,
+  density: 0.05,
+  brightness: 0.05,
+  harshness: 2.8,
+  pressure: 1.1,
+  complexity: 0.3,
   noise: 0.7,
 });
+
+/** Earlier defaults: saved weights equal to one of them follow the new defaults. */
+export const PREVIOUS_DEFAULT_WEIGHTS = [
+  { energy: 0.6, tempo: 0.5, density: 0.25, brightness: 0.2, harshness: 2.6, pressure: 1.5, complexity: 0.15, noise: 0.7 },
+];
 
 /**
  * How a track's intensity curve (and each sub-score curve) becomes its score.
@@ -130,12 +135,12 @@ export const SUBSCORE_SCALES = {
  */
 export const CALIBRATION = [
   [0.0, 0],
-  [0.15, 16],
-  [0.3, 33],
-  [0.4, 45],
-  [0.5, 58],
-  [0.6, 71],
-  [0.7, 82],
+  [0.15, 4],     // 2.3: low end stretched, the calmest real tracks reach 0-10
+  [0.3, 20],
+  [0.4, 34],
+  [0.5, 50],
+  [0.6, 66],
+  [0.7, 80],
   [0.78, 90],
   [0.85, 100],   // 2.1: the most extreme sounds (test bench "extreme noise") reach 100
   [1.0, 125],    // 2.2: no ceiling at 100, what goes beyond is "Off the charts"
