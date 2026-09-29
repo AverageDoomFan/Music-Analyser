@@ -142,3 +142,27 @@ test("scores can go past 100 into the Off the charts stage", async () => {
   assert.equal(STAGES.at(-1).min, 100);
   assert.notEqual(stageFor(99), STAGES.at(-1));
 });
+
+test("a very quiet recording is heard as calmer (played level)", async () => {
+  const { playedLevelGain } = await import("../src/scoring/model.js");
+  assert.equal(playedLevelGain({ sourceLoudnessLufs: -13 }), 1);
+  assert.equal(playedLevelGain({ sourceLoudnessLufs: -24 }), 1);
+  assert.equal(playedLevelGain({ sourceLoudnessLufs: -40 }), 0.5);
+  assert.equal(playedLevelGain({ sourceLoudnessLufs: -60 }), 0.5);
+  assert.equal(playedLevelGain({}), 1);
+  const f = results.calmPad?.features ?? Object.values(results)[0].features;
+  const loud = scoreFeatures({ ...f, sourceLoudnessLufs: -14 }).score;
+  const quiet = scoreFeatures({ ...f, sourceLoudnessLufs: -36 }).score;
+  assert.ok(quiet < loud || loud === 0);
+});
+
+test("extractor 1.6: hardness cues react to distortion and double kick", async () => {
+  const { renderTrack } = await import("../src/testlab/synth.js");
+  const feat = (p) => { const x = renderTrack(p, 12); return extractFeatures(x, SR, measureClipping([x])); };
+  const clean = feat({}), driven = feat({ drive: 25, clip: 0.3 });
+  assert.ok(driven.spectralContrast < clean.spectralContrast - 8, `contrast ${clean.spectralContrast} → ${driven.spectralContrast}`);
+  assert.ok(driven.dissonance > clean.dissonance);
+  assert.ok(driven.spectralEntropy > clean.spectralEntropy);
+  assert.ok(feat({ bpm: 180, kickDiv: 4, kick: 0.9 }).fastKickRatio > 0.8);
+  assert.ok(clean.fastKickRatio < 0.1);
+});

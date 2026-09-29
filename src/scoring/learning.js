@@ -7,7 +7,7 @@ import { computeIntensity } from "./model.js";
 import { aggregate } from "./aggregate.js";
 
 const MIN_W = 0.05;
-const MAX_W = 3;
+const MAX_W = 6;
 
 /**
  * @param {{windows:Object[], times?:number[], aggregation:string, target:number}[]} samples
@@ -29,7 +29,7 @@ export function fitWeights(samples, startWeights, { iterations = 200, rate = 0.0
   const rmse = (weights) => Math.sqrt(samples.reduce((a, s) => a + (predict(s, weights) - s.target) ** 2, 0) / Math.max(1, samples.length));
 
   const errorBefore = rmse(w);
-  const h = 1e-3;
+  const h = 0.02; // scores are rounded to 0.1: a smaller step sees no change
   for (let it = 0; it < iterations; it++) {
     const base = loss(w);
     const grad = {};
@@ -75,7 +75,7 @@ export function fitPairwise(pairs, startWeights, { iterations = 150, rate = 0.05
     return ok / decided.length;
   };
   const before = agreement(w);
-  const h = 1e-3;
+  const h = 0.02; // scores are rounded to 0.1: a smaller step sees no change
   for (let it = 0; it < iterations; it++) {
     const base = loss(w);
     const grad = {};

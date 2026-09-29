@@ -50,7 +50,7 @@ export const VARIABLES = [
   { key: "mood", label: t("Mood"), measure: "valence", hint: t("Minor, slow, dark and saturated; clean minor; major, fast, bright and clean."),
     levels: [{ mode: "minor", bpm: 75, cutoff: 900, drive: 6, key: 2 }, { mode: "minor", bpm: 110, key: 2 }, { mode: "major", bpm: 150, bright: 0.65 }], expect: "increasing", margin: 8 },
   { key: "intensity", label: t("Overall intensity"), measure: "score", hint: t("Calm pad, pop groove, extreme noise."),
-    levels: [{ kick: 0, snare: 0, hats: 0, bass: 0, arp: 0, chords: 0.3, bright: 0.3, bpm: 70 }, {}, { bpm: 190, kick: 1, kickDrive: 20, sub: 0.6, hats: 0.4, hatDiv: 4, noise: 0.5, drive: 20, clip: 0.3 }], expect: "increasing", margin: 15 },
+    levels: [{ kick: 0, snare: 0, hats: 0, bass: 0, arp: 0, chords: 0.3, bright: 0.3, bpm: 70 }, { drive: 4 }, { bpm: 190, kick: 1, kickDrive: 20, sub: 0.6, hats: 0.4, hatDiv: 4, noise: 0.5, drive: 20, clip: 0.3 }], expect: "increasing", margin: 15 },
 ];
 
 /** Tracks whose parameters change over time (check the curves in the detail dialog). */

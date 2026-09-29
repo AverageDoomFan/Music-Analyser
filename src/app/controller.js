@@ -1,7 +1,7 @@
 // Use cases: import, cache lookup, analysis, rescoring, corrections, backup.
 // UI modules call these functions and re-render from the store.
 
-import { AUDIO_EXTENSIONS, DEFAULT_WEIGHTS, FEATURE_VERSION, ALGORITHM_VERSION, AGGREGATIONS, DEFAULT_AGGREGATION } from "../config.js";
+import { AUDIO_EXTENSIONS, DEFAULT_WEIGHTS, PREVIOUS_DEFAULT_WEIGHTS, FEATURE_VERSION, ALGORITHM_VERSION, AGGREGATIONS, DEFAULT_AGGREGATION } from "../config.js";
 import { state, notify } from "./store.js";
 import { db } from "../storage/db.js";
 import { buildExport, downloadJson, parseExport, mergeRecord } from "../storage/backup.js";
@@ -29,7 +29,10 @@ let jobSeq = 0;
 
 export async function init() {
   const saved = await db.getSetting("weights");
-  if (saved) state.weights = sanitizeWeights(saved);
+  // weights never changed by the user follow the new defaults
+  const untouched = saved && PREVIOUS_DEFAULT_WEIGHTS.some((d) => Object.keys(d).every((k) => d[k] === saved[k]));
+  if (saved && !untouched) state.weights = sanitizeWeights(saved);
+  if (untouched) await db.setSetting("weights", null);
   const aggregation = await db.getSetting("aggregation");
   if (AGGREGATIONS.some((a) => a.key === aggregation)) state.aggregation = aggregation;
   const records = await db.getAllTracks();
@@ -697,6 +700,7 @@ export async function exportDiagnostic({ full = false } = {}) {
         flat: db10(f.flatnessMedian), fill: r3(f.spectralFill), flux: r3(f.fluxMean), fstd: r3(f.fluxStd), crest: r3(f.spectralCrestMean),
         hi: r3(f.highRatio), sil: r3(f.silenceRatio), dur: Math.round(f.duration ?? 0), an: Math.round(f.analyzedSeconds ?? 0),
         mfl: db10(f.midFlatnessMedian), pr: r3(f.pulseRate), ps: r3(f.pulseStrength),
+        ctr: r3(f.spectralContrast), ent: r3(f.spectralEntropy), dis: r3(f.dissonance), fk: r3(f.fastKickRatio),
       },
       v: r3(r.valence), k: r.auto.music?.key?.name ?? null,
       ...(full ? {

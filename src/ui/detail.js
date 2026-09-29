@@ -232,6 +232,7 @@ function seriesFor(r) {
       { key: "flatnessMedian", label: t("Spectral flatness (dB)"), values: sr.flatnessMedian.map(db10), format: (v) => v.toFixed(1) },
       { key: "plrDb", label: t("Peak / loudness (dB)"), values: sr.plrDb, format: (v) => v.toFixed(1) },
     );
+    if (sr.spectralContrast) list.push({ key: "spectralContrast", label: t("Spectral contrast (dB)"), values: sr.spectralContrast, format: (v) => v.toFixed(1) });
     if (sr.midFlatnessMedian) list.push({ key: "midFlatnessMedian", label: t("Distortion · mid flatness (dB)"), values: sr.midFlatnessMedian.map(db10), format: (v) => v.toFixed(1) });
     if (sr.pulseRate) list.push({ key: "pulseRate", label: t("Kick speed (/s)"), values: sr.pulseRate.map((v, i) => (sr.pulseStrength[i] >= 0.3 ? v : null)), format: (v) => v.toFixed(1) });
     list.push(
@@ -442,6 +443,10 @@ function featuresBlock(f) {
     [t("Low-end variation"), n(f.lowBandDbStd, 1, " dB")],
     [t("Low-end flatness"), dB(f.lowFlatnessMedian)],
     [t("Distortion · mid flatness"), dB(f.midFlatnessMedian)],
+    [t("Spectral contrast (1.6–6.4 kHz)"), n(f.spectralContrast, 1, " dB")],
+    [t("Dissonance"), n(f.dissonance, 3)],
+    [t("Spectral entropy"), n(f.spectralEntropy, 3)],
+    [t("Double kick (share of kicks)"), f.fastKickRatio != null ? pct(f.fastKickRatio) : "—"],
     [t("Clipping"), pct(f.clippingRatio)],
     [t("Centroid"), n(f.centroidMean, 0, " Hz")],
     [t("Bandwidth"), n(f.bandwidthMean, 0, " Hz")],
@@ -455,7 +460,7 @@ function featuresBlock(f) {
     [t("Analysed length"), `${formatDuration(f.analyzedSeconds)}${f.excerpted ? t(" (excerpts)") : ""}`],
   ];
   return `<div class="features">${items.map(([k, v]) => `<div><span>${k}</span><span>${v}</span></div>`).join("")}</div>
-    <p class="muted small">${t("* For information only: every file is normalised to {n} LUFS before the analysis, its volume does not change the score.", { n: ANALYSIS.referenceLufs })}</p>`;
+    <p class="muted small">${t("* Every file is normalised to {n} LUFS before the analysis. Only a very quiet recording counts: below −24 LUFS it is heard as calmer, down to half the intensity at −40 LUFS.", { n: ANALYSIS.referenceLufs })}</p>`;
 }
 
 function reportBlock(r) {
