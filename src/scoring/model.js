@@ -173,21 +173,10 @@ export function computeSubscores(features) {
  * towards 100, but only once the track is already intense or harsh, so a
  * noisy yet soft texture (rain, tape hiss) is not ranked as extreme.
  */
-export function computeIntensity(subscores, weights = DEFAULT_WEIGHTS, gain = 1) {
-  return round1(calibrate(rawIntensity(subscores, weights) * gain));
+export function computeIntensity(subscores, weights = DEFAULT_WEIGHTS) {
+  return round1(calibrate(rawIntensity(subscores, weights)));
 }
 
-/**
- * How loud the track actually plays, before the extractor's normalisation:
- * a very quiet recording (a solo violin at -40 LUFS) is heard as calm, even
- * when normalised its measures look like any other. 1 down to -24 LUFS, then
- * down to 0.5 at -40 LUFS. Captures share the same Spotify settings, files
- * their master level, so levels compare.
- */
-export function playedLevelGain(features) {
-  const L = features?.sourceLoudnessLufs;
-  return Number.isFinite(L) ? 1 - 0.5 * lin(-L, 24, 40) : 1;
-}
 
 /** Intensity before calibration, 0..1. */
 export function rawIntensity(subscores, weights = DEFAULT_WEIGHTS) {
@@ -268,11 +257,10 @@ export function computeCurves(features, weights = DEFAULT_WEIGHTS) {
   const intensity = [];
   const subscores = {};
   const perWindow = [];
-  const gain = playedLevelGain(features);
   for (const w of windows) {
     const s = computeSubscores(w).subscores;
     perWindow.push(s);
-    intensity.push(computeIntensity(s, weights, gain));
+    intensity.push(computeIntensity(s, weights));
     for (const [dim, v] of Object.entries(s)) (subscores[dim] ??= []).push(v);
   }
   return { times, intensity, subscores, perWindow };

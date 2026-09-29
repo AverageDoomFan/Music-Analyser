@@ -7,6 +7,7 @@ import * as auth from "../spotify/auth.js";
 import * as api from "../spotify/api.js";
 import { t } from "../i18n/index.js";
 import { toast } from "./toast.js";
+import { pickDevice } from "../spotify/devices.js";
 
 const DEVICE_KEY = "mea.spotify.device";
 const listeners = new Set();
@@ -25,10 +26,12 @@ async function deviceId() {
   let saved = null;
   try { saved = localStorage.getItem(DEVICE_KEY); } catch { /* ignore */ }
   const list = await api.devices();
-  const pick = list.find((d) => d.id === saved && !d.restricted) ?? list.find((d) => d.active && !d.restricted) ?? list.find((d) => !d.restricted);
-  if (!pick) throw new Error(t("No Spotify device: open the Spotify app on this computer (or phone), then try again."));
+  const pick = pickDevice(list, saved);
+  if (!pick) throw new Error(t("No Spotify device: open Spotify (the app or open.spotify.com), then try again."));
   return pick.id;
 }
+
+export const savedDevice = () => { try { return localStorage.getItem(DEVICE_KEY); } catch { return null; } };
 
 export function rememberDevice(id) {
   try { if (id) localStorage.setItem(DEVICE_KEY, id); } catch { /* ignore */ }

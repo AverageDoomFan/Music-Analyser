@@ -460,7 +460,7 @@ function featuresBlock(f) {
     [t("Analysed length"), `${formatDuration(f.analyzedSeconds)}${f.excerpted ? t(" (excerpts)") : ""}`],
   ];
   return `<div class="features">${items.map(([k, v]) => `<div><span>${k}</span><span>${v}</span></div>`).join("")}</div>
-    <p class="muted small">${t("* Every file is normalised to {n} LUFS before the analysis. Only a very quiet recording counts: below −24 LUFS it is heard as calmer, down to half the intensity at −40 LUFS.", { n: ANALYSIS.referenceLufs })}</p>`;
+    <p class="muted small">${t("* Every file and capture is normalised to {n} LUFS before the analysis: the playback volume and the mastering level never change the score.", { n: ANALYSIS.referenceLufs })}</p>`;
 }
 
 function reportBlock(r) {

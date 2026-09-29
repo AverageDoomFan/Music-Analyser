@@ -17,7 +17,7 @@ export class SpotifyError extends Error {
 const PLAYLIST_HINT = { 403: t(" (account not allowed in the app's dashboard, or a playlist you neither own nor collaborate on)") };
 const PLAYER_HINT = {
   403: t(" (playback control refused: Spotify Premium required, or log in again to allow playback control)"),
-  404: t(" (no active Spotify device: open the Spotify app on this PC and play a track once)"),
+  404: t(" (no active Spotify device: open Spotify, the app or open.spotify.com, and play a track once)"),
 };
 
 async function request(method, url, body, attempt = 0, hints = PLAYLIST_HINT) {
