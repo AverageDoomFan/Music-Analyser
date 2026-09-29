@@ -1,4 +1,5 @@
-// Intensity model: raw features -> 8 interpretable sub-scores -> 0..100.
+// Intensity model: raw features -> 8 interpretable sub-scores -> 0..100, and
+// beyond (up to SCORE_MAX) for what is off the charts.
 //
 // The score is a practical perceptual ranking tool, not a scientific measure.
 // No genre rule anywhere: only audio features. To replace the model, write a
@@ -221,7 +222,7 @@ export function calibrate(raw) {
     const [x1, y1] = CALIBRATION[i];
     if (x <= x1) return y0 + ((x - x0) / (x1 - x0)) * (y1 - y0);
   }
-  return 100;
+  return CALIBRATION.at(-1)[1];
 }
 
 /**

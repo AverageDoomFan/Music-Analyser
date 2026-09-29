@@ -39,6 +39,6 @@ test("test bench: min / mid / max of every variable", () => {
   want("mood-mid", "valence", 30, 45);
   want("mood-max", "valence", 75, 100);
   want("intensity-min", "score", 0, 5);
-  want("intensity-max", "score", 99, 100);
+  want("intensity-max", "score", 100, 110); // 2.2: the user wants it just past 100
   assert.deepEqual(off, []);
 });

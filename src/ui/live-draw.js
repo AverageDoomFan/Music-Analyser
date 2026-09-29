@@ -1,6 +1,6 @@
 // Canvas renderers of the live scan stage (always dark). Dependency-free.
 
-import { STAGES, stageFor, DIMENSIONS } from "../config.js";
+import { STAGES, stageFor, DIMENSIONS, SCORE_MAX } from "../config.js";
 import { t as tr } from "../i18n/index.js";
 
 export const DIM_COLORS = {
@@ -11,11 +11,12 @@ export const DIM_COLORS = {
 const SCALE = [
   [0, [59, 130, 246]], [20, [6, 182, 212]], [38, [34, 197, 94]], [55, [234, 179, 8]],
   [70, [249, 115, 22]], [84, [239, 68, 68]], [94, [217, 70, 239]], [100, [250, 232, 255]],
+  [SCORE_MAX, [255, 255, 255]], // off the charts: white hot
 ];
 
 /** Colour of an intensity value on the stage palette (blue calm → magenta noise). */
 export function intensityRgb(v) {
-  const x = Math.max(0, Math.min(100, v ?? 0));
+  const x = Math.max(0, Math.min(SCORE_MAX, v ?? 0));
   for (let i = 1; i < SCALE.length; i++) {
     const [x1, c1] = SCALE[i];
     if (x <= x1) {
@@ -59,52 +60,198 @@ const fmtTime = (s) => {
 
 // ---------------------------------------------------------------- gauge
 
-export function drawGauge(canvas, { value, score, label, caption, active }) {
+// The gauge reads like a car's speed dial: 0..SCORE_MAX with a redline past
+// 100, a sprung needle that overshoots, shakes when the track is violent
+// (more with loud audio) and throws sparks when it is off the charts.
+
+const clamp01 = (x) => Math.max(0, Math.min(1, x));
+
+export function gaugeState() {
+  return { pos: null, vel: 0, readout: null, last: null, shake: [0, 0], sparks: [] };
+}
+
+/**
+ * Advances the needle physics by one frame.
+ * @param {object} st       gaugeState()
+ * @param {number|null} target  intensity the needle heads for
+ * @param {{now: number, level?: number, reduced?: boolean}} o
+ *   level: audio peak (0..1); reduced: prefers-reduced-motion (no shake nor sparks)
+ */
+export function stepGauge(st, target, { now, level = 0, reduced = false }) {
+  const dt = st.last == null ? 1 / 60 : Math.min(0.05, Math.max(0, (now - st.last) / 1000));
+  st.last = now;
+  if (target == null) {
+    st.pos = st.readout = null;
+    st.vel = 0;
+    st.sparks.length = 0;
+    st.shake = [0, 0];
+    return st;
+  }
+  if (st.pos == null) { st.pos = st.readout = target; st.vel = 0; }
+  st.readout += (target - st.readout) * Math.min(1, dt * 7);
+  if (reduced) {
+    st.pos = st.readout;
+    st.vel = 0;
+    st.shake = [0, 0];
+    st.sparks.length = 0;
+    return st;
+  }
+  // underdamped spring (overshoots ~10 %), plus a tremor that grows past 75 and with loudness
+  const tremor = clamp01((st.pos - 75) / 50) ** 1.5 * (0.4 + 1.6 * level);
+  const acc = 38 * (target - st.pos) - 7 * st.vel + (Math.random() - 0.5) * 2 * tremor * 700;
+  st.vel += acc * dt;
+  st.pos += st.vel * dt;
+  // needle stops
+  if (st.pos > SCORE_MAX + 3) { st.pos = SCORE_MAX + 3; st.vel *= -0.4; }
+  if (st.pos < -2) { st.pos = -2; st.vel *= -0.4; }
+  // the whole dial shakes past 85
+  const amp = clamp01((st.pos - 85) / 40) * (1 + 2 * level) * 2.2;
+  st.shake = [(Math.random() - 0.5) * 2 * amp, (Math.random() - 0.5) * 2 * amp];
+  // sparks off the needle tip past 100
+  const rate = st.pos > 100 ? ((st.pos - 100) / 25) * (0.6 + 2 * level) : 0;
+  for (let n = Math.floor(rate + Math.random()); n > 0; n--) {
+    st.sparks.push({ v: st.pos, r: 1, dr: 0.25 + Math.random() * 0.5, da: (Math.random() - 0.5) * 0.9, life: 0.35 + Math.random() * 0.45 });
+  }
+  for (const p of st.sparks) { p.life -= dt; p.r += p.dr * dt; p.v += p.da * 30 * dt; p.dr += 0.4 * dt; }
+  st.sparks = st.sparks.filter((p) => p.life > 0).slice(-80);
+  return st;
+}
+
+export function drawGauge(canvas, { gauge, score, label, caption, active, level = 0, now = 0 }) {
   const { ctx, w, h } = fit(canvas);
-  const cx = w / 2, cy = h / 2 + 6, r = Math.min(w, h) / 2 - 16;
+  const value = gauge?.readout ?? null;
+  const needle = gauge?.pos ?? null;
+  const cx = w / 2, cy = h / 2 + 8, r = Math.min(w, h) / 2 - 18;
   const a0 = Math.PI * 0.75, a1 = Math.PI * 2.25;
-  const ang = (v) => a0 + (a1 - a0) * Math.max(0, Math.min(1, v / 100));
-  // track, coloured by segments
-  ctx.lineCap = "butt";
-  for (let v = 0; v < 100; v += 2) {
+  const ang = (v) => a0 + (a1 - a0) * Math.max(-0.02, Math.min(1.03, v / SCORE_MAX));
+  const at = (v, rad) => [cx + Math.cos(ang(v)) * rad, cy + Math.sin(ang(v)) * rad];
+  const heat = value == null ? 0 : clamp01(value / 100);
+  const lvl = active ? level : 0;
+  const over = value != null && value > 100;
+  const pulse = 0.5 + 0.5 * Math.sin(now / 90);
+
+  ctx.save();
+  ctx.translate(...(gauge?.shake ?? [0, 0]));
+
+  // power glow behind the dial, breathing with the audio
+  if (value != null) {
+    // past 100 the glow turns red (the colour scale itself goes white hot)
+    const glow = (a) => (over ? `rgba(239,68,68,${a})` : intensityColor(value, a));
+    const g = ctx.createRadialGradient(cx, cy, r * 0.2, cx, cy, r + 14);
+    g.addColorStop(0, glow(0));
+    g.addColorStop(0.75, glow((0.05 + 0.3 * lvl) * heat * (over ? 0.7 + 0.3 * pulse : 1)));
+    g.addColorStop(1, glow(0));
+    ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.strokeStyle = intensityColor(v + 1, value != null && v <= value ? 1 : 0.14);
-    ctx.lineWidth = 14;
-    ctx.arc(cx, cy, r, ang(v), ang(v + 1.6));
+    ctx.arc(cx, cy, r + 14, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // redline: 100..SCORE_MAX, flashing when reached
+  ctx.lineCap = "butt";
+  ctx.beginPath();
+  ctx.strokeStyle = `rgba(239,68,68,${over ? 0.45 + 0.5 * pulse : 0.35})`;
+  ctx.lineWidth = 4;
+  ctx.arc(cx, cy, r + 10, ang(100), ang(SCORE_MAX));
+  ctx.stroke();
+
+  // track, coloured by segments
+  const step = SCORE_MAX / 60;
+  for (let v = 0; v < SCORE_MAX - 1e-9; v += step) {
+    ctx.beginPath();
+    ctx.strokeStyle = intensityColor(v + step / 2, value != null && v <= value ? 1 : 0.14);
+    ctx.lineWidth = 12;
+    ctx.arc(cx, cy, r, ang(v), ang(v + step * 0.8));
     ctx.stroke();
   }
+
+  // ticks and numbers
+  ctx.strokeStyle = MUTED;
+  ctx.fillStyle = MUTED;
+  ctx.textAlign = "center";
+  for (let v = 0; v <= SCORE_MAX; v += 5) {
+    const major = v % 25 === 0;
+    const [x0, y0] = at(v, r - 9);
+    const [x1, y1] = at(v, r - (major ? 17 : 13));
+    ctx.lineWidth = major ? 2 : 1;
+    ctx.strokeStyle = v > 100 ? "rgba(239,68,68,0.9)" : MUTED;
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    if (major) {
+      const [tx, ty] = at(v, r - 28);
+      ctx.font = `${v === 100 ? 700 : 500} 10px ${FONT}`;
+      ctx.fillStyle = v === 100 ? TEXT : v > 100 ? "#f87171" : MUTED;
+      ctx.fillText(String(v), tx, ty + 3.5);
+    }
+  }
+
   // track score marker
   if (score != null) {
-    const a = ang(score);
+    const [x0, y0] = at(score, r - 11);
+    const [x1, y1] = at(score, r + 11);
     ctx.beginPath();
     ctx.strokeStyle = TEXT;
     ctx.lineWidth = 3;
-    ctx.moveTo(cx + Math.cos(a) * (r - 13), cy + Math.sin(a) * (r - 13));
-    ctx.lineTo(cx + Math.cos(a) * (r + 12), cy + Math.sin(a) * (r + 12));
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
     ctx.stroke();
   }
-  // glow on the tip
-  if (value != null) {
-    const a = ang(value);
-    const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
-    const g = ctx.createRadialGradient(x, y, 0, x, y, 22);
-    g.addColorStop(0, intensityColor(value, active ? 0.9 : 0.5));
-    g.addColorStop(1, intensityColor(value, 0));
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(x, y, 22, 0, Math.PI * 2);
-    ctx.fill();
+
+  // sparks
+  for (const p of gauge?.sparks ?? []) {
+    const [x, y] = at(p.v, r * p.r);
+    const [xb, yb] = at(p.v - p.da * 3, r * (p.r - 0.05));
+    ctx.strokeStyle = `rgba(255,${180 + Math.round(75 * p.life)},${Math.round(120 * p.life)},${clamp01(p.life * 2)})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(xb, yb); ctx.lineTo(x, y); ctx.stroke();
   }
+
+  // needle
+  if (needle != null) {
+    const a = ang(needle);
+    const col = needle > 100 ? "#ffffff" : intensityColor(needle);
+    const tip = r - 4, tail = 14, half = 3.2;
+    const nx = Math.cos(a), ny = Math.sin(a), px = -ny, py = nx;
+    // glow on the tip
+    const [gx, gy] = [cx + nx * r, cy + ny * r];
+    const gr = 18 + 16 * lvl * heat + (over ? 6 * pulse : 0);
+    const g = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
+    g.addColorStop(0, intensityColor(needle, active ? 0.9 : 0.5));
+    g.addColorStop(1, intensityColor(needle, 0));
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(gx, gy, gr, 0, Math.PI * 2); ctx.fill();
+    ctx.save();
+    ctx.shadowColor = intensityColor(needle, 0.9);
+    ctx.shadowBlur = 6 + 14 * heat * (0.5 + lvl);
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.moveTo(cx + nx * tip, cy + ny * tip);
+    ctx.lineTo(cx + px * half - nx * tail, cy + py * half - ny * tail);
+    ctx.lineTo(cx - px * half - nx * tail, cy - py * half - ny * tail);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+  // hub
+  ctx.beginPath();
+  ctx.fillStyle = "#11141c";
+  ctx.strokeStyle = value == null ? LINE : intensityColor(value, 0.9);
+  ctx.lineWidth = 2;
+  ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // readout
   ctx.textAlign = "center";
-  ctx.fillStyle = TEXT;
-  ctx.font = `700 54px ${FONT}`;
-  ctx.fillText(value == null ? "—" : String(Math.round(value)), cx, cy + 12);
-  ctx.font = `600 13px ${FONT}`;
-  ctx.fillStyle = value == null ? MUTED : intensityColor(value);
-  ctx.fillText(label ?? tr("intensity"), cx, cy + 36);
-  ctx.font = `12px ${FONT}`;
+  ctx.fillStyle = over ? `rgba(255,255,255,${0.75 + 0.25 * pulse})` : TEXT;
+  ctx.font = `700 36px ${FONT}`;
+  ctx.fillText(value == null ? "—" : String(Math.round(value)), cx, cy + r * 0.56);
+  ctx.font = `600 12px ${FONT}`;
+  ctx.fillStyle = value == null ? MUTED : over ? "#f87171" : intensityColor(value);
+  ctx.fillText(label ?? tr("intensity"), cx, cy + r * 0.56 + 17);
+  ctx.font = `11px ${FONT}`;
   ctx.fillStyle = MUTED;
-  if (caption) ctx.fillText(caption, cx, cy + 56);
+  if (caption) ctx.fillText(caption, cx, cy + r * 0.56 + 32);
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------- timeline bar
@@ -188,10 +335,13 @@ export function drawCurve(canvas, { cur, enabled, position }) {
   const pw = w - m.l - m.r, ph = h - m.t - m.b;
   const dur = cur?.duration || 180;
   const X = (s) => m.l + (s / dur) * pw;
-  const Y = (v) => m.t + ph - (v / 100) * ph;
+  const peak = Math.max(0, ...(cur?.live?.scoring?.curves?.intensity ?? []).filter(Number.isFinite));
+  const yTop = peak > 100 ? SCORE_MAX : 100;
+  const Y = (v) => m.t + ph - (Math.min(v, yTop) / yTop) * ph;
   // stage bands
   STAGES.forEach((s, i) => {
-    const top = STAGES[i + 1]?.min ?? 100;
+    if (s.min >= yTop) return;
+    const top = STAGES[i + 1]?.min ?? yTop;
     ctx.fillStyle = intensityColor((s.min + top) / 2, 0.05 + (i % 2) * 0.03);
     ctx.fillRect(m.l, Y(top), pw, Y(s.min) - Y(top));
     if (pw > 380 && Y(s.min) - Y(top) > 11) {
@@ -206,7 +356,7 @@ export function drawCurve(canvas, { cur, enabled, position }) {
   ctx.fillStyle = MUTED;
   ctx.font = `10px ${FONT}`;
   ctx.textAlign = "right";
-  for (const v of [0, 25, 50, 75, 100]) {
+  for (const v of [0, 25, 50, 75, 100, ...(yTop > 100 ? [yTop] : [])]) {
     ctx.beginPath();
     ctx.moveTo(m.l, Y(v) + 0.5);
     ctx.lineTo(m.l + pw, Y(v) + 0.5);
@@ -253,8 +403,8 @@ export function drawCurve(canvas, { cur, enabled, position }) {
   }
   // intensity: gradient area + line
   if (enabled.has("intensity")) {
-    const grad = ctx.createLinearGradient(0, Y(100), 0, Y(0));
-    for (const [v] of SCALE) grad.addColorStop(1 - v / 100, intensityColor(v, 0.55));
+    const grad = ctx.createLinearGradient(0, Y(yTop), 0, Y(0));
+    for (const [v] of SCALE) if (v <= yTop) grad.addColorStop(1 - v / yTop, intensityColor(v, 0.55));
     const half = (i) => X(T[i] + 1.5) - X(T[i]); // a lone window (probe) covers ~3 s
     for (const r of runs) {
       const x0 = X(T[r[0]]) - (r.length === 1 ? half(r[0]) : 0), x1 = X(T[r.at(-1)]) + (r.length === 1 ? half(r[0]) : 0);
@@ -269,8 +419,8 @@ export function drawCurve(canvas, { cur, enabled, position }) {
       ctx.fill();
       ctx.globalAlpha = 1;
     }
-    const lineGrad = ctx.createLinearGradient(0, Y(100), 0, Y(0));
-    for (const [v] of SCALE) lineGrad.addColorStop(1 - v / 100, intensityColor(v));
+    const lineGrad = ctx.createLinearGradient(0, Y(yTop), 0, Y(0));
+    for (const [v] of SCALE) if (v <= yTop) lineGrad.addColorStop(1 - v / yTop, intensityColor(v));
     ctx.strokeStyle = lineGrad;
     ctx.lineWidth = 2.5;
     ctx.lineJoin = "round";
@@ -576,7 +726,7 @@ export function drawHistogram(canvas, scores) {
   ctx.font = `10px ${FONT}`;
   ctx.textAlign = "center";
   STAGES.forEach((s, i) => {
-    const next = STAGES[i + 1]?.min ?? 100;
+    const next = STAGES[i + 1]?.min ?? SCORE_MAX;
     const bh = (counts[i] / max) * (h - m.t - m.b);
     const x = m.l + i * bw + 3;
     ctx.fillStyle = intensityColor((s.min + next) / 2);

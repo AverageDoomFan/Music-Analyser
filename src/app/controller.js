@@ -656,8 +656,18 @@ export function proposeWeights() {
 
 // ---------- diagnostic export (compact, to tune the model on a real library) ----------
 
-export async function exportDiagnostic() {
+/**
+ * @param {{full?: boolean}} [o]  full: also every measure as stored (with
+ *   their curves over time), the sub-score components and the intensity curve,
+ *   so that the model can be refitted exactly (bigger file, no rescan needed).
+ */
+export async function exportDiagnostic({ full = false } = {}) {
   const r3 = (x) => (Number.isFinite(x) ? Number(x.toPrecision(3)) : null);
+  const deep = (v) => (typeof v === "number" ? r3(v)
+    : ArrayBuffer.isView(v) ? Array.from(v, r3)
+    : Array.isArray(v) ? v.map(deep)
+    : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, deep(x)]))
+    : v);
   const db10 = (x) => (Number.isFinite(x) ? r3(10 * Math.log10(Math.max(x, 1e-12))) : null);
   const recs = [...state.records.values()].filter((r) => r.auto && r.features);
   const index = new Map(recs.map((r, i) => [r.id, i]));
@@ -686,19 +696,25 @@ export async function exportDiagnostic() {
         cen: r3(f.centroidMean), cstd: r3(f.centroidStd), roll: r3(f.rolloffMean), bw: r3(f.bandwidthMean),
         flat: db10(f.flatnessMedian), fill: r3(f.spectralFill), flux: r3(f.fluxMean), fstd: r3(f.fluxStd), crest: r3(f.spectralCrestMean),
         hi: r3(f.highRatio), sil: r3(f.silenceRatio), dur: Math.round(f.duration ?? 0), an: Math.round(f.analyzedSeconds ?? 0),
+        mfl: db10(f.midFlatnessMedian), pr: r3(f.pulseRate), ps: r3(f.pulseStrength),
       },
       v: r3(r.valence), k: r.auto.music?.key?.name ?? null,
+      ...(full ? {
+        F: deep(f),
+        X: Object.fromEntries(Object.entries(r.auto.explain ?? {}).map(([k, list]) => [k, list.map((c) => [c.label, c.value, c.weight])])),
+        cv: deep({ t: r.auto.curves?.times, i: r.auto.curves?.intensity }),
+      } : {}),
     };
   });
   const duels = (await getComparisons())
     .filter((c) => index.has(c.a) && index.has(c.b))
     .map((c) => [index.get(c.a), index.get(c.b), c.winner]);
   const data = {
-    app: "mea-diagnostic", algorithm: ALGORITHM_VERSION, extractor: FEATURE_VERSION,
+    app: "mea-diagnostic", full, algorithm: ALGORITHM_VERSION, extractor: FEATURE_VERSION,
     weights: state.weights, aggregation: state.aggregation, exportedAt: new Date().toISOString(),
     count: tracks.length, tracks, duels,
   };
-  downloadJson(data, "music-analyser-diagnostic.json");
+  downloadJson(data, full ? "music-analyser-diagnostic-full.json" : "music-analyser-diagnostic.json");
   return tracks.length;
 }
 
