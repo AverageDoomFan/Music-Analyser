@@ -700,6 +700,7 @@ export async function exportDiagnostic({ full = false } = {}) {
         flat: db10(f.flatnessMedian), fill: r3(f.spectralFill), flux: r3(f.fluxMean), fstd: r3(f.fluxStd), crest: r3(f.spectralCrestMean),
         hi: r3(f.highRatio), sil: r3(f.silenceRatio), dur: Math.round(f.duration ?? 0), an: Math.round(f.analyzedSeconds ?? 0),
         mfl: db10(f.midFlatnessMedian), pr: r3(f.pulseRate), ps: r3(f.pulseStrength),
+        ctr: r3(f.spectralContrast), ent: r3(f.spectralEntropy), dis: r3(f.dissonance), fk: r3(f.fastKickRatio),
       },
       v: r3(r.valence), k: r.auto.music?.key?.name ?? null,
       ...(full ? {

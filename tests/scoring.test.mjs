@@ -155,3 +155,14 @@ test("a very quiet recording is heard as calmer (played level)", async () => {
   const quiet = scoreFeatures({ ...f, sourceLoudnessLufs: -36 }).score;
   assert.ok(quiet < loud || loud === 0);
 });
+
+test("extractor 1.6: hardness cues react to distortion and double kick", async () => {
+  const { renderTrack } = await import("../src/testlab/synth.js");
+  const feat = (p) => { const x = renderTrack(p, 12); return extractFeatures(x, SR, measureClipping([x])); };
+  const clean = feat({}), driven = feat({ drive: 25, clip: 0.3 });
+  assert.ok(driven.spectralContrast < clean.spectralContrast - 8, `contrast ${clean.spectralContrast} → ${driven.spectralContrast}`);
+  assert.ok(driven.dissonance > clean.dissonance);
+  assert.ok(driven.spectralEntropy > clean.spectralEntropy);
+  assert.ok(feat({ bpm: 180, kickDiv: 4, kick: 0.9 }).fastKickRatio > 0.8);
+  assert.ok(clean.fastKickRatio < 0.1);
+});

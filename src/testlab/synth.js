@@ -21,7 +21,7 @@ function rng(seed) {
 /** Neutral values: a mid-tempo, mid-bright, clean groove in C major. */
 export const NEUTRAL = Object.freeze({
   bpm: 120,          // number or function of time (s) → BPM
-  kick: 0.55, kickDrive: 1, sub: 0.25,
+  kick: 0.55, kickDrive: 1, sub: 0.25, kickDiv: 1, // kicks per beat (4 = double kick in 16ths)
   snare: 0.3, hats: 0.12, hatDiv: 2,
   chords: 0.22, bass: 0.25, arp: 0, lead: 0,
   key: 0, mode: "major",
@@ -65,7 +65,7 @@ export function renderTrack(params = {}, seconds = 20) {
   // drums
   for (const s of sub16) {
     const bar = Math.floor(s.beat / 4), inBar = s.beat % 4;
-    if (s.k === 0 && p.kick > 0 && !skip()) kick(x, s.t + jitter(), p.kick, p.kickDrive, p.sub);
+    if (s.k % Math.max(1, Math.round(4 / p.kickDiv)) === 0 && p.kick > 0 && !skip()) kick(x, s.t + jitter(), p.kick, p.kickDrive, p.sub);
     if (p.irregular > 0.5 && s.k === 3 && rand() < 0.3 * p.irregular) kick(x, s.t, p.kick * 0.8, p.kickDrive, p.sub);
     if (s.k === 0 && (inBar === 1 || inBar === 3) && p.snare > 0 && !skip()) noiseHit(x, s.t + jitter(), 0.18, p.snare, rand, 0.07, false);
     if (p.hats > 0 && s.k % (4 / p.hatDiv) === 0 && !skip()) noiseHit(x, s.t + jitter(), 0.05, p.hats, rand, 0.012, true);

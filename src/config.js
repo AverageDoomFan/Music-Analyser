@@ -16,7 +16,7 @@ export const ALGORITHM_VERSION = "2.3";
  * file again. Tracks with an older feature version are flagged "re-analysis
  * advised" but keep their scores and corrections.
  */
-export const FEATURE_VERSION = "1.5";
+export const FEATURE_VERSION = "1.6";
 
 /** Schema version of the JSON export. */
 export const EXPORT_SCHEMA_VERSION = 1;

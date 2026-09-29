@@ -135,7 +135,27 @@ export const TIMELINE_KEYS = [
   "lowPulse", "kickRate", "kickPunch", "lowBandDbStd", "lowFlatnessMedian", "midFlatnessMedian", "pulseRate", "pulseStrength",
   "plrDb", "crestDb", "loudnessRel",
   "keyIndex", "keyConfidence", "midModulation", "midLowCorr",
+  "spectralContrast", "spectralEntropy", "dissonance", "fastKickRatio",
 ];
+
+/**
+ * Share of kicks inside double-kick / blast runs: at least 4 strong kicks in a
+ * row, 60–130 ms apart. A single kick often yields two close detections (attack
+ * and body), so isolated short intervals never count.
+ */
+function fastKicks(kicks, frameRate) {
+  const strong = kicks.filter((k) => k[1] >= 0.5 * median(kicks.map((x) => x[1])));
+  if (strong.length < 4) return 0;
+  let inRuns = 0, run = 1;
+  const close = (run) => { if (run >= 4) inRuns += run; };
+  for (let i = 1; i < strong.length; i++) {
+    const d = (strong[i][0] - strong[i - 1][0]) / frameRate;
+    if (d >= 0.06 && d <= 0.13) run++;
+    else { close(run); run = 1; }
+  }
+  close(run);
+  return inRuns / strong.length;
+}
 
 // ---------------------------------------------------------------------------
 // Frame pass: one row per STFT frame, stored in typed arrays.
@@ -172,6 +192,14 @@ function analyzeFrames(mono, sampleRate, segments, onProgress) {
   const mfccLast = new Float64Array(MFCC_N);
   const kMidLo = bin(300), kMidHi = bin(3400);
   const kMfLo = bin(400), kMfHi = bin(5000);
+  // extractor 1.6, "hardness" cues (Czedik-Eysenberg et al. 2017-2024;
+  // Herbst & Mynett 2022): spectral contrast, spectral entropy, dissonance
+  const contrastBands = CONTRAST_BANDS.map(([lo, hi]) => [bin(lo), bin(Math.min(hi, nyquist - binHz))]);
+  const contrastBuf = new Float64Array(nBins);
+  const kEntLo = bin(200), kEntHi = bin(Math.min(11000, nyquist - binHz));
+  const kDisLo = bin(60), kDisHi = bin(Math.min(5000, nyquist - binHz));
+  const peakF = new Float64Array(DISSONANCE_PEAKS), peakA = new Float64Array(DISSONANCE_PEAKS);
+  let dissonanceLast = 0;
 
   let total = 0;
   for (const [s, e] of segments) total += Math.max(1, Math.floor((e - s - N) / H) + 1);
@@ -310,6 +338,10 @@ function analyzeFrames(mono, sampleRate, segments, onProgress) {
       cols.lowFlat[f] = Math.exp(ls / nl) / (ll / nl + EPS);
       cols.midFlat[f] = Math.exp(ms / nm) / (ml / nm + EPS);
       cols.flux[f] = flux;
+      cols.contrast[f] = spectralContrast(mag, contrastBands, contrastBuf);
+      cols.entropy[f] = spectralEntropy(mag, kEntLo, kEntHi);
+      if ((f - first) % DISSONANCE_EVERY === 0) dissonanceLast = dissonance(mag, kDisLo, kDisHi, binHz, peakF, peakA);
+      cols.dissonance[f] = dissonanceLast;
       for (const [name, lo, hi] of bandRanges) {
         let p = 0;
         for (let k = lo; k <= hi; k++) p += mag[k] * mag[k];
@@ -369,6 +401,77 @@ function analyzeFrames(mono, sampleRate, segments, onProgress) {
 }
 
 const MFCC_N = 12;
+const CONTRAST_BANDS = [[1600, 3200], [3200, 6400]]; // Hz; below 11 kHz, where lossy codecs leave holes
+const CONTRAST_ALPHA = 0.2;  // fraction of bins averaged for the peak and for the valley (Jiang et al. 2002)
+const DISSONANCE_PEAKS = 30;
+const DISSONANCE_EVERY = 2;  // frames
+
+/**
+ * Spectral contrast (Jiang et al. 2002): peak-to-valley ratio of each band in
+ * dB, averaged over the bands. Harmonic sounds (voices, clean synths) leave
+ * deep valleys between partials; a distorted guitar wall fills them.
+ */
+function spectralContrast(mag, bands, buf) {
+  let sum = 0, n = 0;
+  for (const [lo, hi] of bands) {
+    const len = hi - lo + 1;
+    if (len < 5) continue;
+    for (let k = 0; k < len; k++) buf[k] = mag[lo + k] * mag[lo + k];
+    const band = buf.subarray(0, len).sort();
+    const m = Math.max(1, Math.round(len * CONTRAST_ALPHA));
+    let valley = 0, peak = 0;
+    for (let k = 0; k < m; k++) { valley += band[k]; peak += band[len - 1 - k]; }
+    sum += 10 * Math.log10((peak + EPS) / (valley + EPS));
+    n++;
+  }
+  return n ? sum / n : 0;
+}
+
+/** Normalised spectral entropy of the power spectrum (0 = one partial, 1 = white noise). */
+function spectralEntropy(mag, lo, hi) {
+  let tot = 0;
+  for (let k = lo; k <= hi; k++) tot += mag[k] * mag[k];
+  if (tot <= 0) return 0;
+  let h = 0;
+  for (let k = lo; k <= hi; k++) {
+    const p = (mag[k] * mag[k]) / tot;
+    if (p > 0) h -= p * Math.log(p);
+  }
+  return h / Math.log(hi - lo + 1);
+}
+
+/**
+ * Sensory dissonance (Plomp & Levelt, Sethares' model, as in Essentia):
+ * beating between the strongest spectral peaks. Distortion adds dense
+ * intermodulation products. Normalised by the peaks' energy, 0..~1.
+ */
+function dissonance(mag, lo, hi, binHz, pf, pa) {
+  let n = 0;
+  for (let k = Math.max(lo, 1); k <= hi && k + 1 < mag.length; k++) {
+    const m = mag[k];
+    if (m <= mag[k - 1] || m < mag[k + 1] || m <= 0) continue;
+    // keep the DISSONANCE_PEAKS strongest peaks (insertion into a small sorted list)
+    if (n === pf.length && m <= pa[n - 1]) continue;
+    const a0 = Math.log(mag[k - 1] + EPS), b0 = Math.log(m + EPS), c0 = Math.log(mag[k + 1] + EPS);
+    const den = a0 - 2 * b0 + c0;
+    const d = den < 0 ? Math.max(-0.5, Math.min(0.5, (0.5 * (a0 - c0)) / den)) : 0;
+    let i = n < pf.length ? n++ : n - 1;
+    while (i > 0 && pa[i - 1] < m) { pa[i] = pa[i - 1]; pf[i] = pf[i - 1]; i--; }
+    pa[i] = m;
+    pf[i] = (k + d) * binHz;
+  }
+  if (n < 2) return 0;
+  let dis = 0, norm = 0;
+  for (let i = 0; i < n; i++) {
+    norm += pa[i] * pa[i];
+    for (let j = i + 1; j < n; j++) {
+      const f1 = Math.min(pf[i], pf[j]), df = Math.abs(pf[i] - pf[j]);
+      const sc = 0.24 / (0.0207 * f1 + 18.96);
+      dis += pa[i] * pa[j] * (Math.exp(-3.5 * sc * df) - Math.exp(-5.75 * sc * df));
+    }
+  }
+  return norm > 0 ? dis / norm : 0;
+}
 const CHROMA_FFT = 8192;   // 5.4 Hz bins at 44.1 kHz
 const CHROMA_EVERY = 8;    // frames (~93 ms)
 const MFCC_EVERY = 2;      // frames
@@ -377,6 +480,7 @@ const MFCC_COLS = Array.from({ length: MFCC_N }, (_, i) => `mfcc_${i + 1}`);
 const FRAME_COLUMNS = [
   "time", "sumSq", "peak", "rmsDb", "zcr", "od", "lowOd", "bodyOd", "lowDb", "midDb",
   "centroid", "bandwidth", "rolloff", "flatness", "crest", "fill", "lowFlat", "midFlat", "flux",
+  "contrast", "entropy", "dissonance",
   ...BANDS.map(([n]) => `band_${n}`), ...CHROMA_COLS, ...MFCC_COLS,
 ];
 
@@ -486,6 +590,11 @@ function summarize(ctx, ranges, isGlobal) {
     lowBandDbStd: std(pick(F.lowDb)),
     lowFlatnessMedian: median(pick(F.lowFlat)),
     midFlatnessMedian: median(pick(F.midFlat)),
+    spectralContrast: median(pick(F.contrast)),
+    spectralEntropy: median(pick(F.entropy)),
+    dissonance: median(pick(F.dissonance)),
+    // double kick / blast beats: share of kick intervals under 130 ms (16ths at 115+ BPM)
+    fastKickRatio: kicks.length > 4 ? fastKicks(kicks, frameRate) : 0,
     crestDb: peakDb - 20 * Math.log10(rms + EPS),
     peakDb,
     loudnessRel,
