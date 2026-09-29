@@ -143,17 +143,14 @@ test("scores can go past 100 into the Off the charts stage", async () => {
   assert.notEqual(stageFor(99), STAGES.at(-1));
 });
 
-test("a very quiet recording is heard as calmer (played level)", async () => {
-  const { playedLevelGain } = await import("../src/scoring/model.js");
-  assert.equal(playedLevelGain({ sourceLoudnessLufs: -13 }), 1);
-  assert.equal(playedLevelGain({ sourceLoudnessLufs: -24 }), 1);
-  assert.equal(playedLevelGain({ sourceLoudnessLufs: -40 }), 0.5);
-  assert.equal(playedLevelGain({ sourceLoudnessLufs: -60 }), 0.5);
-  assert.equal(playedLevelGain({}), 1);
-  const f = results.calmPad?.features ?? Object.values(results)[0].features;
-  const loud = scoreFeatures({ ...f, sourceLoudnessLufs: -14 }).score;
-  const quiet = scoreFeatures({ ...f, sourceLoudnessLufs: -36 }).score;
-  assert.ok(quiet < loud || loud === 0);
+test("the playback volume never changes the score", async () => {
+  const { renderTrack, SR } = await import("../src/testlab/synth.js");
+  const { extractFeatures } = await import("../src/audio/features.js");
+  for (const p of [{}, { drive: 6, bpm: 170 }]) {
+    const base = renderTrack(p, 12);
+    const scores = [0, -20, -40].map((db) => scoreFeatures(extractFeatures(Float32Array.from(base, (v) => v * 10 ** (db / 20)), SR, {})).score);
+    for (const s of scores) assert.ok(Math.abs(s - scores[0]) <= 0.5, `${scores}`);
+  }
 });
 
 test("extractor 1.6: hardness cues react to distortion and double kick", async () => {

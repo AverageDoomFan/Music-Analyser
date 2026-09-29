@@ -513,7 +513,7 @@ export default {
   "Silence": "Silences",
   "Analysed length": "Durée analysée",
   " (excerpts)": " (extraits)",
-  "* Every file is normalised to {n} LUFS before the analysis. Only a very quiet recording counts: below −24 LUFS it is heard as calmer, down to half the intensity at −40 LUFS.": "* Chaque fichier est normalisé à {n} LUFS avant l'analyse. Seul un enregistrement très faible compte : sous −24 LUFS il est perçu plus calme, jusqu'à la moitié de l'intensité à −40 LUFS.",
+  "* Every file and capture is normalised to {n} LUFS before the analysis: the playback volume and the mastering level never change the score.": "* Chaque fichier et chaque capture est normalisé à {n} LUFS avant l'analyse : le volume d'écoute et le niveau du master ne changent jamais le score.",
   "Saves every measure of this track (and its curves), the sub-scores and how they are built, with your comment. Export the reports from Settings and send the file. No audio, no file path.": "Enregistre chaque mesure de ce morceau (et ses courbes), les sous-scores et leur construction, avec ton commentaire. Exporte les signalements depuis les Paramètres et envoie le fichier. Ni audio ni chemin de fichier.",
   "Expected score": "Score attendu",
   "What is wrong?": "Qu'est-ce qui ne va pas ?",
