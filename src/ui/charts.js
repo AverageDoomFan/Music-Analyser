@@ -43,13 +43,16 @@ function drawChart(container, points, { height = 200, onSelect, xLabel = "" }) {
   const h = height - m.top - m.bottom;
   const svg = el("svg", { width, height, viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": tr("Scores in order") }, container);
   const g = el("g", { transform: `translate(${m.left},${m.top})` }, svg);
-  const y = (s) => h - (s / 100) * h;
+  // 0..100, or up to the highest score when some are off the charts
+  const yTop = Math.max(100, ...points.map((p) => p.score).filter(Number.isFinite));
+  const y = (s) => h - (s / yTop) * h;
   const n = points.length;
   const x = (i) => (n <= 1 ? w / 2 : (i / (n - 1)) * w);
 
   // alternate stage bands (recessive), labelled on the right when there is room
   STAGES.forEach((s, i) => {
-    const top = STAGES[i + 1]?.min ?? 100;
+    if (s.min >= yTop) return;
+    const top = STAGES[i + 1]?.min ?? yTop;
     if (i % 2 === 1) el("rect", { class: "stage-band", x: 0, y: y(top), width: w, height: y(s.min) - y(top) }, g);
     if (w > 420 && y(s.min) - y(top) >= 12) {
       const t = el("text", { class: "stage-label", x: w - 4, y: (y(s.min) + y(top)) / 2 + 4, "text-anchor": "end" }, g);
@@ -57,7 +60,7 @@ function drawChart(container, points, { height = 200, onSelect, xLabel = "" }) {
     }
   });
   const grid = el("g", { class: "grid axis" }, g);
-  for (const v of [0, 25, 50, 75, 100]) {
+  for (const v of [0, 25, 50, 75, 100, ...(yTop > 110 ? [Math.round(yTop)] : [])]) {
     el("line", { x1: 0, x2: w, y1: y(v), y2: y(v) }, grid);
     const t = el("text", { x: -8, y: y(v) + 4, "text-anchor": "end" }, grid);
     t.textContent = v;
@@ -164,7 +167,8 @@ function drawTimeline(container, { times, values, min, max, format = (v) => v.to
 
   if (bands) {
     STAGES.forEach((s, i) => {
-      const top = STAGES[i + 1]?.min ?? 100;
+      if (s.min >= hi) return;
+      const top = Math.min(hi, STAGES[i + 1]?.min ?? hi);
       if (i % 2 === 1) el("rect", { class: "stage-band", x: 0, y: y(top), width: w, height: y(s.min) - y(top) }, g);
     });
   }
@@ -250,7 +254,7 @@ function drawTimeline(container, { times, values, min, max, format = (v) => v.to
   });
 }
 
-/** Tiny inline curve (library rows), 0..100 scale. */
+/** Tiny inline curve (library rows), 0..100 scale (values above 100 are clipped). */
 export function sparkline(values, { width = 72, height = 22 } = {}) {
   const v = values.filter(Number.isFinite);
   if (v.length < 2) return "";

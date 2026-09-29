@@ -2,18 +2,27 @@
 // keep your guess as the track's score if you disagree with the model.
 // Compare: two tracks, which one hits harder (> < =)? Answers are recorded
 // as duels (they refine the weights) and scores can be fixed on the spot.
+// Hunt: the app draws a score, find a Spotify track outside the library that
+// gets it (analysed live, with the Live tab's capture and settings).
 
 import { state, subscribe } from "../app/store.js";
 import * as ctl from "../app/controller.js";
-import { stageFor } from "../config.js";
+import { stageFor, SCORE_MAX } from "../config.js";
 import { t, tn } from "../i18n/index.js";
 import { escapeHtml } from "../util/format.js";
 import { player } from "./player.js";
+import * as api from "../spotify/api.js";
+import * as auth from "../spotify/auth.js";
+import { matchPlaylist } from "../spotify/match.js";
+import { analyseTracks } from "./live.js";
+import { huntTarget, huntPoints, bestTry } from "../games/hunt.js";
 import { intensityColor } from "./live-draw.js";
 import { toast } from "./toast.js";
 
 const $ = (id) => document.getElementById(id);
 const STATS_KEY = "mea.games.stats";
+
+const EMPTY_STATS = { rounds: 0, error: 0, best: null, duels: 0, agree: 0, hunts: 0, huntError: 0, bullseyes: 0 };
 
 const g = {
   mode: "trivia",
@@ -22,15 +31,16 @@ const g = {
   saveDuels: true,
   trivia: null,   // { id, guess, revealed }
   duel: null,     // { a, b, answer }
+  hunt: null,     // { target, query, results, tries: [{ track, score }], busy }
   recent: [],     // ids shown lately (avoid repeats)
   stats: loadStats(),
 };
 
 function loadStats() {
   try {
-    return { rounds: 0, error: 0, best: null, duels: 0, agree: 0, ...JSON.parse(localStorage.getItem(STATS_KEY) || "{}") };
+    return { ...EMPTY_STATS, ...JSON.parse(localStorage.getItem(STATS_KEY) || "{}") };
   } catch {
-    return { rounds: 0, error: 0, best: null, duels: 0, agree: 0 };
+    return { ...EMPTY_STATS };
   }
 }
 function saveStats() {
@@ -60,6 +70,11 @@ export function initGames() {
       if (map[e.key]) { e.preventDefault(); answerDuel(map[e.key]).catch(() => {}); }
     }
     if (e.key === "Enter" && g.mode === "trivia" && g.trivia && !g.trivia.revealed) { e.preventDefault(); reveal(); }
+  });
+  panel.addEventListener("submit", (e) => {
+    if (e.target.id !== "gm-hunt-search") return;
+    e.preventDefault();
+    search($("gm-hunt-q").value).catch((err) => toast(err.message, "error"));
   });
   player.onChange(() => { if (!$("panel-games").hidden) renderPlayButtons(); });
   subscribe(() => { if (!$("panel-games").hidden) renderPool(); });
@@ -116,7 +131,7 @@ async function onClick(e) {
     case "set-score": {
       const input = $(`gm-score-${id}`);
       const v = Number(input?.value);
-      if (!Number.isFinite(v) || v < 0 || v > 100) return toast(t("Score between 0 and 100."), "error");
+      if (!Number.isFinite(v) || v < 0 || v > SCORE_MAX) return toast(t("Score between 0 and {max}.", { max: SCORE_MAX }), "error");
       await ctl.setManual(id, v);
       toast(t("Score set to {n}.", { n: Math.round(v) }));
       render();
@@ -124,9 +139,12 @@ async function onClick(e) {
     }
     case "clear-score": await ctl.setManual(id, null); render(); break;
     case "answer": await answerDuel(b.dataset.answer); break;
+    case "start-hunt": nextHunt(); break;
+    case "hunt-analyse": await huntAnalyse(id); break;
+    case "hunt-done": finishHunt(); break;
     case "detail": document.dispatchEvent(new CustomEvent("open-detail", { detail: id })); break;
     case "reset-stats":
-      g.stats = { rounds: 0, error: 0, best: null, duels: 0, agree: 0 };
+      g.stats = { ...EMPTY_STATS };
       saveStats();
       render();
       break;
@@ -191,7 +209,8 @@ function render() {
   $("gm-duel-opts").hidden = g.mode !== "compare";
   $("gm-trivia-opts").hidden = g.mode !== "trivia";
   renderPool();
-  $("gm-stage").innerHTML = g.mode === "trivia" ? triviaHtml() : duelHtml();
+  $("gm-playable").closest("label").hidden = g.mode === "hunt";
+  $("gm-stage").innerHTML = g.mode === "trivia" ? triviaHtml() : g.mode === "hunt" ? huntHtml() : duelHtml();
   renderStats();
 }
 
@@ -220,7 +239,7 @@ function trackCard(r, { hide = false, label = "" } = {}) {
 function scoreEditor(r) {
   const manual = r.manual?.score;
   return `<div class="gm-edit">
-    <input type="number" id="gm-score-${escapeHtml(r.id)}" min="0" max="100" step="1" value="${Math.round(r.finalScore)}" aria-label="${escapeHtml(t("New score"))}">
+    <input type="number" id="gm-score-${escapeHtml(r.id)}" min="0" max="${SCORE_MAX}" step="1" value="${Math.round(r.finalScore)}" aria-label="${escapeHtml(t("New score"))}">
     <button class="btn small" data-gm="set-score" data-id="${escapeHtml(r.id)}">${t("Set score")}</button>
     ${manual != null ? `<button class="btn small" data-gm="clear-score" data-id="${escapeHtml(r.id)}">${t("Back to automatic")}</button>` : ""}
     <button class="btn small ghost" data-gm="detail" data-id="${escapeHtml(r.id)}">${t("Details")}</button>
@@ -232,15 +251,15 @@ const scorePill = (v) => `<span class="gm-score" style="background:${intensityCo
 function triviaHtml() {
   const tr = g.trivia;
   if (!tr || !state.records.has(tr.id)) {
-    return `<div class="gm-intro"><p>${t("A track plays from its most intense passage, its score hidden. Guess its intensity from 0 to 100, then compare with the model. If you disagree, keep your guess as the track's score.")}</p>
+    return `<div class="gm-intro"><p>${t("A track plays from its most intense passage, its score hidden. Guess its intensity from 0 to 100 (or beyond, up to {max}, if it is off the charts), then compare with the model. If you disagree, keep your guess as the track's score.", { max: SCORE_MAX })}</p>
       <button class="btn primary" data-gm="start-trivia" ${pool().length ? "" : "disabled"}>${t("Start playing")}</button></div>`;
   }
   const r = state.records.get(tr.id);
   const body = !tr.revealed
     ? `<div class="gm-guess">
         <div class="gm-guess-value"><b id="gm-guess-out" style="color:${intensityColor(tr.guess)}">${tr.guess}</b><span id="gm-guess-stage">${escapeHtml(t(stageFor(tr.guess).label))}</span></div>
-        <input type="range" id="gm-guess" min="0" max="100" step="1" value="${tr.guess}" aria-label="${escapeHtml(t("Your guess"))}">
-        <div class="gm-scale"><span>0 · ${t("Ambient")}</span><span>50</span><span>100 · ${t("Paroxysmal")}</span></div>
+        <input type="range" id="gm-guess" min="0" max="${SCORE_MAX}" step="1" value="${tr.guess}" aria-label="${escapeHtml(t("Your guess"))}">
+        <div class="gm-scale"><span style="left:0">0 · ${t("Ambient")}</span><span style="left:${(50 / SCORE_MAX) * 100}%">50</span><span style="left:${(100 / SCORE_MAX) * 100}%">100</span><span style="right:0">${SCORE_MAX}</span></div>
         <button class="btn primary" data-gm="reveal">${t("Reveal")} <kbd>↵</kbd></button>
       </div>`
     : revealHtml(r, tr);
@@ -295,6 +314,115 @@ function renderStats() {
   const s = g.stats;
   const parts = [];
   if (s.rounds) parts.push(tn(s.rounds, "{n} guess", "{n} guesses") + ` · ${t("average error {n}", { n: Math.round(s.error / s.rounds) })} · ${t("best {n}", { n: Math.round(s.best) })}`);
+  if (s.hunts) parts.push(tn(s.hunts, "{n} hunt", "{n} hunts") + ` · ${t("average gap {n}", { n: Math.round(s.huntError / s.hunts) })} · ${tn(s.bullseyes, "{n} bullseye", "{n} bullseyes")}`);
   if (s.duels) parts.push(tn(s.duels, "{n} duel", "{n} duels") + ` · ${t("model agrees {n} %", { n: Math.round((s.agree / s.duels) * 100) })}`);
   $("gm-stats").innerHTML = parts.length ? `${parts.map(escapeHtml).join("<br>")} <button class="linklike small" data-gm="reset-stats">${t("reset")}</button>` : "";
+}
+
+// ------------------------------------------------------------------ hunt
+
+/** Library record already standing for a Spotify track (captured, or a matching file). */
+function inLibrary(track) {
+  const cap = state.records.get(ctl.capturedId(track));
+  if (cap && !g.hunt?.tries.some((x) => x.track.id === track.id)) return cap;
+  const files = [...state.records.values()].filter((r) => r.source?.kind !== "spotify" && r.source?.kind !== "test");
+  const m = matchPlaylist([track], files, {}).get(track.id);
+  return m ? state.records.get(m.recordId) : null;
+}
+
+function nextHunt() {
+  if (g.hunt && !g.hunt.done && g.hunt.tries.length) finishHunt(false);
+  g.hunt = { target: huntTarget(), query: g.hunt?.query ?? "", results: [], tries: [], busy: null, done: false };
+  player.stop();
+  render();
+  $("gm-hunt-q")?.focus();
+}
+
+async function search(q) {
+  const h = g.hunt;
+  if (!h || !q.trim()) return;
+  if (!auth.isLoggedIn()) throw new Error(t("Log in to Spotify first (Spotify tab)."));
+  h.query = q;
+  h.results = await api.searchTracks(q.trim(), 10);
+  if (!h.results.length) toast(t("No track found."));
+  render();
+}
+
+async function huntAnalyse(trackId) {
+  const h = g.hunt;
+  const track = h?.results.find((x) => x.id === trackId);
+  if (!track || h.busy || h.done) return;
+  if (inLibrary(track)) return toast(t("This track is already in your library: find another one."), "error");
+  h.busy = track.id;
+  render();
+  const live = $("tab-live");
+  live?.click(); // watch the needle while it is analysed
+  try {
+    const [rec] = await analyseTracks([track]);
+    if (rec?.finalScore == null) throw new Error(t("The analysis did not finish."));
+    h.tries.push({ track, score: rec.finalScore, recordId: rec.id });
+  } finally {
+    h.busy = null;
+    if (!$("panel-live").hidden) $("tab-games").click();
+    else render();
+  }
+}
+
+function finishHunt(show = true) {
+  const h = g.hunt;
+  if (!h || h.done) return;
+  h.done = true;
+  const best = bestTry(h.target, h.tries);
+  if (best) {
+    const err = Math.abs(best.score - h.target);
+    g.stats.hunts++;
+    g.stats.huntError += err;
+    if (err <= 2) g.stats.bullseyes++;
+    saveStats();
+  }
+  if (show) render();
+}
+
+function huntHtml() {
+  const h = g.hunt;
+  if (!h) {
+    return `<div class="gm-intro"><p>${t("The app draws a score. Find a track on Spotify, outside your library, that gets it: search, pick a candidate, and it is analysed live with the Live tab's capture and settings. Several tries per score are allowed, the closest one counts.")}</p>
+      <button class="btn primary" data-gm="start-hunt">${t("Start playing")}</button></div>`;
+  }
+  const best = bestTry(h.target, h.tries);
+  const logged = auth.isLoggedIn();
+  const tries = h.tries.map((x) => {
+    const d = x.score - h.target;
+    return `<li><span class="gm-hunt-name">${escapeHtml(x.track.artists?.join(", ") ?? "")} · ${escapeHtml(x.track.name)}</span>${scorePill(x.score)}<span class="muted">${d > 0 ? "+" : ""}${Math.round(d)} · ${t("{n} pts", { n: huntPoints(h.target, x.score) })}</span>${x.recordId ? `<button class="btn small ghost" data-gm="detail" data-id="${escapeHtml(x.recordId)}">${t("Details")}</button>` : ""}</li>`;
+  }).join("");
+  const results = h.results.map((tk) => {
+    const lib = inLibrary(tk);
+    const tried = h.tries.some((x) => x.track.id === tk.id);
+    return `<li>
+      ${tk.image ? `<img src="${escapeHtml(tk.image)}" alt="" referrerpolicy="no-referrer">` : "<span class=\"gm-hunt-noimg\">♪</span>"}
+      <span class="gm-hunt-name"><b>${escapeHtml(tk.name)}</b><span class="muted small">${escapeHtml(tk.artists?.join(", ") ?? "")}${tk.durationMs ? ` · ${Math.floor(tk.durationMs / 60000)}:${String(Math.floor((tk.durationMs / 1000) % 60)).padStart(2, "0")}` : ""}</span></span>
+      ${tried ? `<span class="muted small">${t("tried")}</span>`
+        : lib ? `<span class="muted small" title="${escapeHtml(lib.name)}">${t("in your library")}</span>`
+        : `<button class="btn small" data-gm="hunt-analyse" data-id="${escapeHtml(tk.id)}" ${h.busy || h.done ? "disabled" : ""}>${h.busy === tk.id ? t("Analysing…") : t("Analyse")}</button>`}
+    </li>`;
+  }).join("");
+  const verdict = best && (() => {
+    const err = Math.abs(best.score - h.target);
+    return err <= 2 ? t("Bullseye!") : err <= 5 ? t("Spot on!") : err <= 12 ? t("Close.") : best.score > h.target ? t("Too intense: look for something calmer.") : t("Too calm: look for something more intense.");
+  })();
+  return `<div class="gm-hunt">
+    <div class="gm-hunt-target"><span class="muted small">${t("Target")}</span>${scorePill(h.target)}<span class="gm-hunt-stage">${escapeHtml(t(stageFor(h.target).label))}</span></div>
+    ${best ? `<p class="gm-verdict">${verdict} <span class="muted">${t("Best: {n}", { n: Math.round(best.score) })} · ${t("{n} pts", { n: huntPoints(h.target, best.score) })}</span></p>` : ""}
+    ${tries ? `<ul class="gm-hunt-tries">${tries}</ul>` : ""}
+    ${h.done ? "" : `<form id="gm-hunt-search" class="gm-hunt-search">
+      <input type="search" id="gm-hunt-q" value="${escapeHtml(h.query)}" placeholder="${escapeHtml(t("Search Spotify: title, artist…"))}" aria-label="${escapeHtml(t("Search Spotify"))}" ${logged ? "" : "disabled"}>
+      <button class="btn" type="submit" ${logged ? "" : "disabled"}>${t("Search")}</button>
+    </form>
+    ${logged ? "" : `<p class="muted small">${t("Log in to Spotify first (Spotify tab).")}</p>`}
+    ${results ? `<ul class="gm-hunt-results">${results}</ul>` : ""}`}
+    <div class="gm-play">
+      ${h.tries.length && !h.done ? `<button class="btn" data-gm="hunt-done">${t("Keep my best try")}</button>` : ""}
+      <button class="btn primary" data-gm="start-hunt" ${h.busy ? "disabled" : ""}>${t("New score")} →</button>
+    </div>
+  </div>`;
 }

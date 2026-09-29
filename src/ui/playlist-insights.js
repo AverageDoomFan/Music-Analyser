@@ -66,7 +66,7 @@ export function drawMap(canvas, { main, other = [] }, hoverId = null) {
   const text = cs.getPropertyValue("--text").trim() || "#000";
   const m = { l: 38, r: 12, t: 12, b: 30 };
   const pw = w - m.l - m.r, ph = h - m.t - m.b;
-  const X = (v) => m.l + (v / 100) * pw, Y = (v) => m.t + ph - (v / 100) * ph;
+  const X = (v) => m.l + (Math.min(v, 100) / 100) * pw, Y = (v) => m.t + ph - (v / 100) * ph;
   // quadrants
   ctx.font = "600 12px system-ui, sans-serif";
   ctx.fillStyle = muted;
@@ -144,7 +144,7 @@ export function compareHtml(a, b) {
   ];
   const bars = (s) => {
     const max = Math.max(1, ...s.stages);
-    return `<div class="stage-bars">${s.stages.map((c, i) => `<i title="${escapeHtml(STAGES[i].label)}: ${c}" style="height:${(c / max) * 100}%;background:${intensityColor((STAGES[i].min + (STAGES[i + 1]?.min ?? 100)) / 2)}"></i>`).join("")}</div>`;
+    return `<div class="stage-bars">${s.stages.map((c, i) => `<i title="${escapeHtml(STAGES[i].label)}: ${c}" style="height:${(c / max) * 100}%;background:${intensityColor((STAGES[i].min + (STAGES[i + 1]?.min ?? 110)) / 2)}"></i>`).join("")}</div>`;
   };
   return `<table class="pl-compare">
     <thead><tr><th></th><th>${escapeHtml(a.name)}</th>${b ? `<th>${escapeHtml(b.name)}</th>` : ""}</tr></thead>

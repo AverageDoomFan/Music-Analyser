@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { tracks, SR } from "./synth.mjs";
 import { extractFeatures, measureClipping } from "../src/audio/features.js";
 import { scoreFeatures, computeIntensity, toDisplay, toModel } from "../src/scoring/model.js";
-import { DEFAULT_WEIGHTS, ALGORITHM_VERSION, SUBSCORE_SCALES } from "../src/config.js";
+import { DEFAULT_WEIGHTS, ALGORITHM_VERSION, SUBSCORE_SCALES, SCORE_MAX, STAGES, stageFor } from "../src/config.js";
 
 const results = {};
 for (const [name, gen] of Object.entries(tracks)) {
@@ -32,7 +32,7 @@ test("features are finite and plausible", () => {
 test("scores and sub-scores stay in range and carry the algorithm version", () => {
   for (const r of Object.values(results)) {
     assert.equal(r.algorithmVersion, ALGORITHM_VERSION);
-    assert.ok(r.score >= 0 && r.score <= 100);
+    assert.ok(r.score >= 0 && r.score <= SCORE_MAX);
     for (const v of Object.values(r.subscores)) assert.ok(v >= 0 && v <= 100);
     for (const v of Object.values(r.confidences)) assert.ok(v >= 0 && v <= 1);
   }
@@ -131,4 +131,14 @@ test("perceptual sub-score scales: increasing, invertible, intensity computed on
   } finally {
     Object.assign(SUBSCORE_SCALES, saved);
   }
+});
+
+test("scores can go past 100 into the Off the charts stage", async () => {
+  const { calibrate } = await import("../src/scoring/model.js");
+  assert.equal(calibrate(1), SCORE_MAX);
+  assert.ok(calibrate(0.92) > 100 && calibrate(0.92) < SCORE_MAX);
+  assert.equal(calibrate(0.85), 100);
+  assert.equal(stageFor(112), STAGES.at(-1));
+  assert.equal(STAGES.at(-1).min, 100);
+  assert.notEqual(stageFor(99), STAGES.at(-1));
 });

@@ -89,8 +89,9 @@ export function initSettings() {
         break;
       }
       case "import": d.querySelector("#import-json").click(); break;
-      case "diagnostic": {
-        const n = await ctl.exportDiagnostic();
+      case "diagnostic":
+      case "diagnostic-full": {
+        const n = await ctl.exportDiagnostic({ full: action === "diagnostic-full" });
         toast(tn(n, "Diagnostic export: {n} track.", "Diagnostic export: {n} tracks."));
         break;
       }
@@ -178,7 +179,8 @@ function render() {
 
       <h3>${t("Diagnostic export")}</h3>
       <p class="muted small">${t("A compact file to improve the model on your real library: for every track, its name, genres, scores, sub-scores, the measures they are made of, and your corrections, lyrics ratings and duels. No audio, no file path.")}</p>
-      <div class="settings-actions"><button class="btn" data-action="diagnostic">${t("Export the diagnostic")}</button></div>
+      <div class="settings-actions"><button class="btn" data-action="diagnostic">${t("Export the diagnostic")}</button>
+        <button class="btn" data-action="diagnostic-full" title="${escapeHtml(t("Also every measure over time and how each sub-score is built: a bigger file, for an exact refit of the model."))}">${t("Full diagnostic")}</button></div>
 
       <h3>${t("Local data")}</h3>
       <button class="btn danger" data-action="clear">${t("Delete local data")}</button>

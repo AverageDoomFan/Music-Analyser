@@ -8,7 +8,7 @@ import { t } from "./i18n/index.js";
  * Bump it whenever the scoring changes: stored tracks whose version differs are
  * re-scored automatically from their cached features, without re-decoding audio.
  */
-export const ALGORITHM_VERSION = "2.1";
+export const ALGORITHM_VERSION = "2.2";
 
 /**
  * Version of the feature extractor (audio -> raw features).
@@ -138,8 +138,11 @@ export const CALIBRATION = [
   [0.7, 82],
   [0.78, 90],
   [0.85, 100],   // 2.1: the most extreme sounds (test bench "extreme noise") reach 100
-  [1.0, 100],
+  [1.0, 125],    // 2.2: no ceiling at 100, what goes beyond is "Off the charts"
 ];
+
+/** Highest possible score (end of the calibration). Scores above 100 are "Off the charts". */
+export const SCORE_MAX = 125;
 
 /**
  * How the user's rating of a song's lyrics shifts its perceived intensity and
@@ -170,6 +173,7 @@ export const STAGES = [
   { min: 86, label: t("Fierce") },
   { min: 93, label: t("Extreme") },
   { min: 97, label: t("Paroxysmal") },
+  { min: 100, label: t("Off the charts") },
 ];
 
 export function stageFor(score) {

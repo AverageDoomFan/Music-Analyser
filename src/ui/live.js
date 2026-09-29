@@ -18,12 +18,13 @@ import { escapeHtml, formatDuration } from "../util/format.js";
 import { toast } from "./toast.js";
 import { rememberDevice } from "./player.js";
 import {
-  drawGauge, drawTimeline, drawCurve, drawRadar, drawHistogram, SpectrumView, Spectrogram, Meters,
+  drawGauge, gaugeState, stepGauge, drawTimeline, drawCurve, drawRadar, drawHistogram, SpectrumView, Spectrogram, Meters,
   intensityColor, sparkSvg, fmtTime, DIM_COLORS,
 } from "./live-draw.js";
 
 const $ = (id) => document.getElementById(id);
 const OPTS_KEY = "mea.live.options";
+const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? { matches: false };
 
 const lv = {
   capture: null,
@@ -35,7 +36,7 @@ const lv = {
   order: "playlist",
   seed: 1,             // random order, kept until "Reshuffle"
   enabled: new Set(["intensity"]),
-  gauge: { shown: null },
+  gauge: gaugeState(),
   lastUpdate: 0,
   dirty: true,
   queueKey: "",
@@ -370,7 +371,18 @@ async function playNow(trackId) {
   await startScan(track);
 }
 
-async function startScan(first = null) {
+/**
+ * Analyses tracks from outside the playlist (the Games' Spotify hunt) with the
+ * Live settings, then resolves with their records.
+ */
+export async function analyseTracks(tracks) {
+  if (lv.status?.running) throw new Error(t("A Live scan is running: stop it first."));
+  if (demoOn()) throw new Error(t("Untick the Live tab's “Demo mode” first."));
+  await startScan(null, tracks);
+  return tracks.map((tk) => state.records.get(ctl.capturedId(tk)) ?? null);
+}
+
+async function startScan(first = null, only = null) {
   if (lv.status?.running) return;
   const demo = demoOn();
   if (demo && !lv.demo) await toggleDemo();
@@ -382,8 +394,8 @@ async function startScan(first = null) {
     }
   }
   lv.playlist = demo ? demoPlaylist() : await ctl.spotifyStore.get("playlist").catch(() => null);
-  if (!lv.playlist) throw new Error(t("Import a playlist in the Spotify tab first."));
-  let { todo } = scanList();
+  if (!lv.playlist && !only) throw new Error(t("Import a playlist in the Spotify tab first."));
+  let todo = only ?? scanList().todo;
   // a track asked for with ▶ goes first, even if it was already analysed
   if (first) todo = [lv.playlist.tracks.find((x) => x.id === first.id) ?? first, ...todo.filter((x) => x.id !== first.id)];
   if (!todo.length) return toast(t("Every track is already analysed with this mode (tick “Re-analyse” to start again)."));
@@ -475,16 +487,19 @@ function loop(now) {
   if (lv.level) lv.level *= 0.97;
   drawTimeline($("lv-timeline"), cur, pos, now);
 
-  // gauge eases towards the latest window intensity
+  // speed dial: a sprung needle heads for the latest window intensity
   const target = cur?.final?.score ?? cur?.live?.current?.intensity ?? null;
-  if (target != null) lv.gauge.shown = lv.gauge.shown == null ? target : lv.gauge.shown + (target - lv.gauge.shown) * 0.08;
+  const level = recording ? Math.min(1, lv.level ?? 0) : 0;
+  stepGauge(lv.gauge, target, { now, level, reduced: reducedMotion.matches });
   const trackScore = cur?.final?.score ?? cur?.live?.scoring?.score ?? null;
   drawGauge($("lv-gauge"), {
-    value: lv.gauge.shown,
+    gauge: lv.gauge,
     score: trackScore,
-    label: lv.gauge.shown != null ? stageFor(lv.gauge.shown).label : t("intensity"),
+    label: lv.gauge.readout != null ? stageFor(lv.gauge.readout).label : t("intensity"),
     caption: trackScore != null ? `${cur?.final ? t("final score") : t("provisional score")} ${Math.round(trackScore)}` : "",
     active: recording,
+    level,
+    now,
   });
   if (cur) {
     $("lv-pos").textContent = fmtTime(pos);
@@ -512,7 +527,6 @@ function renderNow(s, cur) {
   const tk = cur.track;
   if (lv.shownTrack !== tk.id) {
     lv.shownTrack = tk.id;
-    lv.gauge.shown = null;
     $("lv-title").textContent = tk.name;
     $("lv-artist").textContent = [tk.artists?.join(", "), tk.album].filter(Boolean).join(" · ");
     const img = tk.imageLarge || tk.image;

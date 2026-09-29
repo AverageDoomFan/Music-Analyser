@@ -1,6 +1,6 @@
 // Track detail dialog: why a track got its score, manual edit, actions.
 
-import { DIMENSIONS, stageFor, ALGORITHM_VERSION, ANALYSIS, AGGREGATIONS, CURVE_STATS, LYRICS_MOODS, LYRICS_LEVELS } from "../config.js";
+import { DIMENSIONS, stageFor, SCORE_MAX, ALGORITHM_VERSION, ANALYSIS, AGGREGATIONS, CURVE_STATS, LYRICS_MOODS, LYRICS_LEVELS } from "../config.js";
 import { moodLabel, lyricsEffect, dynamicsScore } from "../scoring/describe.js";
 import { aggregate } from "../scoring/aggregate.js";
 import { renderTimeline } from "./charts.js";
@@ -40,7 +40,7 @@ export function initDetail() {
       case "rhythm": d.close(); openInRhythm(id); break;
       case "manual-save": {
         const v = Number(d.querySelector("#manual-score").value);
-        if (!Number.isFinite(v) || v < 0 || v > 100) return toast(t("Score between 0 and 100."), "error");
+        if (!Number.isFinite(v) || v < 0 || v > SCORE_MAX) return toast(t("Score between 0 and {max}.", { max: SCORE_MAX }), "error");
         await ctl.setManual(id, v);
         toast(t("Manual score: {n}", { n: Math.round(v) }));
         break;
@@ -179,7 +179,7 @@ function render(force = false) {
         ${correctionBlock(r)}
         <h3>${t("Manual score")}</h3>
         <div class="manual-edit">
-          <input type="number" id="manual-score" min="0" max="100" step="1" value="${manualValue ?? (r.manual ? r.manual.score : Math.round(final))}" aria-label="${t("Manual score")}">
+          <input type="number" id="manual-score" min="0" max="${SCORE_MAX}" step="1" value="${manualValue ?? (r.manual ? r.manual.score : Math.round(final))}" aria-label="${t("Manual score")}">
           <button class="btn small" data-action="manual-save">${t("Apply")}</button>
           ${r.manual ? `<button class="btn small" data-action="manual-clear">${t("Remove the manual score")}</button>` : ""}
           <span class="muted small">${t("Overrides the automatic score and the correction.")}</span>
@@ -254,7 +254,7 @@ function renderTimelineSection(r) {
     times,
     values: sr.values,
     min: sr.score ? 0 : undefined,
-    max: sr.score ? 100 : undefined,
+    max: sr.score ? Math.max(100, ...sr.values.filter(Number.isFinite)) : undefined,
     format: fmt,
     bands: sr.key === "intensity",
     ref: sr.key === "intensity" ? r.auto.score : undefined,
@@ -387,10 +387,11 @@ function scoreBlock(r, final) {
     </div>
     <div class="intensity" aria-hidden="true">
       <div class="intensity-scale">
-        ${showGhost ? `<span class="intensity-marker ghost" style="left:${auto}%" title="${t("Automatic")}"></span>` : ""}
-        <span class="intensity-marker" style="left:${final}%"></span>
+        ${showGhost ? `<span class="intensity-marker ghost" style="left:${Math.min(auto, SCORE_MAX) / SCORE_MAX * 100}%" title="${t("Automatic")}"></span>` : ""}
+        <span class="intensity-tick" style="left:${(100 / SCORE_MAX) * 100}%" title="100"></span>
+        <span class="intensity-marker" style="left:${Math.min(final, SCORE_MAX) / SCORE_MAX * 100}%"></span>
       </div>
-      <div class="intensity-ends"><span>0 · ${t("Ambient")}</span><span>100 · ${t("Paroxysmal")}</span></div>
+      <div class="intensity-ends"><span>0 · ${t("Ambient")}</span><span>${SCORE_MAX} · ${t("Off the charts")}</span></div>
     </div>`;
 }
 
@@ -462,7 +463,7 @@ function reportBlock(r) {
     <h3>⚑ ${t("Report for analysis")}</h3>
     <p class="muted small">${t("Saves every measure of this track (and its curves), the sub-scores and how they are built, with your comment. Export the reports from Settings and send the file. No audio, no file path.")}</p>
     <div class="report-grid">
-      <label>${t("Expected score")}<input type="number" id="report-expected" min="0" max="100" step="1" placeholder="${Math.round(r.finalScore)}"></label>
+      <label>${t("Expected score")}<input type="number" id="report-expected" min="0" max="${SCORE_MAX}" step="1" placeholder="${Math.round(r.finalScore)}"></label>
       <label class="wide">${t("What is wrong?")}<textarea id="report-comment" rows="3" placeholder="${escapeHtml(t("e.g. calm piano, 2–3 notes: should be much lower"))}"></textarea></label>
     </div>
     <div class="settings-actions">

@@ -85,33 +85,41 @@ export async function myPlaylists(userId) {
   }));
 }
 
+/** Our track shape, from a Spotify track object. */
+function toTrack(t, addedAt = null) {
+  if (!t || (t.type && t.type !== "track")) return null;
+  return {
+    id: t.id ?? `local:${t.uri}`,
+    uri: t.uri,
+    name: t.name,
+    artists: (t.artists ?? []).map((a) => a.name).filter(Boolean),
+    artistIds: (t.artists ?? []).map((a) => a.id).filter(Boolean),
+    album: t.album?.name ?? null,
+    durationMs: t.duration_ms ?? null,
+    isrc: t.external_ids?.isrc ?? null,
+    url: t.external_urls?.spotify ?? null,
+    isLocal: !!t.is_local,
+    image: t.album?.images?.at(-1)?.url ?? null,
+    imageLarge: t.album?.images?.[0]?.url ?? null,
+    addedAt,
+  };
+}
+
 /** Tracks of a playlist (episodes skipped). */
 export async function playlistTracks(id) {
-  const toTrack = (entry) => {
-    const t = entry?.item ?? entry?.track;
-    if (!t || (t.type && t.type !== "track")) return null;
-    return {
-      id: t.id ?? `local:${t.uri}`,
-      uri: t.uri,
-      name: t.name,
-      artists: (t.artists ?? []).map((a) => a.name).filter(Boolean),
-      artistIds: (t.artists ?? []).map((a) => a.id).filter(Boolean),
-      album: t.album?.name ?? null,
-      durationMs: t.duration_ms ?? null,
-      isrc: t.external_ids?.isrc ?? null,
-      url: t.external_urls?.spotify ?? null,
-      isLocal: !!t.is_local,
-      image: t.album?.images?.at(-1)?.url ?? null,
-      imageLarge: t.album?.images?.[0]?.url ?? null,
-      addedAt: entry?.added_at ?? null,
-    };
-  };
+  const entryTrack = (entry) => toTrack(entry?.item ?? entry?.track, entry?.added_at ?? null);
   try {
-    return await allPages(`/playlists/${id}/items?limit=50`, toTrack);
+    return await allPages(`/playlists/${id}/items?limit=50`, entryTrack);
   } catch (err) {
     if (![404, 405].includes(err.status)) throw err;
-    return allPages(`/playlists/${id}/tracks?limit=50`, toTrack);
+    return allPages(`/playlists/${id}/tracks?limit=50`, entryTrack);
   }
+}
+
+/** Track search (the whole Spotify catalogue). */
+export async function searchTracks(query, limit = 10) {
+  const page = await request("GET", `/search?type=track&limit=${limit}&q=${encodeURIComponent(query)}`);
+  return (page.tracks?.items ?? []).map((t) => toTrack(t)).filter(Boolean);
 }
 
 export async function playlistInfo(id) {
