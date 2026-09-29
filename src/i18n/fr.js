@@ -191,7 +191,7 @@ export default {
   "Audio input": "Entrée audio",
   "Demo (synthetic tracks)": "Démo (morceaux de synthèse)",
   "System audio (screen sharing)": "Audio système (partage d'écran)",
-  "No shared sound: choose “Entire screen” and tick “Also share system audio”.": "Aucun son partagé : choisis « Écran entier » et coche « Partager aussi l'audio du système ».",
+  "No shared sound: share the Spotify Web tab with “Also share tab audio” ticked, or “Entire screen” with “Also share system audio”.": "Aucun son partagé : partage l'onglet Spotify Web en cochant « Partager aussi l'audio de l'onglet », ou l'« Écran entier » en cochant « Partager aussi l'audio du système ».",
   "Full structure (intro, drop, break…)": "Structure complète (intro, drop, break…)",
   "Calm pad": "Nappe calme",
   "Major, fast and bright": "Majeur, rapide et lumineux",

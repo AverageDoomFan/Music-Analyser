@@ -1,6 +1,7 @@
 // Audio capture for the live scan. Two sources:
-//  - "system": the computer's audio output, through screen sharing with
-//    "Share system audio" (Chrome / Edge on Windows: entire screen only);
+//  - "system": screen sharing with sound: a browser tab (e.g. Spotify Web,
+//    "Also share tab audio"; it keeps playing out loud) or the entire screen
+//    with "Share system audio" (Chrome / Edge on Windows);
 //  - "device": an audio input, e.g. "CABLE Output" of VB-Cable when Spotify
 //    plays into "CABLE Input" (silent scan).
 // Blocks are delivered as mono Float32Array at the analysis rate (44.1 kHz).
@@ -37,7 +38,7 @@ export async function startCapture({ source, deviceId, stream: given, onData, on
   } else if (source === "system") {
     stream = await navigator.mediaDevices.getDisplayMedia({
       video: { frameRate: 1, width: { ideal: 320 }, height: { ideal: 180 } },
-      audio: { ...RAW, suppressLocalAudioPlayback: true },
+      audio: { ...RAW, suppressLocalAudioPlayback: false },
       systemAudio: "include",
       selfBrowserSurface: "exclude",
       surfaceSwitching: "exclude",
@@ -45,7 +46,7 @@ export async function startCapture({ source, deviceId, stream: given, onData, on
     });
     if (!stream.getAudioTracks().length) {
       stream.getTracks().forEach((t) => t.stop());
-      throw new Error(t("No shared sound: choose “Entire screen” and tick “Also share system audio”."));
+      throw new Error(t("No shared sound: share the Spotify Web tab with “Also share tab audio” ticked, or “Entire screen” with “Also share system audio”."));
     }
   } else {
     stream = await navigator.mediaDevices.getUserMedia({ audio: { ...RAW, channelCount: 2, ...(deviceId ? { deviceId: { exact: deviceId } } : {}) } });
