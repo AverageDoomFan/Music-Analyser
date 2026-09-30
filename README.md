@@ -159,6 +159,8 @@ Each sub-score has a **reliability** (how consistent its components are; for tem
 
 Nothing is only averaged. Extraction has two passes: one per STFT frame (~11.6 ms) storing every measure, then a summary of those frames for the whole track and for each **6 s window (3 s hop)**. Each feature becomes a curve, stored in columns in `features.timeline`; the model scores **each window**, which gives an intensity curve and one curve per sub-score.
 
+Extractor 1.7 adds an **extratone** measure (`src/audio/fast-pulse.js`): the frame pass cannot see attacks closer than ~25 ms, so the envelopes of two bands are sampled at ~2 kHz and searched for a regular pulse of 12.5 to 24 hits/s shared by both. It is shown in the track details and exported, not scored yet. Faster kick trains (40+ hits/s) are pitched tones and cannot be told from a distorted bass note.
+
 **From the curve to a score** (`src/scoring/aggregate.js`, above the library or in Settings):
 
 | Method | Computation |

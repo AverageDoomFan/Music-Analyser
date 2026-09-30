@@ -233,6 +233,7 @@ function seriesFor(r) {
     );
     if (sr.spectralContrast) list.push({ key: "spectralContrast", label: t("Spectral contrast (dB)"), values: sr.spectralContrast, format: (v) => v.toFixed(1) });
     if (sr.midFlatnessMedian) list.push({ key: "midFlatnessMedian", label: t("Distortion · mid flatness (dB)"), values: sr.midFlatnessMedian.map(db10), format: (v) => v.toFixed(1) });
+    if (sr.fastPulseShare) list.push({ key: "fastPulseShare", label: t("Extratone · share of the window (%)"), values: sr.fastPulseShare.map((v) => v * 100), format: (v) => v.toFixed(0) });
     if (sr.pulseRate) list.push({ key: "pulseRate", label: t("Kick speed (/s)"), values: sr.pulseRate.map((v, i) => (sr.pulseStrength[i] >= 0.3 ? v : null)), format: (v) => v.toFixed(1) });
     list.push(
     );
@@ -441,6 +442,9 @@ function featuresBlock(f) {
     [t("Dissonance"), n(f.dissonance, 3)],
     [t("Spectral entropy"), n(f.spectralEntropy, 3)],
     [t("Double kick (share of kicks)"), f.fastKickRatio != null ? pct(f.fastKickRatio) : "—"],
+    [t("Extratone hits / s"), f.fastPulseShare == null ? "—" : f.fastPulseShare > 0
+      ? t("{rate} ({bpm} BPM, {share} of the track)", { rate: n(f.fastPulseRate, 1), bpm: Math.round(f.fastPulseRate * 60), share: pct(f.fastPulseShare) })
+      : t("none")],
     [t("Clipping"), pct(f.clippingRatio)],
     [t("Centroid"), n(f.centroidMean, 0, " Hz")],
     [t("Bandwidth"), n(f.bandwidthMean, 0, " Hz")],
