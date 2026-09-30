@@ -116,9 +116,9 @@ export async function playlistTracks(id) {
   }
 }
 
-/** Track search (the whole Spotify catalogue). */
-export async function searchTracks(query, limit = 10) {
-  const page = await request("GET", `/search?type=track&limit=${limit}&q=${encodeURIComponent(query)}`);
+/** Track search (the whole Spotify catalogue); `offset` pages deeper into the results. */
+export async function searchTracks(query, limit = 10, offset = 0) {
+  const page = await request("GET", `/search?type=track&limit=${limit}${offset ? `&offset=${Math.max(0, Math.floor(offset))}` : ""}&q=${encodeURIComponent(query)}`);
   return (page.tracks?.items ?? []).map((t) => toTrack(t)).filter(Boolean);
 }
 

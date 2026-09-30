@@ -387,6 +387,12 @@ export async function analyseTracks(tracks) {
   return tracks.map((tk) => state.records.get(ctl.capturedId(tk)) ?? null);
 }
 
+/**
+ * Read-only view of the running scan for other tabs (the Games draw the live
+ * needle and the progress): { status, level } — do not modify.
+ */
+export const liveScanState = () => ({ status: lv.status, level: lv.level ?? 0 });
+
 async function startScan(first = null, only = null) {
   if (lv.status?.running) return;
   const demo = demoOn();
