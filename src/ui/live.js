@@ -20,7 +20,7 @@ import { toast } from "./toast.js";
 import { rememberDevice, savedDevice } from "./player.js";
 import { pickDevice } from "../spotify/devices.js";
 import {
-  drawGauge, gaugeState, stepGauge, drawTimeline, drawCurve, drawRadar, drawHistogram, SpectrumView, Spectrogram, Meters,
+  drawGauge, gaugeState, stepGauge, gaugeTarget, drawTimeline, drawCurve, drawRadar, drawHistogram, SpectrumView, Spectrogram, Meters,
   intensityColor, sparkSvg, fmtTime, DIM_COLORS,
 } from "./live-draw.js";
 
@@ -336,6 +336,12 @@ async function beginCapture() {
         let p = 0;
         for (let i = 0; i < b.length; i += 4) { const a = Math.abs(b[i]); if (a > p) p = a; }
         lv.level = Math.max(p, (lv.level ?? 0) * 0.92);
+        // latest level for the gauge: energy average over ~0.25 s
+        let sq = 0;
+        for (let i = 0; i < b.length; i++) sq += b[i] * b[i];
+        const a = 1 - Math.exp(-b.length / 44100 / 0.25);
+        lv.energy = (lv.energy ?? 0) + a * (sq / Math.max(1, b.length) - (lv.energy ?? 0));
+        lv.energyAt = performance.now();
       },
       onEnded: () => {
         lv.capture = null;
@@ -558,8 +564,15 @@ function loop(now) {
   if (lv.level) lv.level *= 0.97;
   drawTimeline($("lv-timeline"), cur, pos, now);
 
-  // speed dial: a sprung needle heads for the latest window intensity
-  const target = cur?.final?.score ?? cur?.live?.current?.intensity ?? null;
+  // speed dial: a sprung needle heads for the latest window intensity, moved
+  // ahead by the current audio level while recording (see gaugeTarget)
+  const lc = cur?.live?.current;
+  // (not in the first 0.75 s of an excerpt: the level average is still rising from the silence before it)
+  const fresh = recording && performance.now() - (lv.energyAt ?? 0) < 300 && (cur.plan.find((g) => g.state === "recording")?.filled ?? 0) >= 0.75;
+  const target = cur?.final?.score ?? gaugeTarget(lc?.intensity ?? null, {
+    windowDb: lc?.levelDb,
+    nowDb: fresh ? 10 * Math.log10((lv.energy ?? 0) + 1e-12) : null,
+  });
   const level = recording ? Math.min(1, lv.level ?? 0) : 0;
   stepGauge(lv.gauge, target, { now, level, reduced: reducedMotion.matches });
   const trackScore = cur?.final?.score ?? cur?.live?.scoring?.score ?? null;

@@ -66,6 +66,25 @@ const fmtTime = (s) => {
 
 const clamp01 = (x) => Math.max(0, Math.min(1, x));
 
+/**
+ * Where the needle should point *now*. A live window's intensity describes
+ * 6 s of audio centred 3 s in the past and arrives ~0.2 s after the window
+ * closed (analysis), then stays for the 3 s hop. The latest audio level
+ * (a ~0.25 s average) is known at once: the gap between it and the window's
+ * own mean level moves the needle ahead of the next window (a drop lifts it,
+ * a break lowers it), by GAUGE_DB_GAIN points per dB, within ±GAUGE_LEAD_MAX.
+ * @param {number|null} windowIntensity  latest window intensity
+ * @param {{windowDb?: number|null, nowDb?: number|null}} o  mean level of that window, current level (dBFS)
+ */
+export const GAUGE_DB_GAIN = 0.9;
+export const GAUGE_LEAD_MAX = 12;
+export function gaugeTarget(windowIntensity, { windowDb = null, nowDb = null } = {}) {
+  if (windowIntensity == null) return null;
+  if (!Number.isFinite(windowDb) || !Number.isFinite(nowDb) || nowDb < -60 || windowDb < -60) return windowIntensity;
+  const lead = Math.max(-GAUGE_LEAD_MAX, Math.min(GAUGE_LEAD_MAX, (nowDb - windowDb) * GAUGE_DB_GAIN));
+  return Math.max(0, Math.min(SCORE_MAX, windowIntensity + lead));
+}
+
 export function gaugeState() {
   return { pos: null, vel: 0, readout: null, last: null, shake: [0, 0], sparks: [] };
 }
@@ -88,7 +107,8 @@ export function stepGauge(st, target, { now, level = 0, reduced = false }) {
     return st;
   }
   if (st.pos == null) { st.pos = st.readout = target; st.vel = 0; }
-  st.readout += (target - st.readout) * Math.min(1, dt * 7);
+  // ~0.14 s to 90 % (was 7/s: 0.33 s)
+  st.readout += (target - st.readout) * Math.min(1, dt * 16);
   if (reduced) {
     st.pos = st.readout;
     st.vel = 0;
@@ -96,9 +116,10 @@ export function stepGauge(st, target, { now, level = 0, reduced = false }) {
     st.sparks.length = 0;
     return st;
   }
-  // underdamped spring (overshoots ~10 %), plus a tremor that grows past 75 and with loudness
+  // underdamped spring (ω ≈ 11 rad/s, ζ ≈ 0.6: overshoots ~10 %, half-way in
+  // ~0.12 s; it was ω ≈ 6.2: 0.22 s), plus a tremor past 75 and with loudness
   const tremor = clamp01((st.pos - 75) / 50) ** 1.5 * (0.4 + 1.6 * level);
-  const acc = 38 * (target - st.pos) - 7 * st.vel + (Math.random() - 0.5) * 2 * tremor * 700;
+  const acc = 120 * (target - st.pos) - 13 * st.vel + (Math.random() - 0.5) * 2 * tremor * 1700; // same tremor amplitude as before
   st.vel += acc * dt;
   st.pos += st.vel * dt;
   // needle stops

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { gaugeState, stepGauge, histogramLabelLayout } from "../src/ui/live-draw.js";
+import { gaugeState, stepGauge, gaugeTarget, histogramLabelLayout } from "../src/ui/live-draw.js";
 import { SCORE_MAX } from "../src/config.js";
 
 const run = (st, target, frames, o = {}) => {
@@ -39,6 +39,20 @@ test("gauge honours reduced motion and resets without a target", () => {
   assert.equal(st.pos, st.readout);
   stepGauge(st, null, { now: st.last + 16 });
   assert.equal(st.pos, null);
+});
+
+test("gauge reacts within ~0.2 s and leads the window with the current level", () => {
+  const st = gaugeState();
+  run(st, 30, 2);
+  let frames = 0;
+  while (st.pos < 50 && frames < 60) { run(st, 70, 1); frames++; }
+  assert.ok(frames * (1000 / 60) <= 150, `half-way in ${frames} frames`);
+  assert.equal(gaugeTarget(null, { windowDb: -20, nowDb: -10 }), null);
+  assert.equal(gaugeTarget(60, {}), 60); // no level: the window as is
+  assert.ok(gaugeTarget(60, { windowDb: -20, nowDb: -14 }) > 64); // a drop lifts it at once
+  assert.ok(gaugeTarget(60, { windowDb: -14, nowDb: -20 }) < 56); // a break lowers it
+  assert.equal(gaugeTarget(60, { windowDb: -30, nowDb: 0 }), 72); // bounded
+  assert.equal(gaugeTarget(60, { windowDb: -20, nowDb: -80 }), 60); // silence: ignored
 });
 
 test("histogram labels never overlap, whatever the width", () => {
