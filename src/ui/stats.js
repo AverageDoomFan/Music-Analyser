@@ -97,6 +97,39 @@ function genreOf(r) {
 
 const tipAttr = (s) => `data-tip="${esc(s)}"`;
 
+// Line icons (24 × 24 paths). Inline SVGs carry their own size and stroke so
+// they stay small and in the text colour even if stats.css does not load.
+const ICONS = {
+  listening: "M3 13a9 9 0 0 1 18 0v4a2 2 0 0 1-2 2h-2v-6h4M3 13v4a2 2 0 0 0 2 2h2v-6H3",
+  library: "M4 20V9m5 11V4m5 16v-8m5 8V7",
+  duel: "M9 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm12 0a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM2 20c0-3 2-5 4-5s4 2 4 5m4 0c0-3 2-5 4-5s4 2 4 5",
+  bolt: "M13 2 4.5 13.5H12L11 22l8.5-11.5H12L13 2Z",
+  flame: "M12 22c4 0 7-2.7 7-6.8 0-3.2-2-5.6-3.6-7.2-.3 2-1.3 3.2-2.4 3.7.3-3.4-1.3-6.6-4.5-8.7.2 3-1.5 5.3-3 7.2C4.3 12 4 13.6 4 15.2 4 19.3 7 22 12 22Z",
+  clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-13v4.5l3 2",
+  repeat: "M17 2l3 3-3 3M20 5H8a4 4 0 0 0-4 4v1m3 12-3-3 3-3m-3 3h12a4 4 0 0 0 4-4v-1",
+  export: "M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5M4 17v2.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V17",
+};
+const icon = (k, size = 16, cls = "") => `<svg class="st-ico ${cls}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="${ICONS[k]}"/></svg>`;
+
+/**
+ * Empty-state illustration: the view's icon on a glowing tile stroked with the
+ * heat ramp, over a small equaliser in the ramp's colours.
+ */
+function emptyArt(k, levels) {
+  const id = `st-art-${k}`;
+  const stops = [8, 40, 70, 96, 110].map((v, i) => `<stop offset="${i / 4}" stop-color="${intensityColor(v)}"/>`).join("");
+  return `<div class="st-empty-art" aria-hidden="true">
+    <svg class="st-empty-badge" width="88" height="88" viewBox="0 0 88 88" focusable="false">
+      <defs><linearGradient id="${id}" x1="0" y1="1" x2="1" y2="0">${stops}</linearGradient>
+        <radialGradient id="${id}-glow" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="${intensityColor(96)}" stop-opacity=".35"/><stop offset="1" stop-color="${intensityColor(96)}" stop-opacity="0"/></radialGradient></defs>
+      <circle cx="44" cy="44" r="44" fill="url(#${id}-glow)"/>
+      <rect x="16" y="16" width="56" height="56" rx="17" fill="#17171e" style="fill:var(--surface-2)" stroke="url(#${id})" stroke-width="1.5"/>
+      <g transform="translate(26 26) scale(1.5)" fill="none" stroke="url(#${id})" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="${ICONS[k]}"/></g>
+    </svg>
+    <div class="st-eq">${levels.map((v, i) => `<i style="--c:${intensityColor(v)};--h:${20 + (v / 110) * 70}%;--d:${i * 90}ms"></i>`).join("")}</div>
+  </div>`;
+}
+
 // ------------------------------------------------------------------ init
 
 export function initStats() {
@@ -222,11 +255,7 @@ async function render() {
     console.error(err);
     body = `<div class="st-card st-empty"><p>${esc(err.message)}</p></div>`;
   }
-  const tabs = [
-    ["listening", t("My listening"), "M3 12a9 9 0 0 1 18 0v5a2 2 0 0 1-2 2h-1v-6h3M3 12v5a2 2 0 0 0 2 2h1v-6H3"],
-    ["library", t("My library"), "M4 19V5m5 14V8m5 11V4m5 15v-8"],
-    ["duel", t("Friend duel"), "M8 7a3 3 0 1 0 0 .01M16 7a3 3 0 1 0 0 .01M3 20c0-3 2.5-5 5-5s5 2 5 5M11 20c0-3 2.5-5 5-5s5 2 5 5"],
-  ];
+  const tabs = [["listening", t("My listening")], ["library", t("My library")], ["duel", t("Friend duel")]];
   const fresh = root.dataset.view !== view;
   root.dataset.view = view;
   root.innerHTML = `
@@ -235,9 +264,8 @@ async function render() {
         <h2 class="st-title">${t("Stats")}</h2>
         <p class="st-sub">${t("How hard you listen, what your library sounds like, and how you compare with friends.")}</p>
       </div>
-      <div class="st-seg" role="group" aria-label="${esc(t("Statistics view"))}">
-        ${tabs.map(([k, label, d]) => `<button type="button" data-st="view" data-view="${k}" aria-pressed="${k === view}">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg><span>${label}</span></button>`).join("")}
+      <div class="st-seg segmented" role="group" aria-label="${esc(t("Statistics view"))}">
+        ${tabs.map(([k, label]) => `<button type="button" data-st="view" data-view="${k}" aria-pressed="${k === view}">${icon(k)}<span>${label}</span></button>`).join("")}
       </div>
     </div>
     <div class="st-body st-view-${view}${fresh ? " st-enter" : ""}">${body}</div>`;
@@ -269,7 +297,7 @@ async function renderListening() {
 function emptyListening() {
   return `
     <div class="st-card st-empty">
-      <div class="st-empty-art" aria-hidden="true">${[18, 34, 52, 70, 88, 96, 76, 44, 26].map((v, i) => `<i style="--c:${intensityColor(v)};--h:${20 + (v / 110) * 70}%;--d:${i * 90}ms"></i>`).join("")}</div>
+      ${emptyArt("listening", [18, 34, 52, 70, 88, 96, 76, 44, 26])}
       <h3>${t("Your listening shows up here")}</h3>
       <p>${t("Turn on “Follow my Spotify listening” in the Live tab and play music in Spotify as usual. Every track you hear is logged: when, how long, how intense.")}</p>
       <p class="st-muted">${t("Only the follow mode counts as listening: scans and imported files do not.")}</p>
@@ -350,10 +378,10 @@ function wrapped(s, months) {
       </div>
     </div>
     <div class="st-wr-facts">
-      ${fact("⚡", t("Most intense track"), s.hardest ? `${s.hardest.recordId && state.records.has(s.hardest.recordId) ? `<button type="button" class="st-link" data-st="open" data-id="${esc(s.hardest.recordId)}">${esc(s.hardest.name)}</button>` : esc(s.hardest.name)}` : "—", s.hardest ? pill(s.hardest.score) : "")}
-      ${fact("🔥", t("Most intense day"), s.hardestDay ? esc(dayLabel(s.hardestDay.day)) : "—", s.hardestDay ? `${pill(s.hardestDay.avg)}<small>${fmtMinutes(s.hardestDay.minutes)}</small>` : "")}
-      ${fact("🕙", t("Peak hour"), s.peakHour ? esc(t("{from} – {to}", { from: hourLabel(s.peakHour.hour), to: hourLabel((s.peakHour.hour + 1) % 24) })) : "—", s.peakHour ? `<small>${fmtMinutes(s.peakHour.minutes)}</small>` : "")}
-      ${fact("🔁", t("On repeat"), s.topTracks[0] ? esc(s.topTracks[0].name) : "—", s.topTracks[0] ? `<small>${tn(s.topTracks[0].plays, "{n} play", "{n} plays")}</small>` : "")}
+      ${fact("bolt", t("Most intense track"), s.hardest ? `${s.hardest.recordId && state.records.has(s.hardest.recordId) ? `<button type="button" class="st-link" data-st="open" data-id="${esc(s.hardest.recordId)}">${esc(s.hardest.name)}</button>` : esc(s.hardest.name)}` : "—", s.hardest ? pill(s.hardest.score) : "")}
+      ${fact("flame", t("Most intense day"), s.hardestDay ? esc(dayLabel(s.hardestDay.day)) : "—", s.hardestDay ? `${pill(s.hardestDay.avg)}<small>${fmtMinutes(s.hardestDay.minutes)}</small>` : "")}
+      ${fact("clock", t("Peak hour"), s.peakHour ? esc(t("{from} – {to}", { from: hourLabel(s.peakHour.hour), to: hourLabel((s.peakHour.hour + 1) % 24) })) : "—", s.peakHour ? `<small>${fmtMinutes(s.peakHour.minutes)}</small>` : "")}
+      ${fact("repeat", t("On repeat"), s.topTracks[0] ? esc(s.topTracks[0].name) : "—", s.topTracks[0] ? `<small>${tn(s.topTracks[0].plays, "{n} play", "{n} plays")}</small>` : "")}
     </div>
     <div class="st-wr-cols">
       <section>
@@ -374,8 +402,8 @@ function wrapped(s, months) {
   </article>`;
 }
 
-function fact(icon, label, value, extra) {
-  return `<div class="st-fact"><span class="ic" aria-hidden="true">${icon}</span><div><span class="lbl">${esc(label)}</span><div class="val">${value}</div></div><div class="ex">${extra}</div></div>`;
+function fact(k, label, value, extra) {
+  return `<div class="st-fact st-fact-${k}"><span class="ic" aria-hidden="true">${icon(k, 18)}</span><div><span class="lbl">${esc(label)}</span><div class="val">${value}</div></div><div class="ex">${extra}</div></div>`;
 }
 
 function heatmapCard(listens) {
@@ -441,7 +469,7 @@ function renderLibrary() {
   const p = libraryProfile(state.records.values(), { genreOf });
   if (!p.count) {
     return `<div class="st-card st-empty">
-      <div class="st-empty-art" aria-hidden="true">${[30, 50, 64, 80, 96, 70, 40].map((v, i) => `<i style="--c:${intensityColor(v)};--h:${20 + (v / 110) * 70}%;--d:${i * 90}ms"></i>`).join("")}</div>
+      ${emptyArt("library", [30, 50, 64, 80, 96, 70, 40])}
       <h3>${t("Your library profile shows up here")}</h3>
       <p>${t("Import files or analyse a Spotify playlist: intensity levels, tempos, keys, genres and sound profile of your library appear here. Test-bench tracks and drafts are left out.")}</p>
       <p><button class="btn primary" type="button" data-st="go-library">${t("Open the Library")}</button></p>
@@ -531,7 +559,7 @@ function radar(a, b = null) {
   }).join("");
   const bars = DIMENSIONS.map((d) => `<li ${tipAttr(d.hint)}><span class="lbl"><i style="--c:${DIM_COLORS[d.key]}"></i>${esc(d.label)}</span><span class="bar"><i style="width:${Math.max(0, Math.min(100, a[d.key] ?? 0))}%;--c:${DIM_COLORS[d.key]}"></i></span><span class="n">${Math.round(a[d.key] ?? 0)}</span></li>`).join("");
   return `<div class="st-radar-wrap">
-    <svg class="st-radar" viewBox="-34 0 368 256" role="img" aria-label="${esc(t("Average sub-scores"))}">
+    <svg class="st-radar" viewBox="-34 0 368 256" width="368" height="256" role="img" aria-label="${esc(t("Average sub-scores"))}">
       ${[25, 50, 75, 100].map((v) => `<polygon class="ring" points="${ring(v)}"/>`).join("")}
       ${DIMENSIONS.map((_, i) => { const [x, y] = pt(i, 100); return `<line class="spoke" x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}"/>`; }).join("")}
       ${b ? `<polygon class="area b" points="${poly(b)}"/>` : ""}
@@ -586,7 +614,7 @@ async function renderDuel() {
         <div>
           <h3>${t("Send your profile")}</h3>
           <p class="st-muted small">${t("Exports your scores, sub-scores and measures (no audio) as a JSON file. Send it to a friend who uses the app.")}</p>
-          <button class="btn primary" type="button" data-st="export">⤓ ${t("Export my profile")}</button>
+          <button class="btn primary" type="button" data-st="export">${icon("export", 17, "ico")}${t("Export my profile")}</button>
         </div>
       </article>
       <article class="st-card st-drop" tabindex="0">
@@ -610,7 +638,7 @@ async function renderDuel() {
   if (!friend) {
     return `${setup}
       <div class="st-card st-empty st-duel-empty">
-        <div class="st-vs-art" aria-hidden="true"><span class="you">${esc(t("You"))}</span><b>VS</b><span class="them">?</span></div>
+        ${emptyArt("duel", [24, 46, 70, 92, 70, 46, 24])}
         <h3>${t("Who listens harder?")}</h3>
         <p>${t("Swap profiles with a friend: the app finds the tracks you both have, compares your scores and shows why the same song gets a different intensity on each side (capture, loudness, corrections…).")}</p>
       </div>`;
@@ -688,7 +716,7 @@ function scatter(d, friendName) {
   const dots = [...d.common].sort((a, b) => (a.key === ui.pairKey) - (b.key === ui.pairKey)).map((c) => `
     <circle class="dot${c.key === ui.pairKey ? " sel" : ""}${Math.abs(c.gap) >= 15 ? " far" : ""}" cx="${x(c.a).toFixed(1)}" cy="${y(c.b).toFixed(1)}" r="${c.key === ui.pairKey ? 6.5 : 4.5}"
       data-st="pair" data-key="${esc(c.key)}" ${tipAttr(`${c.name}\n${t("You")} ${Math.round(c.a)} · ${friendName} ${Math.round(c.b)} (${c.gap > 0 ? "+" : ""}${Math.round(c.gap)})`)}/>`).join("");
-  return `<svg class="st-scatter" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(t("Your score against your friend's, one dot per common track"))}">
+  return `<svg class="st-scatter" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(t("Your score against your friend's, one dot per common track"))}">
     ${ticks.map((v) => `<line class="grid" x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}"/><text class="ax" x="${m.l - 6}" y="${y(v) + 3.5}" text-anchor="end">${v}</text><text class="ax" x="${x(v)}" y="${H - m.b + 14}" text-anchor="middle">${v}</text>`).join("")}
     <polygon class="band" points="${bandPts}"/>
     <line class="diag" x1="${x(0)}" y1="${y(0)}" x2="${x(top)}" y2="${y(top)}"/>

@@ -1217,4 +1217,9 @@ export default {
   "Try with nothing (test bench)": "Essayer sans rien (banc d'essai)",
   "Local audio analysis": "Analyse audio locale",
   "MP3, WAV, OGG, FLAC, M4A… or a whole folder": "MP3, WAV, OGG, FLAC, M4A… ou un dossier entier",
+  "Background": "Arrière-plan",
+  "Animated": "Animé",
+  "Still": "Fixe",
+  "Off": "Désactivé",
+  "Slow coloured light behind every tab that warms up with the track you play or open. “Still” keeps the colours without movement.": "Une lumière colorée et lente derrière chaque onglet, qui se réchauffe avec le morceau que tu écoutes ou que tu ouvres. « Fixe » garde les couleurs sans mouvement.",
 };

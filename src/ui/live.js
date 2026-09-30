@@ -593,6 +593,7 @@ function loop(now) {
   const level = recording ? Math.min(1, lv.level ?? 0) : 0;
   stepGauge(lv.gauge, target, { now, level, reduced: reducedMotion.matches });
   const trackScore = cur?.final?.score ?? cur?.live?.scoring?.score ?? null;
+  document.dispatchEvent(new CustomEvent("backdrop-heat", { detail: { key: "live", score: recording ? lv.gauge.readout : null } }));
   drawGauge($("lv-gauge"), {
     gauge: lv.gauge,
     score: trackScore,
