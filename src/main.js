@@ -18,6 +18,7 @@ import { initTestlab, showTestlab } from "./ui/testlab.js";
 import { initHome, showHome } from "./ui/home.js";
 import { initGames, showGames } from "./ui/games.js";
 import { t, tn, translateDom } from "./i18n/index.js";
+import { initMotion } from "./ui/motion.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -34,10 +35,9 @@ function initImport() {
     accept(input.files);
     input.value = "";
   });
-  zone.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); }
-  });
-  // Allow dropping anywhere on the page.
+  $("import-btn").addEventListener("click", () => input.click());
+  // Allow dropping anywhere on the page: the zone is a full-window overlay
+  // shown (class "dragover") while files are dragged over the window.
   let depth = 0;
   window.addEventListener("dragenter", (e) => {
     if (!e.dataTransfer?.types.includes("Files")) return;
@@ -127,6 +127,7 @@ async function main() {
   $("version-info").textContent = `· ${t("algorithm")} v${ALGORITHM_VERSION}`;
   initImport();
   initTabs();
+  initMotion();
   initLibrary({ openDetail });
   initDetail();
   initCorrection();

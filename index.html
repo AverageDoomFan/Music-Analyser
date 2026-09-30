@@ -6,58 +6,87 @@
   <title>Music Energy Analyzer</title>
   <meta name="description" content="Analyse locale de fichiers audio et classement perceptif du plus calme au plus extrême.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M2 26h4V16H2zm6 0h4V10H8zm6 0h4V6h-4zm6 0h4V12h-4zm6 0h4V2h-4z' fill='%233987e5'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap">
   <link rel="stylesheet" href="styles.css">
   <script type="module" src="src/main.js"></script>
 </head>
 <body>
+  <svg class="sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5M4 17v2.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm7.4 5.1.1-1.6-.1-1.6 2-1.6-2-3.4-2.4.9a7.6 7.6 0 0 0-2.8-1.6L13.8 2h-3.6l-.4 2.7c-1 .3-2 .9-2.8 1.6l-2.4-.9-2 3.4 2 1.6-.1 1.6.1 1.6-2 1.6 2 3.4 2.4-.9c.8.7 1.8 1.3 2.8 1.6l.4 2.7h3.6l.4-2.7c1-.3 2-.9 2.8-1.6l2.4.9 2-3.4-2-1.6Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5v-15ZM4 20.5A2.5 2.5 0 0 0 6.5 23H20v-5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+    <symbol id="i-headphones" viewBox="0 0 24 24"><path d="M4 15v-3a8 8 0 0 1 16 0v3M4 15a2 2 0 0 1 2-2h1v7H6a2 2 0 0 1-2-2v-3Zm16 0a2 2 0 0 0-2-2h-1v7h1a2 2 0 0 0 2-2v-3Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+    <symbol id="i-flask" viewBox="0 0 24 24"><path d="M9 3h6M10 3v6L4.5 18.5A1.7 1.7 0 0 0 6 21h12a1.7 1.7 0 0 0 1.5-2.5L14 9V3M7 15h10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M7 17 17 7m0 0H9m8 0v8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  </svg>
+
   <header class="app-header">
-    <div>
-      <h1>Music Energy Analyzer</h1>
-      <p class="tagline">Perceptual ranking, from the calmest to the most extreme. 100 % local analysis: your files never leave the browser.</p>
+    <div class="topbar">
+      <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <defs><linearGradient id="brand-ramp" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#3b82f6"/><stop offset=".3" stop-color="#06b6d4"/><stop offset=".55" stop-color="#eab308"/><stop offset=".75" stop-color="#ef4444"/><stop offset=".9" stop-color="#d946ef"/><stop offset="1" stop-color="#fae8ff"/></linearGradient></defs>
+          <path d="M5.5 23.5a12 12 0 1 1 21 0" fill="none" stroke="url(#brand-ramp)" stroke-width="3" stroke-linecap="round"/>
+          <path d="M16 19.5 23.5 9" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          <circle cx="16" cy="19.5" r="2.6" fill="currentColor"/>
+        </svg>
+        <div class="brand-text">
+          <h1>Music Energy Analyzer</h1>
+          <p class="tagline">Perceptual ranking, from the calmest to the most extreme. 100 % local analysis: your files never leave the browser.</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn primary" id="import-btn" type="button" title="Import files"><svg class="ico" aria-hidden="true"><use href="#i-import"/></svg><span class="btn-label">Import</span></button>
+        <input type="file" id="file-input" accept="audio/*,.mp3,.wav,.ogg,.oga,.flac,.m4a,.aac,.opus" multiple hidden>
+        <a class="btn ghost" href="guide.html" target="_blank" rel="noopener" title="Read the guide"><svg class="ico" aria-hidden="true"><use href="#i-book"/></svg><span class="btn-label">Guide</span></a>
+        <button class="btn ghost" id="open-settings" type="button" aria-haspopup="dialog" title="Settings"><svg class="ico" aria-hidden="true"><use href="#i-gear"/></svg><span class="btn-label">Settings</span></button>
+      </div>
     </div>
-    <button class="btn ghost" id="open-settings" type="button" aria-haspopup="dialog">Settings</button>
   </header>
+  <div class="tabbar">
+      <nav class="tabs" role="tablist">
+        <button role="tab" id="tab-home" aria-selected="true" aria-controls="panel-home">Home</button>
+        <button role="tab" id="tab-library" aria-selected="false" aria-controls="panel-library">Library <span class="count" id="library-count">0</span></button>
+        <button role="tab" id="tab-spotify" aria-selected="false" aria-controls="panel-spotify">Spotify</button>
+        <button role="tab" id="tab-live" aria-selected="false" aria-controls="panel-live"><span class="live-dot" id="live-tab-dot" aria-hidden="true"></span>Live</button>
+        <button role="tab" id="tab-set" aria-selected="false" aria-controls="panel-set">Set</button>
+        <button role="tab" id="tab-progression" aria-selected="false" aria-controls="panel-progression">Progression</button>
+        <button role="tab" id="tab-games" aria-selected="false" aria-controls="panel-games">Games</button>
+        <button role="tab" id="tab-rhythm" aria-selected="false" aria-controls="panel-rhythm">Rhythm</button>
+        <button role="tab" id="tab-lab" aria-selected="false" aria-controls="panel-lab">Test bench</button>
+      </nav>
+  </div>
+
+  <div class="dropzone" id="dropzone" aria-hidden="true">
+    <div class="drop-card">
+      <svg class="drop-ico" aria-hidden="true"><use href="#i-import"/></svg>
+      <p class="drop-title"><strong>Drop your music here</strong></p>
+      <p class="muted">MP3, WAV, OGG, FLAC, M4A… or a whole folder</p>
+    </div>
+  </div>
 
   <main>
     <section class="import" aria-label="Import">
-      <div class="dropzone" id="dropzone" tabindex="0">
-        <p><strong>Drop your music here</strong> (MP3, WAV, OGG, FLAC…)</p>
-        <p class="muted">or</p>
-        <label class="btn primary">
-          Import files
-          <input type="file" id="file-input" accept="audio/*,.mp3,.wav,.ogg,.oga,.flac,.m4a,.aac,.opus" multiple hidden>
-        </label>
-      </div>
       <div class="queue" id="queue" hidden>
         <div class="queue-text" id="queue-text" role="status"></div>
         <div class="progress"><div class="progress-bar" id="queue-bar"></div></div>
       </div>
     </section>
 
-    <nav class="tabs" role="tablist">
-      <button role="tab" id="tab-home" aria-selected="true" aria-controls="panel-home">Home</button>
-      <button role="tab" id="tab-library" aria-selected="false" aria-controls="panel-library">Library <span class="count" id="library-count">0</span></button>
-      <button role="tab" id="tab-spotify" aria-selected="false" aria-controls="panel-spotify">Spotify</button>
-      <button role="tab" id="tab-live" aria-selected="false" aria-controls="panel-live"><span class="live-dot" id="live-tab-dot" aria-hidden="true"></span>Live</button>
-      <button role="tab" id="tab-set" aria-selected="false" aria-controls="panel-set">Set</button>
-      <button role="tab" id="tab-progression" aria-selected="false" aria-controls="panel-progression">Progression</button>
-      <button role="tab" id="tab-games" aria-selected="false" aria-controls="panel-games">Games</button>
-      <button role="tab" id="tab-rhythm" aria-selected="false" aria-controls="panel-rhythm">Rhythm</button>
-      <button role="tab" id="tab-lab" aria-selected="false" aria-controls="panel-lab">Test bench</button>
-      <a class="tab-link" href="guide.html" target="_blank" rel="noopener">Guide ↗</a>
-    </nav>
-
     <section id="panel-home" role="tabpanel" aria-labelledby="tab-home">
       <div class="home-hero">
-        <div>
+        <div class="home-hero-text">
+          <p class="eyebrow">Local audio analysis</p>
           <h2>Rank your music by how it feels</h2>
           <p>Every track is analysed in your browser: intensity from 0 (ambient) to 100 (paroxysmal), tempo, key, mood, structure, genre. Then sort, compare and build playlists that follow the curve you want.</p>
+          <div class="hero-scale" aria-hidden="true"><i></i><span style="--x:0">0</span><span style="--x:20">25</span><span style="--x:40">50</span><span style="--x:60">75</span><span style="--x:80">100</span><span style="--x:100">125</span></div>
         </div>
         <div class="home-actions">
-          <button class="btn primary" type="button" data-home="import">📁 Import files</button>
-          <button class="btn" type="button" data-home="tab-spotify">🎧 Start from a Spotify playlist</button>
-          <button class="btn" type="button" data-home="tab-lab">🧪 Try with nothing (test bench)</button>
-          <a class="btn ghost" href="guide.html" target="_blank" rel="noopener">📖 Read the guide</a>
+          <button class="btn primary" type="button" data-home="import"><svg class="ico" aria-hidden="true"><use href="#i-import"/></svg>Import files</button>
+          <button class="btn" type="button" data-home="tab-spotify"><svg class="ico" aria-hidden="true"><use href="#i-headphones"/></svg>Start from a Spotify playlist</button>
+          <button class="btn" type="button" data-home="tab-lab"><svg class="ico" aria-hidden="true"><use href="#i-flask"/></svg>Try with nothing (test bench)</button>
+          <a class="btn ghost" href="guide.html" target="_blank" rel="noopener"><svg class="ico" aria-hidden="true"><use href="#i-book"/></svg>Read the guide</a>
         </div>
       </div>
       <div class="home-status" id="home-status"></div>
@@ -66,7 +95,7 @@
         <div class="card home-path">
           <h4>I have my audio files</h4>
           <ol>
-            <li>Drop them (or a whole folder) in the area at the top.</li>
+            <li>Drop them (or a whole folder) anywhere on the page, or use Import.</li>
             <li><b>Library</b>: scores, curves, key, mood; open a track to see everything.</li>
             <li>Tune it to how you feel: lyrics, duels, genres, games.</li>
             <li><b>Set</b>: draw a curve, get an ordered playlist.</li>
@@ -91,15 +120,15 @@
       </div>
       <h3>The tabs</h3>
       <div class="home-features">
-        <button type="button" class="home-feature" data-home="tab-library"><b>📚 Library</b><span>All your tracks: score, curve, key, BPM, mood, genre. Sorting, filters, details, lyrics, duels, genres, playback.</span></button>
-        <button type="button" class="home-feature" data-home="tab-spotify"><b>🎧 Spotify</b><span>Import a playlist, match your files, intensity × mood map, compare two playlists, create the sorted playlist.</span></button>
-        <button type="button" class="home-feature" data-home="tab-live"><b>🔴 Live</b><span>Scan a playlist by playing it: real-time charts, whole / excerpts / adaptive modes, lyrics rating, demo mode.</span></button>
-        <button type="button" class="home-feature" data-home="tab-set"><b>📈 Set</b><span>Draw the intensity curve you want: the app picks and orders the tracks (tempo, key, timbre, constraints). Split into playlists.</span></button>
-        <button type="button" class="home-feature" data-home="tab-progression"><b>↗ Progression</b><span>The library from calmest to most intense, smoothed transitions, M3U export.</span></button>
-        <button type="button" class="home-feature" data-home="tab-games"><b>🎯 Games</b><span>A daily Spotify track to guess, guess a track's score while it plays, pick the more intense of two tracks, or hunt a score. Fix the scores you disagree with on the spot.</span></button>
-        <button type="button" class="home-feature" data-home="tab-rhythm"><b>🥁 Rhythm</b><span>Split a track into notes per instrument for a rhythm game map: KPS, difficulty, cues.</span></button>
-        <button type="button" class="home-feature" data-home="tab-lab"><b>🧪 Test bench</b><span>Checks that every measure reacts from min to max with tracks tailored for the algorithm.</span></button>
-        <button type="button" class="home-feature" data-home="settings"><b>⚙ Settings</b><span>Language, score weights, learning, genre sources, JSON backup, diagnostic and reports.</span></button>
+        <button type="button" class="home-feature" data-home="tab-library"><b>Library</b><span>All your tracks: score, curve, key, BPM, mood, genre. Sorting, filters, details, lyrics, duels, genres, playback.</span></button>
+        <button type="button" class="home-feature" data-home="tab-spotify"><b>Spotify</b><span>Import a playlist, match your files, intensity × mood map, compare two playlists, create the sorted playlist.</span></button>
+        <button type="button" class="home-feature" data-home="tab-live"><b>Live</b><span>Scan a playlist by playing it: real-time charts, whole / excerpts / adaptive modes, lyrics rating, demo mode.</span></button>
+        <button type="button" class="home-feature" data-home="tab-set"><b>Set</b><span>Draw the intensity curve you want: the app picks and orders the tracks (tempo, key, timbre, constraints). Split into playlists.</span></button>
+        <button type="button" class="home-feature" data-home="tab-progression"><b>Progression</b><span>The library from calmest to most intense, smoothed transitions, M3U export.</span></button>
+        <button type="button" class="home-feature" data-home="tab-games"><b>Games</b><span>A daily Spotify track to guess, guess a track's score while it plays, pick the more intense of two tracks, or hunt a score. Fix the scores you disagree with on the spot.</span></button>
+        <button type="button" class="home-feature" data-home="tab-rhythm"><b>Rhythm</b><span>Split a track into notes per instrument for a rhythm game map: KPS, difficulty, cues.</span></button>
+        <button type="button" class="home-feature" data-home="tab-lab"><b>Test bench</b><span>Checks that every measure reacts from min to max with tracks tailored for the algorithm.</span></button>
+        <button type="button" class="home-feature" data-home="settings"><b>Settings</b><span>Language, score weights, learning, genre sources, JSON backup, diagnostic and reports.</span></button>
       </div>
       <p class="muted small">Your files never leave your browser: only the measures are kept (IndexedDB). The score is a practical perceptual ranking tool, not a scientific measure.</p>
     </section>
@@ -332,7 +361,7 @@
         <div class="card">
           <div class="chart-title"><strong id="sp-title"></strong><span class="muted small" id="sp-summary"></span></div>
           <p class="muted small">No files? <button class="btn small primary" type="button" id="sp-go-live">Scan the playlist live</button>: the Live tab plays each track on your Spotify and analyses it in real time.</p>
-          <p class="muted small">You have the files: drop them in the import area at the top of the page, they are matched automatically (ISRC, then title / artist / length). Fix a match with the row's menu.</p>
+          <p class="muted small">You have the files: drop them anywhere on the page (or use Import), they are matched automatically (ISRC, then title / artist / length). Fix a match with the row's menu.</p>
           <div class="table-wrap">
             <table class="library sp-table">
               <thead><tr><th class="num">#</th><th>Spotify track</th><th class="num hide-sm">Length</th><th>Analysis source</th><th class="num">Score</th></tr></thead>

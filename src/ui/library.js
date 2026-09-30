@@ -11,6 +11,7 @@ import { player } from "./player.js";
 import { t, tn } from "../i18n/index.js";
 import { genreLine } from "./home.js";
 import { toast } from "./toast.js";
+import { intensityColor } from "./live-draw.js";
 
 const STATUS_LABEL = {
   pending: t("○ Not analysed"),
@@ -262,7 +263,7 @@ function rowHtml(row) {
     <td><div class="track-name">${escapeHtml(row.name)}</div><div class="track-meta">${meta.join(" · ")}</div>${r?.draft ? draftActions(r) : ""}</td>
     <td class="col-curve hide-sm" title="${r?.auto?.stats ? curveTitle(r) : ""}">${r?.auto?.curves ? sparkline(r.auto.curves.intensity) : ""}</td>
     <td class="hide-sm">${musicCell(r)}</td>
-    <td class="num"><div class="score-cell">${final != null ? `<span class="minibar" aria-hidden="true"><i style="width:${final}%"></i></span>` : ""}<b>${formatScore(final)}</b></div>${sortTag(r)}</td>
+    <td class="num"><div class="score-cell"${final != null ? ` style="--sc:${intensityColor(final)}"` : ""}>${final != null ? `<span class="minibar" aria-hidden="true"><i style="width:${final}%"></i></span>` : ""}<b>${formatScore(final)}</b></div>${sortTag(r)}</td>
     <td class="num hide-sm">${formatScore(auto)}</td>
     <td class="num hide-sm">${corr == null ? "—" : formatDelta(corr)}</td>
     <td>${statusHtml}</td>
