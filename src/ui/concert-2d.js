@@ -98,6 +98,15 @@ export function create2DRenderer(canvas) {
       ctx.lineWidth = 2;
       ctx.strokeStyle = rgb(pal.accent, 0.5 + 0.5 * f.loud, 1.4);
       ctx.stroke();
+      // kick shockwave
+      const [age, sk] = f.shock;
+      if (sk > 0 && age < 1.2) {
+        ctx.beginPath();
+        ctx.arc(0, 0, (f.ringR + age * (0.55 + 0.5 * f.heat)) * H, 0, Math.PI * 2);
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = rgb(pal.accent, Math.min(1, sk * Math.exp(-age * 3.2) * 1.4), 1.5);
+        ctx.stroke();
+      }
       ctx.setTransform(1, 0, 0, 1, 0, 0);
 
       // particles

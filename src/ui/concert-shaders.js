@@ -85,6 +85,7 @@ out vec4 o;
 uniform sampler2D u_prev, u_data;
 uniform vec2 u_res;
 uniform float u_time, u_zoom, u_rot, u_decay, u_fade, u_turb, u_heat, u_hot, u_kick, u_loud, u_ringR, u_ringH, u_idle;
+uniform vec2 u_shock; // age (s), strength of the last kick
 uniform vec3 u_base, u_accent;
 ${NOISE}
 void main() {
@@ -122,6 +123,14 @@ void main() {
   float d = abs(rad - rw) / px;
   float line = smoothstep(2.2, .4, d) + .25 * exp(-d * .18);
   col += mix(u_accent, vec3(1.), .55 + .45 * u_hot) * line * (.55 + .9 * u_loud) * (1. - u_idle * .7);
+  // kick shockwave: a thin ring racing out of the spectrum ring
+  if (u_shock.y > 0. && u_shock.x < 1.2) {
+    float sr = u_ringR + u_shock.x * (.55 + .5 * u_heat);
+    float sd = abs(rad - sr) / px;
+    float sw = (smoothstep(3., 0., sd) + .35 * exp(-sd * .08)) * u_shock.y * exp(-u_shock.x * 3.2);
+    col += mix(u_accent, vec3(1.), .5 + .5 * u_hot) * sw * 1.4;
+  }
+
   // max, not sum: trails never pile up into a white-out, whatever the frame rate
   o = vec4(max(trail, col), 1.);
 }`;

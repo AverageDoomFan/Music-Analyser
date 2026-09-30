@@ -184,12 +184,14 @@ const smooth = (a, b, x) => { const u = clamp((x - a) / (b - a)); return u * u *
  * frame rate.
  * @param {object} f  frame object to fill (reused)
  * @param {{time:number, dt:number, travel:number, kick:number, bass:number, loud:number, idle:number,
- *   flash:number, drive:object, palette:object, reduced?:boolean}} s
+ *   flash:number, drive:object, palette:object, reduced?:boolean, kickAt?:number, kickStrength?:number}} s
+ *   kickAt / kickStrength: time and strength of the last kick (shockwave)
  */
-export function visualParams(f, { time, dt, travel, kick: k, bass, loud, idle, flash, drive, palette, reduced = false }) {
+export function visualParams(f, { time, dt, travel, kick: k, bass, loud, idle, flash, drive, palette, reduced = false, kickAt = -100, kickStrength = 0 }) {
   const { heat, hot } = drive;
   const n = clamp(dt * 60, 0.25, 6); // frames of 1/60 s in this one
   const calm = reduced ? 0.35 : 1;
+  f.shake ??= [0, 0];
   const shakeAmp = reduced ? 0 : (0.004 * drive.shake + 0.012 * k * heat + 0.009 * hot) * (1 - idle);
   f.shake[0] = shakeAmp * (Math.sin(time * 53.1) * 0.6 + Math.sin(time * 31.7 + 1.3) * 0.4);
   f.shake[1] = shakeAmp * (Math.sin(time * 47.3 + 0.7) * 0.6 + Math.sin(time * 27.9) * 0.4);
@@ -215,6 +217,9 @@ export function visualParams(f, { time, dt, travel, kick: k, bass, loud, idle, f
   f.grain = 0.022 + 0.05 * drive.grit;
   f.glitch = hot > 0 ? (0.25 + 0.75 * hot * (0.4 + k)) * (reduced ? 0.25 : 1) : 0;
   f.flash = flash;
+  f.shock ??= [0, 0];
+  f.shock[0] = Math.max(0, time - kickAt);
+  f.shock[1] = kickStrength * (reduced ? 0.4 : 1) * (0.5 + 0.5 * heat) * (1 - idle);
   f.starBright = 0.2 + 0.5 * heat + 0.3 * hot;
   f.palette = palette;
   f.drive = drive;

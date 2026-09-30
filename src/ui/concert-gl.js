@@ -195,6 +195,7 @@ export function createGLRenderer(canvas) {
     gl.uniform1f(pr.u.u_rot, f.rot);
     gl.uniform1f(pr.u.u_decay, f.decay);
     gl.uniform1f(pr.u.u_fade, f.fade);
+    gl.uniform2f(pr.u.u_shock, f.shock[0], f.shock[1]);
     gl.uniform1f(pr.u.u_turb, f.drive.turbulence);
     gl.uniform1f(pr.u.u_heat, f.heat);
     gl.uniform1f(pr.u.u_hot, f.hot);

@@ -36,7 +36,7 @@ let bandMap = null;
 const V = {
   t0: 0, last: 0, time: 0, travel: 0, intensity: 8, shown: null, kick: 0, onset: 0, flash: 0,
   idle: 1, silentFor: 99, bass: 0, loud: 0, mid: 0, high: 0, wavePeak: 0.1, scale: 1,
-  frameMs: 16.7, cpu: 0, colorAt: 0, cssBase: "", cssAccent: "", slowFor: 0, fastFor: 0, frames: 0, fpsFrom: 0, fps: 0,
+  frameMs: 16.7, cpu: 0, kickAt: -100, kickStrength: 0, colorAt: 0, cssBase: "", cssAccent: "", slowFor: 0, fastFor: 0, frames: 0, fpsFrom: 0, fps: 0,
   kickSlot: 0, onsetSlot: 0, lastOnsetBurst: 0, trackId: undefined, stageLabel: "", num: "", subs: {},
   hot: false, pointerAt: 0, uiHidden: false,
 };
@@ -312,6 +312,8 @@ function tick(now) {
     if (o.kick) {
       const s = clamp(o.kickStrength * (0.6 + heat * 0.8));
       V.kick = Math.max(V.kick, s);
+      V.kickAt = V.time;
+      V.kickStrength = s;
       burst(V.kickSlot, 0, 0, s, pal.accent, 1);
       V.kickSlot = (V.kickSlot + 1) % 4;
       const want = heat > 0.55 ? o.kickStrength * (heat - 0.45) * 1.8 + hot * 0.45 : 0;
@@ -335,7 +337,7 @@ function tick(now) {
   // motion
   const k = V.kick;
   V.travel += dt * drive.speed * (1 + k * 0.9) * (reduced ? 0.5 : 1) * (1 - V.idle * 0.7);
-  visualParams(frame, { time: V.time, dt, travel: V.travel, kick: k, bass: V.bass, loud: V.loud, idle: V.idle, flash: V.flash, drive, palette: pal, reduced });
+  visualParams(frame, { kickAt: V.kickAt, kickStrength: V.kickStrength, time: V.time, dt, travel: V.travel, kick: k, bass: V.bass, loud: V.loud, idle: V.idle, flash: V.flash, drive, palette: pal, reduced });
 
   // size, with an adaptive render scale (keeps 60 fps on smaller GPUs)
   const cw = window.innerWidth, ch = window.innerHeight; // the overlay is fixed, inset 0 (no layout read)
