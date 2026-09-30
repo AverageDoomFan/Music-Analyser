@@ -645,6 +645,13 @@ export function proposeWeights() {
  *   so that the model can be refitted exactly (bigger file, no rescan needed).
  */
 export async function exportDiagnostic({ full = false } = {}) {
+  const data = await diagnosticData({ full });
+  downloadJson(data, full ? "music-analyser-diagnostic-full.json" : "music-analyser-diagnostic.json");
+  return data.count;
+}
+
+/** The diagnostic export's data (also the user's own side of the Stats tab's duel). */
+export async function diagnosticData({ full = false } = {}) {
   const r3 = (x) => (Number.isFinite(x) ? Number(x.toPrecision(3)) : null);
   const deep = (v) => (typeof v === "number" ? r3(v)
     : ArrayBuffer.isView(v) ? Array.from(v, r3)
@@ -662,6 +669,8 @@ export async function exportDiagnostic({ full = false } = {}) {
       g: genreInfo(r).label,
       sg: (r.extGenres?.genres ?? []).slice(0, 5),
       src: src.kind === "spotify" || src.kind === "test" ? `${src.kind}:${src.mode ?? "file"}:${Math.round((src.coverage ?? 1) * 100)}` : src.kind ?? "local",
+      ...(src.kind === "spotify" && src.trackId ? { sid: src.trackId } : {}),
+      ...(r.draft ? { d: 1 } : {}),
       s: r3(r.finalScore), a: r3(r.auto.score),
       u: {
         ...(r.manual ? { m: r.manual.score } : {}),
@@ -699,8 +708,7 @@ export async function exportDiagnostic({ full = false } = {}) {
     weights: state.weights, aggregation: state.aggregation, exportedAt: new Date().toISOString(),
     count: tracks.length, tracks, duels,
   };
-  downloadJson(data, full ? "music-analyser-diagnostic-full.json" : "music-analyser-diagnostic.json");
-  return tracks.length;
+  return data;
 }
 
 // ---------- reports for analysis ----------

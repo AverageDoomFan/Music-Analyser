@@ -1,11 +1,13 @@
-// Thin promise wrapper around IndexedDB. Two object stores:
+// Thin promise wrapper around IndexedDB. Three object stores:
 //   tracks   – one record per audio file (keyPath: id = content hash)
 //   settings – key/value pairs (weights, preferences)
+//   listens  – listening log of the Live follow mode (auto-increment key, index "at")
+//              added in version 2: the upgrade only creates missing stores, data is kept
 
 import { t } from "../i18n/index.js";
 
 const DB_NAME = "music-energy-analyzer";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbPromise = null;
 
@@ -20,8 +22,16 @@ function open() {
         s.createIndex("addedAt", "addedAt");
       }
       if (!db.objectStoreNames.contains("settings")) db.createObjectStore("settings", { keyPath: "key" });
+      if (!db.objectStoreNames.contains("listens")) {
+        const l = db.createObjectStore("listens", { keyPath: "id", autoIncrement: true });
+        l.createIndex("at", "at");
+      }
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      // a newer version opened in another tab: let it upgrade
+      req.result.onversionchange = () => { req.result.close(); dbPromise = null; };
+      resolve(req.result);
+    };
     req.onerror = () => reject(req.error);
     req.onblocked = () => reject(new Error(t("IndexedDB database blocked by another tab.")));
   });
@@ -49,8 +59,13 @@ export const db = {
   deleteTrack: (id) => run("tracks", "readwrite", (s) => s.delete(id)),
   getSetting: (key) => run("settings", "readonly", (s) => s.get(key)).then((r) => r?.value),
   setSetting: (key, value) => run("settings", "readwrite", (s) => s.put({ key, value })),
+  addListen: (entry) => run("listens", "readwrite", (s) => s.add(entry)),
+  getAllListens: () => run("listens", "readonly", (s) => s.getAll()),
+  putListens: (entries) => run("listens", "readwrite", (s) => { for (const e of entries) s.put(e); }),
+  clearListens: () => run("listens", "readwrite", (s) => s.clear()),
   async clearAll() {
     await run("tracks", "readwrite", (s) => s.clear());
     await run("settings", "readwrite", (s) => s.clear());
+    await run("listens", "readwrite", (s) => s.clear());
   },
 };

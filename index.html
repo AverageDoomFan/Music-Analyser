@@ -7,6 +7,7 @@
   <meta name="description" content="Analyse locale de fichiers audio et classement perceptif du plus calme au plus extrême.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M2 26h4V16H2zm6 0h4V10H8zm6 0h4V6h-4zm6 0h4V12h-4zm6 0h4V2h-4z' fill='%233987e5'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="stats.css">
   <script type="module" src="src/main.js"></script>
 </head>
 <body>
@@ -37,6 +38,7 @@
     <nav class="tabs" role="tablist">
       <button role="tab" id="tab-home" aria-selected="true" aria-controls="panel-home">Home</button>
       <button role="tab" id="tab-library" aria-selected="false" aria-controls="panel-library">Library <span class="count" id="library-count">0</span></button>
+      <button role="tab" id="tab-stats" aria-selected="false" aria-controls="panel-stats">Stats</button>
       <button role="tab" id="tab-spotify" aria-selected="false" aria-controls="panel-spotify">Spotify</button>
       <button role="tab" id="tab-live" aria-selected="false" aria-controls="panel-live"><span class="live-dot" id="live-tab-dot" aria-hidden="true"></span>Live</button>
       <button role="tab" id="tab-set" aria-selected="false" aria-controls="panel-set">Set</button>
@@ -167,6 +169,10 @@
         </table>
         <p class="empty" id="library-empty">No track yet. Import files to start.</p>
       </div>
+    </section>
+
+    <section id="panel-stats" role="tabpanel" aria-labelledby="tab-stats" hidden>
+      <div class="st" id="stats-root"></div>
     </section>
 
     <section id="panel-progression" role="tabpanel" aria-labelledby="tab-progression" hidden>
