@@ -397,6 +397,45 @@ export async function analyseTracks(tracks) {
   return tracks.map((tk) => state.records.get(ctl.capturedId(tk)) ?? null);
 }
 
+/**
+ * "Re-analyse" on a track captured from Spotify: opens the Live tab and scans
+ * only that track (Live settings, always re-analysed). Resolves with its record.
+ */
+export async function rescanRecord(record) {
+  const track = await trackOfRecord(record);
+  if (!track.durationMs) throw new Error(t("This track cannot be played through the Spotify API."));
+  $("tab-live").click();
+  const [rec] = await analyseTracks([track]);
+  return rec;
+}
+
+/** The Spotify track (scanner shape, as api.js toTrack builds it) a captured record came from. */
+async function trackOfRecord(r) {
+  const src = r.source ?? {};
+  const id = src.trackId ?? r.id.replace(/^spotify:/, "");
+  // the imported playlists keep the whole track (duration, album, covers)
+  for (const pl of await ctl.importedPlaylists().catch(() => [])) {
+    const hit = pl.tracks?.find((x) => x.id === id);
+    if (hit) return hit;
+  }
+  const artist = r.tags?.artist ?? "";
+  return {
+    id,
+    uri: src.uri ?? `spotify:track:${id}`,
+    name: r.tags?.title || r.name,
+    artists: artist ? artist.split(", ") : [],
+    artistIds: src.artistIds ?? [],
+    album: r.tags?.album || null,
+    durationMs: r.features?.duration ? Math.round(r.features.duration * 1000) : null,
+    isrc: r.tags?.isrc ?? null,
+    url: src.url ?? null,
+    isLocal: false,
+    image: src.image ?? null,
+    imageLarge: src.image ?? null,
+    addedAt: null,
+  };
+}
+
 async function startScan(first = null, only = null) {
   if (lv.status?.running) return;
   const demo = demoOn();

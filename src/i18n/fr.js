@@ -744,6 +744,8 @@ export default {
   "Playlist:": "Playlist :",
   "{n} of {total} tracks to analyse · estimated time {d}.": "{n} titre(s) à analyser sur {total} · durée estimée {d}.",
   "{n} of {total} tracks analysed with an extractor older than v{v} to analyse again · estimated time {d}.": "{n} titre(s) sur {total} analysé(s) avec un extracteur antérieur à la v{v}, à réanalyser · durée estimée {d}.",
+  "Re-analysed: {name} ({n}).": "Réanalysé : {name} ({n}).",
+  "Plays and analyses this track again in the Live tab": "Rejoue et réanalyse ce titre dans l'onglet Direct",
   "older versions only": "anciennes versions seulement",
   "No track was analysed with an older extractor version.": "Aucun titre n'a été analysé avec une ancienne version de l'extracteur.",
   "Only re-analyse tracks analysed with an older version": "Réanalyser seulement les titres analysés avec une ancienne version",
