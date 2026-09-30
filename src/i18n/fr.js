@@ -180,7 +180,7 @@ export default {
   "Nothing was captured for this track.": "Rien n'a été capté pour ce titre.",
   "Final analysis…": "Analyse finale…",
   "Captured audio is silent.": "Audio capté silencieux.",
-  "No sound captured: check that Spotify plays on this PC and that system audio sharing (or the VB-Cable input) is on.": "Aucun son capté : vérifie que Spotify joue sur ce PC et que le partage de l'audio système (ou l'entrée VB-Cable) est actif.",
+  "No sound captured: Spotify did not play this track (check that Spotify plays on this PC and that system audio sharing, or the VB-Cable input, is on).": "Aucun son capté : Spotify n'a pas lu ce morceau (vérifie que Spotify joue sur ce PC et que le partage de l'audio système, ou l'entrée VB-Cable, est actif).",
   "Playback stopped before the end of the excerpt.": "La lecture s'est arrêtée avant la fin de l'extrait.",
   "Spotify is not playing the requested track (playback changed in Spotify?).": "Spotify ne joue pas le titre demandé (lecture modifiée dans Spotify ?).",
   "Probing": "Sondage",

@@ -30,6 +30,10 @@ class Abort extends Error {
   }
 }
 
+/** Extra play commands when a track stays silent, and silent tracks in a row before the scan stops. */
+const PLAY_RETRIES = 2;
+const MAX_SILENT_TRACKS = 3;
+
 export class Scanner {
   constructor({
     player, analyze, save, isDone = () => false, scoring, onUpdate = () => {}, sampleRate = ANALYSIS.sampleRate,
@@ -184,6 +188,7 @@ export class Scanner {
     }
     this.updateEta();
     this.emit();
+    let silentRun = 0;
     try {
       for (let i = 0; i < queue.length && !this.stopRequested; i++) {
         // a track asked for with jumpTo() comes first
@@ -207,6 +212,7 @@ export class Scanner {
         try {
           const res = await this.scanTrack(q.track, opts);
           if (res) {
+            silentRun = 0;
             q.state = "done";
             q.score = res.score;
             q.coverage = res.coverage;
@@ -224,8 +230,10 @@ export class Scanner {
           } else {
             q.state = "error";
             q.message = err.message || String(err);
-            // no audio / no device: the next tracks would fail the same way
-            if (err.fatal) {
+            // no device / no rights: the next tracks would fail the same way.
+            // No sound: often one track Spotify refuses; stop only when it keeps happening.
+            silentRun = err.noSound ? silentRun + 1 : 0;
+            if (err.fatal || silentRun >= MAX_SILENT_TRACKS) {
               this.status.error = q.message;
               break;
             }
@@ -354,20 +362,32 @@ export class Scanner {
     await this.waitSilence();
     // 2. play from the excerpt position, wait for the sound
     const t0 = this.clock();
-    try {
-      await this.player.play(track.uri, Math.round(seg.pos * 1000));
-    } catch (err) {
-      err.fatal = [401, 403, 404].includes(err.status);
-      throw err;
-    }
+    const start = async () => {
+      try {
+        await this.player.play(track.uri, Math.round(seg.pos * 1000));
+      } catch (err) {
+        err.fatal = [401, 403, 404].includes(err.status);
+        throw err;
+      }
+    };
+    await start();
     let first = await this.waitSound(6);
     let trackTime = seg.pos;
+    // the Spotify client sometimes drops a load ("can't play this right now"):
+    // give it a moment and ask again before giving up on the track
+    for (let retry = 0; !first && retry < PLAY_RETRIES; retry++) {
+      const st = await this.player.state().catch(() => null);
+      if (st?.isPlaying) break;
+      await this.wait(() => undefined, 2 * (retry + 1));
+      await start();
+      first = await this.waitSound(6);
+    }
     if (!first) {
       // silent passage (or long intro): align with the player's own position
       const st = await this.player.state().catch(() => null);
       if (!st?.isPlaying) {
-        const e = new Error(t("No sound captured: check that Spotify plays on this PC and that system audio sharing (or the VB-Cable input) is on."));
-        e.fatal = true;
+        const e = new Error(t("No sound captured: Spotify did not play this track (check that Spotify plays on this PC and that system audio sharing, or the VB-Cable input, is on)."));
+        e.noSound = true;
         throw e;
       }
       trackTime = st.progressMs / 1000;
