@@ -154,10 +154,10 @@ export const SCORE_MAX = 150;
  * 2.4: points added for fast regular attacks (extractor 1.8 attack rate, hits/s),
  * as [hits per second, points]. Nearly nothing for a beat on the kick (2-4/s),
  * a few points for speedcore (5-10/s), a lot for blast beats and extratone
- * (13-24/s). Scaled by how regular and how lasting the pulse is in the window,
+ * (13-70/s). Scaled by how regular and how lasting the pulse is in the window,
  * and faded in with the intensity (50 → 85): a calm track never gains.
  */
-export const ATTACK_POINTS = [[3, 0], [5, 5], [8, 12], [12, 25], [16, 45], [24, 65]];
+export const ATTACK_POINTS = [[3, 0], [5, 5], [8, 12], [12, 25], [16, 45], [24, 65], [48, 80]];
 
 /**
  * How the user's rating of a song's lyrics shifts its perceived intensity and

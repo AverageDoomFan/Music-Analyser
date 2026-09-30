@@ -1,5 +1,5 @@
 // Attack rate (extractor 1.8): the fastest regular train of hits, from 2 to
-// 24 per second (120 to 1450 BPM), measured on the waveform itself.
+// 70 per second (120 to 4200 BPM), measured on the waveform itself.
 //
 // The frame pass runs at ~86 frames/s: it cannot resolve attacks closer than
 // ~25 ms. Here the envelopes of two bands (200–1500 Hz and 2–12 kHz) are
@@ -7,17 +7,17 @@
 // bands at once (a broadband click), a hi-hat or a pad moves only one: a
 // period counts only if both bands share it. The fastest shared period that
 // is nearly as regular as the best one gives the rate (kicks on the beat:
-// 2/s; speedcore: 5-10/s; blast beats: 13+/s; extratone: 16+/s).
+// 2/s; speedcore: 5-10/s; blast beats: 13+/s; extratone: 16-70/s).
 //
-// Faster than 24/s, a kick train is physically a pitched tone (49 kicks/s is
-// a G1): it cannot be told from a distorted bass note, so it is not counted.
-// A tone also correlates at every multiple of its period (a low power chord
-// every 25-35 ms): a lag counts only if its fractions correlate much less.
+// Known limit: from ~20 hits/s up, a kick train is also a pitched tone, and a
+// sustained low note (a distorted bass or guitar at 30-70 Hz) reads the same
+// way. A lag counts only if its fractions correlate much less, so a tone is
+// counted once, at its own period.
 
 import { FFT } from "./fft.js";
 
 const ENV_RATE = 2000;
-const LAG_MIN_S = 0.042, LAG_MAX_S = 0.5;
+const LAG_MIN_S = 0.014, LAG_MAX_S = 0.5;
 const NEAR_BEST = 0.6;
 const BLOCK_S = 3, BLOCK_HOP_S = 1.5;
 const MIN_R = 0.18;
