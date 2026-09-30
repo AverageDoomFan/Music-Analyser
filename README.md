@@ -24,7 +24,7 @@ The **Home** tab shows the possible paths and the state of the app. The detailed
 3. Choose how the intensity curve becomes a score (mean of peaks, mean, median, peak, perceptual) and sort by score, curve statistic (start, end, variability…), mood, BPM, key, genre, name or date.
 4. Open a track to follow its **curves over time** (intensity, sub-scores, BPM, relative level, distortion, kick speed…) and see **why** it has its score. ▶ plays it: local files of the session in the browser, Spotify captures on your Spotify app.
 5. “The score is off” → a few targeted questions, old / new score preview, accept or cancel. Or set a manual score.
-6. **Games** → guess a track's score while it plays, or pick the more intense of two tracks (> < =), and fix the scores you disagree with.
+6. **Games** → a daily Spotify track to guess (the same for everyone, analysed live while you guess), guess a track's score on the speed dial, pick the more intense of two tracks (> < =), or hunt a drawn score on Spotify; fix the scores you disagree with.
 7. **Lyrics** (library, track details or directly in the Live tab), **Duels** and **Genres** → tune the perception to how you feel.
 8. **Progression** → “Build a progression”, M3U / text export. **Set** → draw the intensity curve you want; the app picks and orders the tracks.
 9. **⚑ Report for analysis** (track details) → saves everything about a track, with your comment and expected score, to send for a closer look at the model.

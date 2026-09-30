@@ -96,7 +96,7 @@
         <button type="button" class="home-feature" data-home="tab-live"><b>🔴 Live</b><span>Scan a playlist by playing it: real-time charts, whole / excerpts / adaptive modes, lyrics rating, demo mode.</span></button>
         <button type="button" class="home-feature" data-home="tab-set"><b>📈 Set</b><span>Draw the intensity curve you want: the app picks and orders the tracks (tempo, key, timbre, constraints). Split into playlists.</span></button>
         <button type="button" class="home-feature" data-home="tab-progression"><b>↗ Progression</b><span>The library from calmest to most intense, smoothed transitions, M3U export.</span></button>
-        <button type="button" class="home-feature" data-home="tab-games"><b>🎯 Games</b><span>Guess a track's score while it plays, or pick the more intense of two tracks. Fix the scores you disagree with on the spot.</span></button>
+        <button type="button" class="home-feature" data-home="tab-games"><b>🎯 Games</b><span>A daily Spotify track to guess, guess a track's score while it plays, pick the more intense of two tracks, or hunt a score. Fix the scores you disagree with on the spot.</span></button>
         <button type="button" class="home-feature" data-home="tab-rhythm"><b>🥁 Rhythm</b><span>Split a track into notes per instrument for a rhythm game map: KPS, difficulty, cues.</span></button>
         <button type="button" class="home-feature" data-home="tab-lab"><b>🧪 Test bench</b><span>Checks that every measure reacts from min to max with tracks tailored for the algorithm.</span></button>
         <button type="button" class="home-feature" data-home="settings"><b>⚙ Settings</b><span>Language, score weights, learning, lyrics lookup, JSON backup, diagnostic and reports.</span></button>
@@ -376,19 +376,41 @@
       </div>
     </section>
     <section id="panel-games" role="tabpanel" aria-labelledby="tab-games" hidden>
-      <div class="card gm-head">
-        <div class="seg" role="group" aria-label="Game">
-          <button type="button" class="chip-btn" data-gm="mode" data-mode="trivia" aria-pressed="true">🎯 Guess the score</button>
-          <button type="button" class="chip-btn" data-gm="mode" data-mode="compare" aria-pressed="false">⚖ Compare &gt; &lt; =</button>
-          <button type="button" class="chip-btn" data-gm="mode" data-mode="hunt" aria-pressed="false">🔎 Find this score</button>
-        </div>
-        <label class="inline small"><input type="checkbox" id="gm-playable" checked> Only tracks playable here</label>
-        <label class="inline small" id="gm-trivia-opts"><input type="checkbox" id="gm-hide-title"> Hide the title until the reveal</label>
-        <label class="inline small" id="gm-duel-opts" hidden><input type="checkbox" id="gm-save-duels" checked> Save my answers as duels</label>
-        <p class="muted small" id="gm-pool"></p>
+      <div class="gm-picker" role="group" aria-label="Game">
+        <button type="button" class="gm-pick" data-gm="mode" data-mode="daily" aria-pressed="true" style="--gc: 217, 70, 239">
+          <span class="gm-pick-ico" aria-hidden="true">📅</span>
+          <span class="gm-pick-text"><b>Daily track</b><span>One Spotify track a day, the same for everyone.</span></span>
+          <span class="gm-pick-badge" id="gm-badge-daily"></span>
+        </button>
+        <button type="button" class="gm-pick" data-gm="mode" data-mode="trivia" aria-pressed="false" style="--gc: 249, 115, 22">
+          <span class="gm-pick-ico" aria-hidden="true">🎯</span>
+          <span class="gm-pick-text"><b>Guess the score</b><span>A track of your library plays: guess its intensity.</span></span>
+          <span class="gm-pick-badge" id="gm-badge-trivia"></span>
+        </button>
+        <button type="button" class="gm-pick" data-gm="mode" data-mode="compare" aria-pressed="false" style="--gc: 6, 182, 212">
+          <span class="gm-pick-ico" aria-hidden="true">⚖</span>
+          <span class="gm-pick-text"><b>Which hits harder?</b><span>Two tracks, pick the more intense one.</span></span>
+          <span class="gm-pick-badge" id="gm-badge-compare"></span>
+        </button>
+        <button type="button" class="gm-pick" data-gm="mode" data-mode="hunt" aria-pressed="false" style="--gc: 34, 197, 94">
+          <span class="gm-pick-ico" aria-hidden="true">🔎</span>
+          <span class="gm-pick-text"><b>Find this score</b><span>Find a Spotify track that hits a drawn score.</span></span>
+          <span class="gm-pick-badge" id="gm-badge-hunt"></span>
+        </button>
       </div>
-      <div class="card gm-stage" id="gm-stage"></div>
-      <p class="muted small" id="gm-stats"></p>
+      <div class="gm-arena">
+        <div class="gm-hud" id="gm-stats"></div>
+        <div class="gm-stage" id="gm-stage"></div>
+        <div class="gm-foot">
+          <div class="gm-opts">
+            <label class="inline small"><input type="checkbox" id="gm-playable" checked> Only tracks playable here</label>
+            <label class="inline small" id="gm-trivia-opts"><input type="checkbox" id="gm-hide-title"> Hide the title until the reveal</label>
+            <label class="inline small" id="gm-duel-opts" hidden><input type="checkbox" id="gm-save-duels" checked> Save my answers as duels</label>
+            <span class="muted small" id="gm-pool"></span>
+          </div>
+          <div class="gm-keys small" id="gm-keys"></div>
+        </div>
+      </div>
     </section>
 
     <section id="panel-lab" role="tabpanel" aria-labelledby="tab-lab" hidden>
