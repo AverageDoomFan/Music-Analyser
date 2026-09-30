@@ -453,6 +453,8 @@ export class Scanner {
   async liveWindow(cur, out, a, b) {
     const live = cur.live;
     const copy = out.data.slice(a, b);
+    // mean level of the window (the gauge compares the latest level with it)
+    const levelDb = 20 * Math.log10(rms(copy, 0, copy.length) + 1e-9);
     const ref = cur.meter.reference();
     const extra = ref.integrated > -70 && cur.meter.blocks.length > 30
       ? { referenceLoudness: ref, gainDb: Math.max(-30, Math.min(50, ANALYSIS.referenceLufs - ref.integrated)) }
@@ -484,6 +486,7 @@ export class Scanner {
       intensity: sc.curves.intensity[i],
       subscores: Object.fromEntries(Object.entries(sc.curves.subscores).map(([d, v]) => [d, v[i]])),
       features: f,
+      levelDb,
     };
     live.windowCount++;
     this.emit();

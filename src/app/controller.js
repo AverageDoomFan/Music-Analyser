@@ -10,9 +10,10 @@ import { analyzeAudio } from "../audio/analyzer.js";
 import { readTags } from "../util/tags.js";
 import {
   createRecord, applyFeatures, rescore, commitCorrection, clearCorrection, setManualScore,
-  setLyricsRating, setVocals,
+  setLyricsRating, setVocals, isDraft,
 } from "../core/track.js";
-import { lookupLyrics } from "../util/lyrics.js";
+import { lookupTrackGenres } from "../util/musicbrainz.js";
+import { lastfmGenres } from "../util/lastfm.js";
 import { parseFileName } from "../util/tags.js";
 import { fingerprints, similarTo } from "../scoring/similarity.js";
 import { genrePath, normalizeGenre, genreVector, suggestGenres, SEP } from "../scoring/genres.js";
@@ -44,7 +45,6 @@ export async function init() {
   }
   if (changed.length) await db.putTracks(changed);
   notify();
-  lookupMissingLyrics();
   return { count: records.length, rescored: changed.length };
 }
 
@@ -175,7 +175,7 @@ async function ingest({ identity, meta, sourceDesc, job, force, analyze }) {
     if (features.sourceLoudnessLufs <= -69) throw new Error(t("Silent audio: nothing to analyse."));
     applyFeatures(record, features, scoring());
     await db.putTrack(record);
-    lookupMissingLyrics();
+    scheduleGenreFetch();
   } catch (err) {
     console.error(err);
     state.queue.errors++;
@@ -271,49 +271,6 @@ function trackMeta(r) {
   };
 }
 
-export const lyricsLookupEnabled = () => db.getSetting("lyricsLookup").then((v) => !!v).catch(() => false);
-export async function setLyricsLookup(on) {
-  await db.setSetting("lyricsLookup", !!on);
-  if (on) lookupMissingLyrics();
-}
-
-/** LRCLIB lookup for one record (sends artist / title only). */
-export async function lookupLyricsFor(id) {
-  const r = state.records.get(id);
-  if (!r) return null;
-  const meta = trackMeta(r);
-  const res = await lookupLyrics(meta);
-  r.lyricsHint = { ...res, at: Date.now() };
-  // the database only decides when the user has not
-  if (res.found && r.vocals?.source !== "user") {
-    r.vocals = { state: res.instrumental ? "instrumental" : "vocal", source: "lrclib", at: Date.now() };
-  }
-  await save(r);
-  return res;
-}
-
-let lookupRunning = false;
-/** Background lookups for records never looked up (when enabled), one every 600 ms. */
-export async function lookupMissingLyrics() {
-  if (lookupRunning || !(await lyricsLookupEnabled())) return;
-  lookupRunning = true;
-  try {
-    for (const r of [...state.records.values()]) {
-      if (r.lyricsHint || !r.auto || r.vocals?.source === "user") continue;
-      if (!trackMeta(r).artist) continue;
-      try {
-        await lookupLyricsFor(r.id);
-      } catch (err) {
-        console.warn("LRCLIB", err);
-        break; // network / CORS problem: stop, retry on next start
-      }
-      await new Promise((res) => setTimeout(res, 600));
-    }
-  } finally {
-    lookupRunning = false;
-  }
-}
-
 /** Sung tracks without a lyrics rating (to ask the user). */
 export function lyricsToRate() {
   return [...state.records.values()].filter((r) => r.auto && r.vocals?.state === "vocal" && !r.lyrics && !r.manual);
@@ -348,7 +305,7 @@ const windowsOf = (r) => {
  */
 export async function nextDuel() {
   const done = new Set((await getComparisons()).map((c) => [c.a, c.b].sort().join("|")));
-  const rs = [...state.records.values()].filter((r) => r.auto?.curves && r.finalScore != null);
+  const rs = [...state.records.values()].filter((r) => r.auto?.curves && r.finalScore != null && !isDraft(r));
   if (rs.length < 2) return null;
   const fps = libraryFingerprints();
   let best = null;
@@ -401,7 +358,7 @@ export async function setGenre(id, label) {
 export function allGenres() {
   const count = new Map();
   for (const r of state.records.values()) {
-    const g = r.genre?.label ?? spotifyMain(r);
+    const g = r.genre?.label ?? externalMain(r);
     if (!g) continue;
     const path = genrePath(g);
     for (let i = 1; i <= path.length; i++) {
@@ -424,7 +381,7 @@ function genreSuggestions() {
     if (v) vecs.set(r.id, v);
   }
   const labelled = [...state.records.values()]
-    .map((r) => ({ id: r.id, label: r.genre?.label ?? spotifyMain(r), vec: vecs.get(r.id) }))
+    .map((r) => ({ id: r.id, label: r.genre?.label ?? externalMain(r), vec: vecs.get(r.id) }))
     .filter((l) => l.label && l.vec);
   const map = new Map();
   for (const [id, v] of vecs) {
@@ -446,93 +403,161 @@ export function genreInfo(r) {
   const suggestions = spotify.length ? [] : genreSuggestions().get(r.id) ?? [];
   const base = { suggestions, spotify };
   if (r.genre?.label) return { ...base, label: r.genre.label, source: "user", confidence: 1 };
-  const sp = spotifyMain(r);
+  const sp = externalMain(r);
   if (sp) return { ...base, label: sp, source: r.extGenres.source ?? "spotify", confidence: 0.9 };
   if (suggestions[0] && suggestions[0].confidence >= 0.45) return { ...base, label: suggestions[0].label, source: "neighbours", confidence: suggestions[0].confidence };
   return { ...base, label: null, source: null, confidence: 0 };
 }
 
-/** Main hierarchical label from the track's Spotify artist genres. */
-function spotifyMain(r) {
-  return r.extGenres?.genres?.length ? mainGenre(r.extGenres.genres) : null;
+/** Main hierarchical label from the track's external genres (MusicBrainz, Last.fm, or older Spotify ones). */
+function externalMain(r) {
+  return r.extGenres?.genres?.length ? mainGenre(r.extGenres.genres, r.extGenres.weights) : null;
 }
 
-// ---------- Spotify artist genres ----------
+// ---------- external genres: MusicBrainz, optional Last.fm ----------
+// Spotify's artist genres are empty for apps created after November 2024, so
+// genres come from MusicBrainz (no key, 1 request / s), and optionally from
+// Last.fm with the user's own key when MusicBrainz knows nothing. Results are
+// cached per track (and per artist / album) for 30 days.
 
-const artistCache = () => spotifyStore.get("artistGenres").then((c) => c ?? {}).catch(() => ({}));
+const MONTH = 30 * 24 * 3600e3;
+const setting = (key, fallback) => db.getSetting(key).then((v) => v ?? fallback).catch(() => fallback);
 
-/** Genres of the track's artists (primary artist first), from the cache. */
-function genresFor(artistIds, cache) {
-  const out = [];
-  for (const id of artistIds ?? []) for (const g of cache[id]?.genres ?? []) if (!out.includes(g)) out.push(g);
-  return out;
+/** { auto: look up new tracks in the background, lastfmKey: optional Last.fm API key }. */
+export async function genreSettings() {
+  return { auto: await setting("genreAuto", true), lastfmKey: await setting("lastfmKey", "") };
+}
+export async function setGenreSettings({ auto, lastfmKey } = {}) {
+  if (auto != null) await db.setSetting("genreAuto", !!auto);
+  if (lastfmKey != null) await db.setSetting("lastfmKey", String(lastfmKey).trim());
+  if (auto || lastfmKey) scheduleGenreFetch(0);
 }
 
-/**
- * Fetches the artist genres of every imported playlist and of every captured
- * track, and attaches them to the records (captured tracks and associated files).
- * @returns {Promise<{tracks:number, artists:number, fieldMissing:boolean}>}
- */
-export async function fetchSpotifyGenres(onProgress = () => {}) {
-  const api = await import("../spotify/api.js");
-  const playlists = await importedPlaylists();
-  // playlists imported before artist ids were kept: read them again
-  for (const pl of playlists) {
-    if (pl.tracks.some((t) => !t.isLocal && !t.artistIds)) {
-      pl.tracks = await api.playlistTracks(pl.id);
-      await rememberPlaylist(pl);
-      const cur = await spotifyStore.get("playlist").catch(() => null);
-      if (cur?.id === pl.id) await spotifyStore.set("playlist", pl);
-    }
-  }
+/** For every record, what a lookup can send: ISRC, artist, title, length (file tags, else the matched Spotify track). */
+async function lookupMetas() {
   const records = [...state.records.values()];
-  const captured = records.filter((r) => r.source?.kind === "spotify" && r.source.artistIds?.length);
-  const cache = await artistCache();
-  const month = 30 * 24 * 3600e3;
-  const ids = [...new Set([
-    ...playlists.flatMap((pl) => pl.tracks.flatMap((t) => t.artistIds ?? [])),
-    ...captured.flatMap((r) => r.source.artistIds),
-  ])];
-  const todo = ids.filter((id) => !cache[id] || Date.now() - cache[id].at > month);
-  let fieldMissing = false;
-  if (todo.length) {
-    const res = await api.artistGenres(todo, onProgress);
-    fieldMissing = res.fieldMissing;
-    for (const [id, genres] of res.genres) cache[id] = { genres, at: Date.now() };
-    await spotifyStore.set("artistGenres", cache);
-  }
-  // attach to records: the capture itself, and the file matched to each playlist track
+  const playlists = await importedPlaylists().catch(() => []);
   const manual = (await spotifyStore.get("matches").catch(() => null)) ?? {};
-  const changed = new Set();
-  const attach = (r, artistIds) => {
-    const genres = genresFor(artistIds, cache);
-    if (!r || !genres.length || r.extGenres?.source === "user") return;
-    r.extGenres = { source: "spotify", genres, artists: artistIds, at: Date.now() };
-    changed.add(r);
-  };
-  for (const r of captured) attach(r, r.source.artistIds);
+  const fromSpotify = new Map();
   for (const pl of playlists) {
     const m = matchPlaylist(pl.tracks, records, manual);
-    for (const t of pl.tracks) {
-      attach(state.records.get(m.get(t.id)?.recordId), t.artistIds);
-      attach(state.records.get(capturedId(t)), t.artistIds);
+    for (const tr of pl.tracks) {
+      const id = m.get(tr.id)?.recordId;
+      if (id && !fromSpotify.has(id)) fromSpotify.set(id, tr);
     }
   }
-  if (changed.size) await db.putTracks([...changed]);
-  const withGenres = records.filter((r) => r.extGenres?.genres?.length).length;
-  await spotifyStore.set("genresRun", { at: Date.now(), tracks: changed.size, artists: ids.length, fieldMissing, withGenres });
-  genreCache.key = "";
-  notify();
-  return { tracks: changed.size, artists: ids.length, fieldMissing };
+  return (r) => {
+    const sp = fromSpotify.get(r.id);
+    const base = trackMeta(r);
+    return {
+      isrc: r.tags?.isrc || sp?.isrc || null,
+      artist: r.tags?.artist || sp?.artists?.join(", ") || base.artist,
+      title: r.tags?.title || sp?.name || base.title,
+      durationSec: r.duration ?? (sp?.durationMs ? sp.durationMs / 1000 : null),
+    };
+  };
 }
 
-/** Automatic genre fetch at startup: once a day, or when tracks still lack genres. */
-export async function autoFetchGenres() {
-  const run = await spotifyStore.get("genresRun").catch(() => null);
-  const missing = [...state.records.values()].some((r) => r.auto && !r.extGenres?.genres?.length && r.source?.kind === "spotify");
-  if (run && Date.now() - run.at < 24 * 3600e3 && !(missing && !run.fieldMissing && Date.now() - run.at > 3600e3)) return null;
-  return fetchSpotifyGenres();
+const trackKey = (m) => (m.isrc ? `isrc:${m.isrc.toUpperCase()}` : `at:${m.artist.toLowerCase()}|${m.title.toLowerCase()}`);
+
+/** Puts a lookup result on a record. true when something changed. */
+function applyExternalGenres(r, hit) {
+  let changed = false;
+  if (hit.genres?.length && r.extGenres?.source !== "user") {
+    r.extGenres = { source: hit.source, genres: hit.genres, weights: hit.weights ?? null, mbid: hit.mbid ?? null, at: Date.now() };
+    changed = true;
+  }
+  // "instrumental" tag on the recording or its album: the user's answer always wins
+  if (hit.instrumental && r.vocals?.source !== "user" && r.vocals?.state !== "instrumental") {
+    setVocals(r, "instrumental", "musicbrainz");
+    changed = true;
+  }
+  return changed;
 }
+
+let genreJob = null;
+
+/**
+ * Looks up the genres of analysed records: those without genres, or all of
+ * them with `force` (the "Refresh genres" button). One run at a time; a
+ * second call returns the running one.
+ * @returns {Promise<{total:number, found:number, errors:number}>}
+ */
+export function fetchGenres({ force = false } = {}) {
+  if (genreJob) return genreJob.promise;
+  const job = { done: 0, total: 0, found: 0 };
+  genreJob = job;
+  job.promise = runGenreFetch(job, force).finally(() => { genreJob = null; genreCache.key = ""; notify(); });
+  return job.promise;
+}
+
+async function runGenreFetch(job, force) {
+  const { lastfmKey } = await genreSettings();
+  const metaOf = await lookupMetas();
+  const cache = {
+    tracks: await setting("mbTracks", {}),
+    artists: await setting("mbArtists", {}),
+    releaseGroups: await setting("mbReleaseGroups", {}),
+  };
+  const persist = () => Promise.all([
+    db.setSetting("mbTracks", cache.tracks), db.setSetting("mbArtists", cache.artists), db.setSetting("mbReleaseGroups", cache.releaseGroups),
+  ]).catch(() => {});
+  const items = [...state.records.values()]
+    .filter((r) => r.auto && (force || !r.extGenres?.genres?.length))
+    .map((r) => ({ r, meta: metaOf(r) }))
+    .filter(({ meta }) => meta.isrc || (meta.artist && meta.title));
+  job.total = items.length;
+  notify();
+  let errors = 0, failures = 0;
+  const changed = [];
+  for (const { r, meta } of items) {
+    const key = trackKey(meta);
+    let hit = cache.tracks[key];
+    try {
+      if (force || !hit || Date.now() - hit.at > MONTH) {
+        hit = { ...(await lookupTrackGenres(meta, cache)), source: "musicbrainz", at: Date.now() };
+      }
+      if (!hit.genres.length && lastfmKey && !hit.lastfmAt) {
+        const lf = await lastfmGenres(meta, lastfmKey);
+        hit = { ...hit, lastfmAt: Date.now(), ...(lf.found ? { genres: lf.genres, weights: lf.weights, source: "lastfm" } : {}) };
+      }
+      cache.tracks[key] = hit;
+      failures = 0;
+    } catch (err) {
+      console.warn("genre lookup", err);
+      errors++;
+      hit = null;
+      if (++failures >= 3) break; // offline or blocked: stop, retry on next start
+    }
+    if (hit?.genres?.length) job.found++;
+    if (hit && applyExternalGenres(r, hit)) changed.push(r);
+    job.done++;
+    if (job.done % 5 === 0) {
+      if (changed.length) await db.putTracks(changed.splice(0));
+      await persist();
+      genreCache.key = "";
+      notify();
+    }
+  }
+  if (changed.length) await db.putTracks(changed);
+  await persist();
+  const run = { at: Date.now(), total: job.total, done: job.done, found: job.found, errors };
+  await db.setSetting("genreRun", run).catch(() => {});
+  return run;
+}
+
+let genreTimer = null;
+/** Background lookup of the records still without genres (when enabled), a few seconds after the last change. */
+export function scheduleGenreFetch(delay = 4000) {
+  clearTimeout(genreTimer);
+  genreTimer = setTimeout(async () => {
+    if (!(await genreSettings()).auto) return;
+    fetchGenres().catch((err) => console.warn("genre lookup", err));
+  }, delay);
+}
+
+/** At startup: looks up the records without genres (tracks already tried are skipped for 30 days). */
+export const autoFetchGenres = () => scheduleGenreFetch(1500);
 
 /** Where the genres come from, for the status lines of the library / home / Spotify tab. */
 export async function genreStatus() {
@@ -542,57 +567,12 @@ export async function genreStatus() {
     analysed: analysed.length,
     spotify: count("spotify"),
     musicbrainz: count("musicbrainz"),
+    lastfm: count("lastfm"),
     user: analysed.filter((r) => r.genre?.label).length,
     labelled: analysed.filter((r) => genreInfo(r).label).length,
-    run: await spotifyStore.get("genresRun").catch(() => null),
+    job: genreJob ? { done: genreJob.done, total: genreJob.total } : null,
+    run: await db.getSetting("genreRun").catch(() => null),
   };
-}
-
-/**
- * Fallback when Spotify gives no genres: artist tags from MusicBrainz, an
- * open music database. Only the artist name is sent; one request per second
- * (their rate limit); results cached. Never overrides Spotify genres.
- */
-export async function fetchMusicBrainzGenres(onProgress = () => {}) {
-  const cache = (await db.getSetting("mbArtistTags").catch(() => null)) ?? {};
-  const artistOf = (r) => (r.tags?.artist || trackMeta(r).artist || "").split(/,\s*|\s+feat\.?\s+|\s+&\s+/i)[0].trim();
-  const targets = [...state.records.values()].filter((r) => r.auto && !r.extGenres?.genres?.length && artistOf(r));
-  const names = [...new Set(targets.map((r) => artistOf(r).toLowerCase()))].filter((n) => !cache[n]);
-  let done = 0;
-  for (const name of names) {
-    onProgress(done, names.length);
-    try {
-      const url = `https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(`artist:"${name}"`)}&limit=1&fmt=json`;
-      const res = await fetch(url, { headers: { Accept: "application/json" } });
-      if (res.status === 503) { await new Promise((r) => setTimeout(r, 3000)); continue; }
-      const data = await res.json();
-      const a = data.artists?.[0];
-      const tags = a && a.score >= 90 ? (a.tags ?? []).filter((x) => x.count > 0).sort((x, y) => y.count - x.count).slice(0, 6).map((x) => x.name) : [];
-      cache[name] = { tags, at: Date.now() };
-    } catch {
-      cache[name] = { tags: [], at: Date.now(), error: true };
-    }
-    done++;
-    if (done % 10 === 0) await db.setSetting("mbArtistTags", cache);
-    await new Promise((r) => setTimeout(r, 1100));
-  }
-  await db.setSetting("mbArtistTags", cache);
-  const changed = [];
-  for (const r of targets) {
-    const tags = cache[artistOf(r).toLowerCase()]?.tags ?? [];
-    if (!tags.length) continue;
-    r.extGenres = { source: "musicbrainz", genres: tags, artists: [artistOf(r)], at: Date.now() };
-    changed.push(r);
-  }
-  if (changed.length) await db.putTracks(changed);
-  genreCache.key = "";
-  notify();
-  return { tracks: changed.length, artists: names.length };
-}
-
-async function attachCachedGenres(record, artistIds) {
-  const genres = genresFor(artistIds, await artistCache());
-  if (genres.length) record.extGenres = { source: "spotify", genres, artists: artistIds, at: Date.now() };
 }
 
 /** Stores a track's rhythm map (lanes, notes, parameters, selection). */
@@ -701,6 +681,7 @@ export async function exportDiagnostic({ full = false } = {}) {
         hi: r3(f.highRatio), sil: r3(f.silenceRatio), dur: Math.round(f.duration ?? 0), an: Math.round(f.analyzedSeconds ?? 0),
         mfl: db10(f.midFlatnessMedian), pr: r3(f.pulseRate), ps: r3(f.pulseStrength),
         ctr: r3(f.spectralContrast), ent: r3(f.spectralEntropy), dis: r3(f.dissonance), fk: r3(f.fastKickRatio),
+        xs: r3(f.fastPulseShare), xr: r3(f.fastPulseRate), xst: r3(f.fastPulseStrength),
       },
       v: r3(r.valence), k: r.auto.music?.key?.name ?? null,
       ...(full ? {
@@ -814,7 +795,7 @@ export async function clearAllData() {
 
 /** Progression input for one analysed record (null if not analysed). */
 function progressionItem(r) {
-  if (r?.finalScore == null || !r.auto) return null;
+  if (r?.finalScore == null || !r.auto || isDraft(r)) return null;
   // a correction shifts the whole curve: apply the same offset to its start / end
   const offset = r.finalScore - r.auto.score;
   const stats = r.auto.stats ?? {};
@@ -885,23 +866,34 @@ export async function saveCaptured(track, features, info) {
     trackId: track.id, uri: track.uri, url: track.url ?? null, image: track.image ?? null,
     mode: info.mode, coverage: info.coverage, excerpts: info.excerpts, probes: info.probes, capturedAt: Date.now(),
   };
+  // Live "follow" capture heard too little: a draft until the user validates it
+  record.draft = !!info.draft;
   if (track.demo) record.name = `${t("Demo")} · ${track.name}`;
-  if (track.artistIds?.length) {
-    record.source.artistIds = track.artistIds;
-    await attachCachedGenres(record, track.artistIds);
-  }
+  if (track.artistIds?.length) record.source.artistIds = track.artistIds;
   record.tags = { title: track.name, artist: track.artists?.join(", ") ?? "", album: track.album ?? "", isrc: track.isrc ?? null, source: "spotify" };
   state.records.set(id, record);
   applyFeatures(record, features, scoring());
   await save(record);
+  scheduleGenreFetch();
   return record;
 }
 
-/** Captured record of a track, if it is analysed with the current extractor. */
-export function capturedRecord(track) {
+/** Captured record of a track, if it is analysed with the current extractor (drafts included when asked). */
+export function capturedRecord(track, { drafts = false } = {}) {
   const r = state.records.get(capturedId(track));
-  return r?.features && r.featureVersion === FEATURE_VERSION ? r : null;
+  return r?.features && r.featureVersion === FEATURE_VERSION && (drafts || !isDraft(r)) ? r : null;
 }
+
+/** A draft becomes a normal record (it now counts in stats and games). */
+export async function validateDraft(id) {
+  const r = state.records.get(id);
+  if (!r?.draft) return;
+  r.draft = false;
+  r.updatedAt = Date.now();
+  await save(r);
+}
+
+export const draftCount = () => [...state.records.values()].filter(isDraft).length;
 
 // ---------- Spotify (stored locally, cleared on disconnect) ----------
 

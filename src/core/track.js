@@ -11,10 +11,11 @@
 //   correction: null | { answers, overrides, deltas, previousScore, modelScore, score,
 //                         algorithmVersion, createdAt },
 //   manual: null | { score, createdAt },
-//   vocals: null | { state: "vocal" | "instrumental", source: "user" | "lrclib", at },
+//   vocals: null | { state: "vocal" | "instrumental", source: "user" | "musicbrainz" | "lrclib" (older), at },
 //   lyrics: null | { mood, strength (1..3), at },            // user's rating of the lyrics
-//   lyricsHint: null | { found, instrumental, suggestion, at }, // LRCLIB lookup (text never stored)
+//   extGenres: null | { source: "musicbrainz" | "lastfm" | "spotify" (older), genres, weights, mbid, at },
 //   finalScore, valence, history: [{ at, kind, score, algorithmVersion }]
+//   draft: boolean          // Live "follow" capture heard < 60 %: kept out of stats and games until validated
 // }
 
 import { ALGORITHM_VERSION, FEATURE_VERSION, DEFAULT_WEIGHTS, DEFAULT_AGGREGATION, SCORE_MAX } from "../config.js";
@@ -158,7 +159,28 @@ export function statusOf(record) {
   return "analyzed";
 }
 
+/** A draft (partly heard Live capture) waits for the user's validation. */
+export const isDraft = (record) => !!record?.draft;
+
+/** Analysed and not a draft: what stats, games, sets and progressions use. */
+export const isCounted = (record) => record?.finalScore != null && !record.draft;
+
 export const needsReanalysis = (record) => !!record.features && record.featureVersion !== FEATURE_VERSION;
+
+/** Compares dotted versions numerically ("1.10" > "1.9"); a missing version is the oldest. */
+export function compareVersions(a, b) {
+  const pa = String(a ?? "0").split(".").map((x) => Number.parseInt(x, 10) || 0);
+  const pb = String(b ?? "0").split(".").map((x) => Number.parseInt(x, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d) return Math.sign(d);
+  }
+  return 0;
+}
+
+/** Stored features come from an older extractor than FEATURE_VERSION (the audio must be analysed again). */
+export const featuresOutdated = (record) =>
+  !!record?.features && compareVersions(record.features.featureVersion ?? record.featureVersion, FEATURE_VERSION) < 0;
 
 function pushHistory(record, kind, score) {
   record.history = [...(record.history ?? []), { at: Date.now(), kind, score, algorithmVersion: ALGORITHM_VERSION }].slice(-MAX_HISTORY);

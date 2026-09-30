@@ -2,7 +2,7 @@
 
 import { STAGES, stageFor, AGGREGATIONS, CURVE_STATS } from "../config.js";
 import { state, notify } from "../app/store.js";
-import { statusOf, needsReanalysis } from "../core/track.js";
+import { statusOf, needsReanalysis, isCounted } from "../core/track.js";
 import { formatDuration, formatSize, formatScore, formatDelta, escapeHtml } from "../util/format.js";
 import { renderScoreChart, sparkline } from "./charts.js";
 import { moodLabel } from "../scoring/describe.js";
@@ -10,6 +10,7 @@ import * as ctl from "../app/controller.js";
 import { player } from "./player.js";
 import { t, tn } from "../i18n/index.js";
 import { genreLine } from "./home.js";
+import { toast } from "./toast.js";
 
 const STATUS_LABEL = {
   pending: t("○ Not analysed"),
@@ -30,8 +31,13 @@ export function initLibrary({ openDetail }) {
   $("search").addEventListener("input", (e) => { state.ui.search = e.target.value; notify(); });
   $("filter-status").addEventListener("change", (e) => { state.ui.status = e.target.value; notify(); });
   $("filter-stage").addEventListener("change", (e) => { state.ui.stage = e.target.value; notify(); });
+  $("refresh-genres").addEventListener("click", () => refreshGenres().catch((err) => toast(err.message, "error")));
   $("filter-vocals").addEventListener("change", (e) => { state.ui.vocals = e.target.value; notify(); });
-  $("hide-tests").addEventListener("change", (e) => { state.ui.hideTests = e.target.checked; notify(); });
+  $("hide-tests").addEventListener("change", (e) => {
+    state.ui.hideTests = e.target.checked;
+    try { localStorage.setItem(HIDE_TESTS_KEY, e.target.checked ? "1" : "0"); } catch { /* ignore */ }
+    notify();
+  });
   $("filter-genre").addEventListener("change", (e) => { state.ui.genre = e.target.value; notify(); });
   $("group-by").addEventListener("change", (e) => { state.ui.group = e.target.value; notify(); });
   $("aggregation").innerHTML = AGGREGATIONS.map((a) => `<option value="${a.key}" title="${a.hint}">${a.label}</option>`).join("");
@@ -61,6 +67,12 @@ export function initLibrary({ openDetail }) {
       player.toggle(play.dataset.play);
       return;
     }
+    const draft = e.target.closest("[data-draft]");
+    if (draft) {
+      e.stopPropagation();
+      onDraftAction(draft.dataset.draft, draft.dataset.id).catch((err) => console.error(err));
+      return;
+    }
     const row = e.target.closest("tr[data-id]");
     if (row) onOpen(row.dataset.id);
   });
@@ -72,7 +84,37 @@ export function initLibrary({ openDetail }) {
     }
   });
   player.onChange(() => notify());
+
+  // The browser restores form controls on reload (and the language switch
+  // reloads the page), but no "change" event fires for that: read the
+  // controls back so the filters shown are the filters applied.
+  let savedHide = null;
+  try { savedHide = localStorage.getItem(HIDE_TESTS_KEY); } catch { /* ignore */ }
+  if (savedHide !== null) $("hide-tests").checked = savedHide === "1";
+  const syncFromDom = () => {
+    state.ui.search = $("search").value;
+    state.ui.status = $("filter-status").value;
+    state.ui.stage = $("filter-stage").value;
+    state.ui.vocals = $("filter-vocals").value;
+    state.ui.hideTests = $("hide-tests").checked;
+    state.ui.group = $("group-by").value;
+    notify();
+  };
+  syncFromDom();
+  // Some browsers restore form state after the modules ran, or on a
+  // back/forward cache return.
+  window.addEventListener("pageshow", syncFromDom);
 }
+
+/** Validate / Delete buttons of a draft row. */
+async function onDraftAction(action, id) {
+  const r = state.records.get(id);
+  if (!r) return;
+  if (action === "validate") await ctl.validateDraft(id);
+  else if (action === "delete" && confirm(t("Delete the draft “{name}”?", { name: r.name }))) await ctl.deleteTrack(id);
+}
+
+const HIDE_TESTS_KEY = "mea.hideTests";
 
 const SORT_KEYS = [
   { key: "score", label: "Score", hint: t("Final score (chosen method, corrections included)") },
@@ -119,7 +161,7 @@ function filterSort(rows) {
   const stageIdx = state.ui.stage === "all" ? null : Number(state.ui.stage);
   let out = rows.filter((row) => {
     if (q && !searchText(row).includes(q)) return false;
-    if (state.ui.status !== "all" && rowStatus(row) !== state.ui.status) return false;
+    if (state.ui.status === "draft" ? !row.record?.draft : state.ui.status !== "all" && rowStatus(row) !== state.ui.status) return false;
     if (state.ui.hideTests && row.record?.source?.kind === "test") return false;
     const gf = state.ui.genre ?? "all";
     if (gf !== "all") {
@@ -202,6 +244,7 @@ function rowHtml(row) {
     : src?.kind === "spotify"
     ? [`<span class="src-tag" title="${t("Analysed by capturing Spotify playback")}">Spotify · ${src.mode === "full" ? t("whole") : t("{n} % heard", { n: Math.round((src.coverage ?? 0) * 100) })}</span>`, formatDuration(r?.duration)]
     : [formatSize(row.size), formatDuration(r?.duration)];
+  if (r?.draft) meta.unshift(`<span class="draft-tag" title="${t("Heard less than 60 % in the Live tab: out of stats and games until you validate it")}">${t("Draft")}</span>`);
   if (final != null) meta.push(`<span class="stage-tag">${stageFor(final).label}</span>`);
   if (r && needsReanalysis(r)) meta.push(t("re-analysis advised"));
 
@@ -216,7 +259,7 @@ function rowHtml(row) {
 
   return `<tr ${row.id ? `data-id="${row.id}" tabindex="0"` : ""}>
     <td class="col-play"><button class="icon-btn" data-play="${row.id ?? ""}" ${canPlay ? "" : "disabled"} aria-label="${playing ? t("Pause") : t("Play")}" title="${canPlay ? (playing ? t("Pause") : player.kind(row.id) === "spotify" ? t("Play on Spotify") : t("Play")) : t("Playback available for files imported in this session, and for Spotify captures when logged in")}">${playing ? "❚❚" : "▶"}</button></td>
-    <td><div class="track-name">${escapeHtml(row.name)}</div><div class="track-meta">${meta.join(" · ")}</div></td>
+    <td><div class="track-name">${escapeHtml(row.name)}</div><div class="track-meta">${meta.join(" · ")}</div>${r?.draft ? draftActions(r) : ""}</td>
     <td class="col-curve hide-sm" title="${r?.auto?.stats ? curveTitle(r) : ""}">${r?.auto?.curves ? sparkline(r.auto.curves.intensity) : ""}</td>
     <td class="hide-sm">${musicCell(r)}</td>
     <td class="num"><div class="score-cell">${final != null ? `<span class="minibar" aria-hidden="true"><i style="width:${final}%"></i></span>` : ""}<b>${formatScore(final)}</b></div>${sortTag(r)}</td>
@@ -227,7 +270,12 @@ function rowHtml(row) {
   </tr>`;
 }
 
-/** Name + genres (label and Spotify genres): what the search box looks into. */
+function draftActions(r) {
+  const id = escapeHtml(r.id);
+  return `<div class="draft-actions"><button class="btn small primary" type="button" data-draft="validate" data-id="${id}">${t("Validate")}</button><button class="btn small danger" type="button" data-draft="delete" data-id="${id}">${t("Delete")}</button></div>`;
+}
+
+/** Name + genres (label and fetched genres): what the search box looks into. */
 function searchText(row) {
   const r = row.record;
   if (!r?.auto) return row.name.toLowerCase();
@@ -260,6 +308,17 @@ function groupedHtml(rows) {
     }).join("");
 }
 
+/** "Refresh genres": looks every analysed track up again on MusicBrainz (and Last.fm when a key is set). */
+async function refreshGenres() {
+  const g = await ctl.genreStatus();
+  if (g.analysed > 60 && !confirm(t("Look up the genres of {n} tracks again? MusicBrainz allows one request per second: it takes about {m} min, in the background.", { n: g.analysed, m: Math.ceil((g.analysed * 2.5) / 60) }))) return;
+  genreStatusAt = 0;
+  const p = ctl.fetchGenres({ force: true });
+  renderGenreStatus();
+  const res = await p;
+  toast(res.errors && !res.found ? t("MusicBrainz unreachable: check your connection, then try again.") : tn(res.found, "Genres found for {n} track.", "Genres found for {n} tracks."), res.errors && !res.found ? "error" : "info");
+}
+
 let genreStatusAt = 0;
 /** One line under the filters: where the genres come from (refreshed at most every 2 s). */
 function renderGenreStatus() {
@@ -267,8 +326,12 @@ function renderGenreStatus() {
   genreStatusAt = Date.now();
   ctl.genreStatus().then((g) => {
     const el = document.getElementById("library-genre-status");
-    if (!el || !g.analysed) { if (el) el.textContent = ""; return; }
+    const row = el?.closest(".genre-status");
+    if (row) row.hidden = !g.analysed;
+    if (!el || !g.analysed) return;
     el.textContent = `${t("Genres")}: ${genreLine(g)}`;
+    const btn = document.getElementById("refresh-genres");
+    if (btn) btn.disabled = !!g.job;
   }).catch(() => {});
 }
 
@@ -298,7 +361,7 @@ function musicCell(r) {
   return `<div class="music-cell">${parts.join(" · ")}${mood}${genre}</div>`;
 }
 
-const SOURCE_NAME = { spotify: "Spotify genres", musicbrainz: "MusicBrainz tags", neighbours: "Suggestion (close tracks)" };
+const SOURCE_NAME = { spotify: "Spotify genres", musicbrainz: "MusicBrainz genres", lastfm: "Last.fm tags", neighbours: "Suggestion (close tracks)" };
 
 const valenceColor = (v) => `hsl(${Math.round(270 - (v / 100) * 230)}, 70%, 55%)`;
 
@@ -320,7 +383,7 @@ function curveTitle(r) {
 
 function renderOverview() {
   const container = document.getElementById("overview");
-  const scored = [...state.records.values()].filter((r) => r.finalScore != null).sort((a, b) => a.finalScore - b.finalScore);
+  const scored = [...state.records.values()].filter(isCounted).sort((a, b) => a.finalScore - b.finalScore);
   if (scored.length < 2) {
     container.innerHTML = "";
     container._key = "";

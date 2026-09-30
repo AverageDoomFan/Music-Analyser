@@ -60,14 +60,12 @@ export function openLyricsReview() {
 function lyricsCard() {
   const r = state.records.get(queue[pos]);
   if (!r) return `<p>${t("Done.")}</p>`;
-  const hint = r.lyricsHint?.suggestion;
-  const hintMood = hint && LYRICS_MOODS.find((m) => m.key === hint.mood);
   return `
     <div class="review-track">
       ${trackHead(r)}
-      <p class="small muted">${r.vocals?.state === "vocal" ? t("Sung track") : t("Sung or instrumental?")}${hintMood ? ` · ${t("suggestion from the lyrics:")} <b>${escapeHtml(hintMood.label)}</b>` : ""}</p>
+      <p class="small muted">${r.vocals?.state === "vocal" ? t("Sung track") : t("Sung or instrumental?")}</p>
       <div class="review-moods">
-        ${LYRICS_MOODS.map((m, i) => `<button type="button" class="review-mood ${hint?.mood === m.key ? "hinted" : ""}" data-act="mood" data-mood="${m.key}"><span class="k">${i + 1}</span><span class="ic">${m.icon}</span>${m.label}</button>`).join("")}
+        ${LYRICS_MOODS.map((m, i) => `<button type="button" class="review-mood" data-act="mood" data-mood="${m.key}"><span class="k">${i + 1}</span><span class="ic">${m.icon}</span>${m.label}</button>`).join("")}
       </div>
       <div class="lyrics-row"><span class="small">${t("Strength:")}</span>${[1, 2, 3].map((l) => `<button type="button" class="chip-btn" data-act="level" data-level="${l}" aria-pressed="${strength === l}">${LYRICS_LEVELS[l]}</button>`).join("")}</div>
       <div class="lyrics-row">

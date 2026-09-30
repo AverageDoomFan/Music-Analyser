@@ -2,10 +2,21 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { tracks, SR } from "./synth.mjs";
 import { extractFeatures } from "../src/audio/features.js";
-import { createRecord, applyFeatures, rescore, commitCorrection, setManualScore, statusOf } from "../src/core/track.js";
+import { createRecord, applyFeatures, rescore, commitCorrection, setManualScore, statusOf, compareVersions, featuresOutdated } from "../src/core/track.js";
 import { mergeRecord, buildExport, parseExport } from "../src/storage/backup.js";
 import { buildProgression, toM3U } from "../src/playlist/progression.js";
-import { DEFAULT_WEIGHTS, ALGORITHM_VERSION } from "../src/config.js";
+import { DEFAULT_WEIGHTS, ALGORITHM_VERSION, FEATURE_VERSION } from "../src/config.js";
+
+test("features from an older extractor are spotted (numeric version order)", () => {
+  assert.equal(compareVersions("1.10", "1.9"), 1);
+  assert.equal(compareVersions("1.6", "1.6"), 0);
+  assert.equal(compareVersions(null, "0.1"), -1);
+  assert.equal(featuresOutdated({ features: { featureVersion: "0.1" } }), true);
+  assert.equal(featuresOutdated({ features: { featureVersion: FEATURE_VERSION } }), false);
+  assert.equal(featuresOutdated({ featureVersion: "0.1", features: {} }), true);
+  assert.equal(featuresOutdated({ features: null }), false); // never analysed: not "older"
+  assert.equal(featuresOutdated(undefined), false);
+});
 
 const features = extractFeatures(tracks.pop(), SR);
 

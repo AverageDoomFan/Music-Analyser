@@ -14,6 +14,7 @@ import { toast } from "./toast.js";
 import { player } from "./player.js";
 import { openInRhythm } from "./rhythm.js";
 import { t } from "../i18n/index.js";
+import { rescanRecord } from "./live.js";
 
 const dialog = () => document.getElementById("detail-dialog");
 let currentId = null;
@@ -59,19 +60,6 @@ export function initDetail() {
       case "lyrics-level":
         if (r.lyrics) await ctl.setLyrics(id, { mood: r.lyrics.mood, strength: Number(e.target.closest("[data-level]").dataset.level) });
         break;
-      case "lyrics-suggest": {
-        const sg = r.lyricsHint?.suggestion;
-        if (sg) await ctl.setLyrics(id, { mood: sg.mood, strength: sg.strength });
-        break;
-      }
-      case "lyrics-lookup":
-        try {
-          const res = await ctl.lookupLyricsFor(id);
-          toast(!res.found ? t("No lyrics found on LRCLIB for this track.") : res.instrumental ? t("LRCLIB: instrumental track.") : t("Lyrics found: mood suggestion added."));
-        } catch (err) {
-          toast(t("LRCLIB unavailable: {msg}", { msg: err.message }), "error");
-        }
-        break;
       case "open": openDetail(e.target.closest("[data-id]").dataset.id); break;
       case "genre-save": {
         const v = d.querySelector("#genre-input").value.trim();
@@ -87,8 +75,17 @@ export function initDetail() {
       case "correction-clear": await ctl.removeCorrection(id); toast(t("Correction removed.")); break;
       case "recompute": await ctl.recompute(id); toast(t("Score recomputed from the cached features.")); break;
       case "reanalyze":
-        if (ctl.reanalyze(id)) toast(t("Audio re-analysis started."));
-        else toast(t(r.source?.kind === "spotify" ? "Captured from Spotify: scan it again in the Live tab (tick “Re-analyse”)." : "Audio file not available in this session: import it again (it is recognised by its fingerprint)."), "error");
+        if (r.source?.kind === "spotify") {
+          // captured from Spotify: scan just this track again in the Live tab
+          d.close();
+          try {
+            const rec = await rescanRecord(r);
+            if (rec?.finalScore != null) toast(t("Re-analysed: {name} ({n}).", { name: r.name, n: Math.round(rec.finalScore) }));
+          } catch (err) {
+            toast(err?.message || String(err), "error", 7000);
+          }
+        } else if (ctl.reanalyze(id)) toast(t("Audio re-analysis started."));
+        else toast(t("Audio file not available in this session: import it again (it is recognised by its fingerprint)."), "error");
         break;
       case "report": reportOpen = !reportOpen; render(true); break;
       case "report-save":
@@ -101,6 +98,7 @@ export function initDetail() {
         render(true);
         break;
       }
+      case "validate-draft": await ctl.validateDraft(id); toast(t("Draft validated: the track now counts in stats and games.")); break;
       case "delete":
         if (confirm(t("Delete “{name}” and its corrections from the local database?", { name: r.name }))) {
           await ctl.deleteTrack(id);
@@ -155,6 +153,7 @@ function render(force = false) {
       <button class="icon-btn" data-action="close" aria-label="${t("Close")}">✕</button>
     </div>
     <div class="dialog-body">
+      ${r.draft ? `<div class="notice draft-notice"><span>${t("Draft: only {n} % of this track was heard in the Live tab. It stays out of stats and games until you validate it.", { n: Math.round((r.source?.coverage ?? 0) * 100) })}</span> <button class="btn small primary" data-action="validate-draft">${t("Validate")}</button></div>` : ""}
       ${r.error && !auto ? `<div class="notice">⚠ ${escapeHtml(r.error)}</div>` : ""}
       ${needsReanalysis(r) ? `<div class="notice">${t("Features extracted by an older version of the analysis ({v}). The score stays valid; analyse the track again to use the new measures.", { v: escapeHtml(r.featureVersion) })}</div>` : ""}
       ${reportOpen && auto ? reportBlock(r) : ""}
@@ -196,7 +195,7 @@ function render(force = false) {
       ${canPlay ? `<button class="btn" data-action="play">${player.isPlaying(r.id) ? t("Pause") : t("Play")}</button>` : ""}
       ${state.files.has(r.id) || r.rhythm ? `<button class="btn" data-action="rhythm" title="${t("Split into notes for a rhythm game map")}">${t("Rhythm")}</button>` : ""}
       ${r.features ? `<button class="btn" data-action="recompute" title="${t("Recomputes from the cached features, without reading the audio")}">${t("Recompute")}</button>` : ""}
-      <button class="btn" data-action="reanalyze" title="${t("Reads and analyses the audio file again")}">${t("Re-analyse the audio")}</button>
+      <button class="btn" data-action="reanalyze" title="${r.source?.kind === "spotify" ? t("Plays and analyses this track again in the Live tab") : t("Reads and analyses the audio file again")}">${t("Re-analyse the audio")}</button>
       ${auto ? `<button class="btn" data-action="report" aria-pressed="${reportOpen}" title="${t("Save everything about this track for a closer look at the model")}">⚑ ${t("Report for analysis")}</button>` : ""}
       ${auto ? `<button class="btn primary" data-action="mismatch">${t("The score is off")}</button>` : ""}
     </div>`;
@@ -234,6 +233,7 @@ function seriesFor(r) {
     );
     if (sr.spectralContrast) list.push({ key: "spectralContrast", label: t("Spectral contrast (dB)"), values: sr.spectralContrast, format: (v) => v.toFixed(1) });
     if (sr.midFlatnessMedian) list.push({ key: "midFlatnessMedian", label: t("Distortion · mid flatness (dB)"), values: sr.midFlatnessMedian.map(db10), format: (v) => v.toFixed(1) });
+    if (sr.fastPulseShare) list.push({ key: "fastPulseShare", label: t("Extratone · share of the window (%)"), values: sr.fastPulseShare.map((v) => v * 100), format: (v) => v.toFixed(0) });
     if (sr.pulseRate) list.push({ key: "pulseRate", label: t("Kick speed (/s)"), values: sr.pulseRate.map((v, i) => (sr.pulseStrength[i] >= 0.3 ? v : null)), format: (v) => v.toFixed(1) });
     list.push(
     );
@@ -315,7 +315,9 @@ function musicBlock(r, canPlay) {
       : `<p class="muted small">${r.features?.excerpted ? t("Structure: not available for an analysis by excerpts.") : t("Structure: to compute (re-analysis needed).")}</p>`}`;
 }
 
-const SOURCE_LABEL = { user: "your label", spotify: "the artist's Spotify genres", musicbrainz: "the artist's MusicBrainz tags", neighbours: "suggestion (close tracks)" };
+const SOURCE_LABEL = { user: "your label", spotify: "the artist's Spotify genres", musicbrainz: "MusicBrainz genres", lastfm: "Last.fm tags", neighbours: "suggestion (close tracks)" };
+const SOURCE_NAME = { musicbrainz: "MusicBrainz", lastfm: "Last.fm", spotify: "Spotify" };
+const SOURCE_LIST = { musicbrainz: "MusicBrainz genres (track, album, artist):", lastfm: "Last.fm tags:", spotify: "The artist's Spotify genres:" };
 const pct = (p) => `${Math.round(p * 100)} %`;
 
 function genreBlock(r) {
@@ -323,7 +325,8 @@ function genreBlock(r) {
   const known = ctl.allGenres();
   const chips = [];
   const seen = new Set([r.genre?.label, g.label]);
-  const srcName = r.extGenres?.source === "musicbrainz" ? "MusicBrainz" : "Spotify";
+  const extSrc = r.extGenres?.source ?? "spotify";
+  const srcName = SOURCE_NAME[extSrc] ?? extSrc;
   for (const s of g.suggestions) if (!seen.has(s.label)) { seen.add(s.label); chips.push({ label: s.label, why: `${t("close tracks")} · ${pct(s.confidence)}`, tag: pct(s.confidence) }); }
   for (const sp of g.spotify) if (!seen.has(sp.label)) { seen.add(sp.label); chips.push({ label: sp.label, why: `${srcName} · ${sp.raw}`, tag: srcName }); }
   return `<h3>${t("Genre")}</h3>
@@ -339,18 +342,15 @@ function genreBlock(r) {
         <button type="button" class="btn small primary" data-action="genre-save">${t("Save")}</button>
       </div>
       ${chips.length ? `<div class="lyrics-row small">${t("Suggestions:")} ${chips.map((c) => `<button type="button" class="chip-btn" data-action="genre-apply" data-label="${escapeHtml(c.label)}" title="${escapeHtml(c.why)}">${escapeHtml(c.label)} <span class="muted">${escapeHtml(c.tag)}</span></button>`).join("")}</div>` : ""}
-      <p class="muted small">${t("Your own taxonomy, as precise as you like (levels separated by ›). By default: the artist's Spotify genres (fetched automatically), else MusicBrainz tags, else a suggestion from close tracks. Your label always wins.")}</p>
-      ${g.spotify.length ? `<div class="small muted">${t(r.extGenres?.source === "musicbrainz" ? "The artist's MusicBrainz tags:" : "The artist's Spotify genres:")} ${g.spotify.map((x) => escapeHtml(x.raw)).join(", ")}</div>` : ""}
+      <p class="muted small">${t("Your own taxonomy, as precise as you like (levels separated by ›). By default: the genres MusicBrainz gives for the track, its album and its artist (fetched automatically), else a suggestion from close tracks. Your label always wins.")}</p>
+      ${g.spotify.length ? `<div class="small muted">${t(SOURCE_LIST[extSrc] ?? SOURCE_LIST.spotify)} ${g.spotify.map((x) => escapeHtml(x.raw)).join(", ")}</div>` : ""}
     </div>`;
 }
 
 function lyricsBlock(r) {
   const v = r.vocals?.state ?? null;
-  const src = r.vocals?.source === "lrclib" ? t(" (from LRCLIB)") : "";
+  const src = r.vocals?.source === "musicbrainz" ? t(" (tagged instrumental on MusicBrainz)") : "";
   const eff = lyricsEffect(r.lyrics);
-  const hint = r.lyricsHint;
-  const sg = hint?.suggestion;
-  const sgMood = sg && LYRICS_MOODS.find((x) => x.key === sg.mood);
   const btn = (value, label) => `<button type="button" class="chip-btn" data-action="vocals" data-value="${value}" aria-pressed="${v === (value || null)}">${label}</button>`;
   return `<h3>${t("Lyrics")}</h3>
     <div class="lyrics-box">
@@ -360,11 +360,6 @@ function lyricsBlock(r) {
         <div class="lyrics-row">${LYRICS_MOODS.map((m) => `<button type="button" class="chip-btn mood" data-action="lyrics-mood" data-mood="${m.key}" aria-pressed="${r.lyrics?.mood === m.key}">${m.icon} ${m.label}</button>`).join("")}</div>
         ${r.lyrics ? `<div class="lyrics-row"><span class="small">${t("Strength:")}</span>${[1, 2, 3].map((l) => `<button type="button" class="chip-btn" data-action="lyrics-level" data-level="${l}" aria-pressed="${r.lyrics.strength === l}">${LYRICS_LEVELS[l]}</button>`).join("")}
           <span class="small muted">${t("effect: intensity {i}, mood {v}", { i: `${eff.intensity >= 0 ? "+" : ""}${eff.intensity}`, v: `${eff.valence >= 0 ? "+" : ""}${eff.valence}` })}${r.manual ? t(" (manual score wins)") : ""}</span></div>` : ""}` : ""}
-      <div class="lyrics-row small muted">
-        ${hint ? (hint.found ? (hint.instrumental ? t("LRCLIB: instrumental.") : `${t("LRCLIB: lyrics found")}${sgMood ? ` · ${t("suggestion:")} <b>${escapeHtml(sgMood.label)}</b> (${LYRICS_LEVELS[sg.strength]})` : ""}.`) : t("LRCLIB: nothing found.")) : ""}
-        ${sgMood && r.lyrics?.mood !== sg.mood ? `<button type="button" class="link-btn" data-action="lyrics-suggest">${t("apply the suggestion")}</button>` : ""}
-        <button type="button" class="link-btn" data-action="lyrics-lookup" title="${t("Sends the artist and title to lrclib.net (open lyrics database). Lyrics are not kept.")}">${hint ? t("search again") : t("search on LRCLIB")}</button>
-      </div>
     </div>`;
 }
 
@@ -447,6 +442,9 @@ function featuresBlock(f) {
     [t("Dissonance"), n(f.dissonance, 3)],
     [t("Spectral entropy"), n(f.spectralEntropy, 3)],
     [t("Double kick (share of kicks)"), f.fastKickRatio != null ? pct(f.fastKickRatio) : "—"],
+    [t("Extratone hits / s"), f.fastPulseShare == null ? "—" : f.fastPulseShare > 0
+      ? t("{rate} ({bpm} BPM, {share} of the track)", { rate: n(f.fastPulseRate, 1), bpm: Math.round(f.fastPulseRate * 60), share: pct(f.fastPulseShare) })
+      : t("none")],
     [t("Clipping"), pct(f.clippingRatio)],
     [t("Centroid"), n(f.centroidMean, 0, " Hz")],
     [t("Bandwidth"), n(f.bandwidthMean, 0, " Hz")],

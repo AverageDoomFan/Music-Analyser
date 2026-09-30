@@ -11,7 +11,6 @@ import { initProgression, renderProgression } from "./ui/progression.js";
 import { toast } from "./ui/toast.js";
 import { initRhythm, showRhythm } from "./ui/rhythm.js";
 import { initSpotify } from "./ui/spotify.js";
-import * as auth from "./spotify/auth.js";
 import { initLive, showLive } from "./ui/live.js";
 import { initReview } from "./ui/review.js";
 import { initSet, showSet } from "./ui/set.js";
@@ -165,8 +164,8 @@ async function main() {
   if (state.ui.tab === "tab-home") showHome();
   // after the library is loaded (matching needs it); also finishes a Spotify login redirect
   initSpotify()
-    .then(() => (auth.isLoggedIn() ? ctl.autoFetchGenres() : null))
-    .catch((err) => console.error(err));
+    .catch((err) => console.error(err))
+    .then(() => ctl.autoFetchGenres());
 }
 
 main();

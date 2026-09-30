@@ -24,11 +24,11 @@ The **Home** tab shows the possible paths and the state of the app. The detailed
 3. Choose how the intensity curve becomes a score (mean of peaks, mean, median, peak, perceptual) and sort by score, curve statistic (start, end, variability…), mood, BPM, key, genre, name or date.
 4. Open a track to follow its **curves over time** (intensity, sub-scores, BPM, relative level, distortion, kick speed…) and see **why** it has its score. ▶ plays it: local files of the session in the browser, Spotify captures on your Spotify app.
 5. “The score is off” → a few targeted questions, old / new score preview, accept or cancel. Or set a manual score.
-6. **Games** → guess a track's score while it plays, or pick the more intense of two tracks (> < =), and fix the scores you disagree with.
+6. **Games** → a daily Spotify track to guess (the same for everyone, analysed live while you guess), guess a track's score on the speed dial, pick the more intense of two tracks (> < =), or hunt a drawn score on Spotify; fix the scores you disagree with.
 7. **Lyrics** (library, track details or directly in the Live tab), **Duels** and **Genres** → tune the perception to how you feel.
 8. **Progression** → “Build a progression”, M3U / text export. **Set** → draw the intensity curve you want; the app picks and orders the tracks.
 9. **⚑ Report for analysis** (track details) → saves everything about a track, with your comment and expected score, to send for a closer look at the model.
-10. Settings → language, weights, learning from corrections, lyrics lookup, JSON export / import, diagnostic export, reports, local data deletion.
+10. Settings → language, weights, learning from corrections, genre sources (MusicBrainz, optional Last.fm key), JSON export / import, diagnostic export, reports, local data deletion.
 
 Audio files are never sent to a server. They are not stored either: only the extracted features are. Local playback and re-analysis therefore work for files imported in the current session; a file imported again later is recognised by its SHA-256 fingerprint and not analysed again.
 
@@ -83,7 +83,7 @@ src/
   playlist/progression.js   progression algorithm + M3U / text export
   playlist/set.js           set generator (target curve, transitions, constraints), splitting
   rhythm/                   bands, notes (NMF instruments), difficulty, session
-  spotify/                  PKCE, API (playlists, playback control, artist genres), matching, export
+  spotify/                  PKCE, API (playlists, playback control), matching, export
   live/capture.js           system audio / audio input capture (AudioWorklet, resampling to 44.1 kHz)
   live/scanner.js           playlist scan: Spotify control, excerpts, live and final analysis
   live/plan.js              modes (whole, fixed excerpts, adaptive: probes then focused listening)
@@ -91,7 +91,9 @@ src/
   live/meter.js             continuous BS.1770 loudness (momentary, short term, integrated, LRA)
   live/demo.js              live scan demo mode (fake Spotify → MediaStream)
   testlab/                  parametric test track generator and test bench evaluation
-  util/lyrics.js            optional LRCLIB lookup, mood suggestion
+  util/musicbrainz.js       genres from MusicBrainz (ISRC / artist + title search, vote merging)
+  util/lastfm.js            optional Last.fm top tags (user's own API key)
+  util/rate-queue.js        request spacing (MusicBrainz: 1 request per second)
   app/                      state and use cases (controller: analysis, genres, reports, games…)
   ui/                       one module per tab or dialog (library, detail, games, live, set…)
 ```
@@ -121,7 +123,7 @@ Files longer than 12 minutes are analysed through 12 excerpts of 45 s spread ove
 
 **Vocals and lyrics.** Audio alone cannot detect vocals reliably without a learned model. The user says whether a track is sung, and the mood of its lyrics: joyful, tender, neutral, sad, dark or violent, on three levels. The rating shifts the perceived intensity (violent lyrics at full: +9) and the mood. It can be given in the track's details, in the “Rate the lyrics” assistant (keyboard shortcuts), or in the Live tab while the track is scanned (applied when it is saved).
 
-As an option (Settings), the app queries **LRCLIB** (lrclib.net, an open lyrics database) with the artist and title only, to know whether a track is instrumental and suggest a mood from a word lexicon, which you confirm. Lyrics are never kept.
+When MusicBrainz tags a recording or its album “instrumental”, the track is marked instrumental (your own answer always wins). There is no automatic lyrics lookup any more: the former LRCLIB option only guessed a mood from a word list, and your own rating is what moves the score.
 
 **Duels and games.** “Which one is more intense?”: the app picks pairs where the model hesitates. The **Games** tab offers the same comparison as a game (> < =) and a trivia (guess the hidden score). Answers are saved as duels and fit the weights with a Bradley-Terry model; if no weights explain your answers better, the current settings are kept. Scores can be fixed on the spot.
 
@@ -157,6 +159,8 @@ Each sub-score has a **reliability** (how consistent its components are; for tem
 
 Nothing is only averaged. Extraction has two passes: one per STFT frame (~11.6 ms) storing every measure, then a summary of those frames for the whole track and for each **6 s window (3 s hop)**. Each feature becomes a curve, stored in columns in `features.timeline`; the model scores **each window**, which gives an intensity curve and one curve per sub-score.
 
+Extractor 1.7 adds an **extratone** measure (`src/audio/fast-pulse.js`): the frame pass cannot see attacks closer than ~25 ms, so the envelopes of two bands are sampled at ~2 kHz and searched for a regular pulse of 12.5 to 24 hits/s shared by both. It is shown in the track details and exported, not scored yet. Faster kick trains (40+ hits/s) are pitched tones and cannot be told from a distorted bass note.
+
 **From the curve to a score** (`src/scoring/aggregate.js`, above the library or in Settings):
 
 | Method | Computation |
@@ -180,7 +184,7 @@ Each track stores its raw features, initial and current automatic score, correct
 
 - Personal hierarchical labels (“Electronic › Hardstyle › Rawstyle”). The user's label always wins.
 - Unlabelled tracks get a nearest-neighbour suggestion from the labelled ones (timbre, intensity, mood, tempo, mode). If the neighbours disagree on a sub-genre (less than 55 % of the votes), the suggestion goes up to the parent genre.
-- **Automatic genres**: once logged in to Spotify, the artists' genres of captured tracks and imported playlists are fetched at startup (at most once a day, cached 30 days) and placed in a hierarchy by keyword rules (`src/scoring/genre-map.js`). If Spotify returns no genres for the app, the MusicBrainz fallback (Spotify tab) asks musicbrainz.org for the artists' tags — artist names only, one request per second, cached. The library shows where the genres come from.
+- **Automatic genres**: Spotify's Web API returns empty artist genres for apps created after November 2024, so genres come from **MusicBrainz** (musicbrainz.org, open, CORS, no key). For each analysed track the app searches the recording by ISRC (file tags, or the matched / captured Spotify track), else by artist + title (+ length), then reads the genre votes of the recording, its album (release group) and its artist, and merges them (track ×3, album ×2, artist ×1, each level normalised). One request per second through a queue; results cached 30 days per track, artist and album. Tracks without genres are looked up in the background at startup and after each analysis (can be turned off in Settings); **“Refresh genres”** under the library filters looks every track up again. Optional: with your own Last.fm API key (Settings), tracks MusicBrainz does not know get Last.fm's top tags. Names are placed in a hierarchy by keyword rules (`src/scoring/genre-map.js`); the library shows where the genres come from.
 - Search, filter, grouping by family / style / exact genre, “by style, then intensity” order (Progression tab and sorted Spotify playlist), splitting into playlists by genre (Set tab).
 
 ## Reports and diagnostic
@@ -213,7 +217,7 @@ The tab imports the track list of one of your playlists and matches it with your
 - **Login**: OAuth 2.0 *Authorization Code + PKCE*, the flow meant for serverless apps. No secret; a `state` protects against forged requests.
 - **Requested rights**: read your private and collaborative playlists, create and change playlists, read and control playback (Live tab, playback from the library). Nothing else.
 - **Token**: stays in this browser (localStorage), only sent to `accounts.spotify.com` and `api.spotify.com`.
-- **Kept data**: the imported playlists, your matches and the artists' genres cache. “Log out and delete” removes the token and that data. You can also revoke the access on [spotify.com/account/apps](https://www.spotify.com/account/apps).
+- **Kept data**: the imported playlists and your matches. “Log out and delete” removes the token and that data. You can also revoke the access on [spotify.com/account/apps](https://www.spotify.com/account/apps).
 
 **Legal frame** (a summary, not legal advice): a standard API use, managing playlists for your own account, as long as:
 - the analysed audio is **your own files** or your own playback; the app downloads nothing from Spotify;

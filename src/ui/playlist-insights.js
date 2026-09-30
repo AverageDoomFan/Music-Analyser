@@ -2,6 +2,7 @@
 // imported playlists.
 
 import { state } from "../app/store.js";
+import { isCounted } from "../core/track.js";
 import { STAGES, stageFor } from "../config.js";
 import { matchPlaylist } from "../spotify/match.js";
 import { keyName } from "../audio/music.js";
@@ -16,7 +17,7 @@ export function playlistPoints(pl) {
   const m = matchPlaylist(pl.tracks, records, {});
   return pl.tracks.map((t) => {
     const r = state.records.get(m.get(t.id)?.recordId);
-    return r?.finalScore != null ? { track: t, record: r, score: r.finalScore, valence: r.valence ?? 50 } : null;
+    return isCounted(r) ? { track: t, record: r, score: r.finalScore, valence: r.valence ?? 50 } : null;
   }).filter(Boolean);
 }
 

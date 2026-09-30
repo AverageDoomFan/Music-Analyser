@@ -1,6 +1,7 @@
 // Home tab: entry points and a status overview of the app.
 
 import { state, subscribe } from "../app/store.js";
+import { isCounted } from "../core/track.js";
 import * as ctl from "../app/controller.js";
 import * as auth from "../spotify/auth.js";
 import { escapeHtml } from "../util/format.js";
@@ -31,14 +32,16 @@ export async function showHome() {
 
 function render() {
   const recs = [...state.records.values()];
-  const analysed = recs.filter((r) => r.finalScore != null);
+  const analysed = recs.filter(isCounted);
+  const drafts = recs.filter((r) => r.draft).length;
+  const draftsText = tn(drafts, "{n} draft to validate", "{n} drafts to validate");
   const tests = recs.filter((r) => r.source?.kind === "test").length;
   const captured = recs.filter((r) => r.source?.kind === "spotify").length;
   const toRate = ctl.lyricsToRate().length;
   const g = extra.genres;
   const avg = analysed.length ? Math.round(analysed.reduce((a, r) => a + r.finalScore, 0) / analysed.length) : null;
   const items = [
-    [t("Analysed tracks"), analysed.length, analysed.length ? t("average intensity {n}", { n: avg }) + (tests ? ` · ${tn(tests, "{n} test track", "{n} test tracks")}` : "") : t("import files or scan a playlist"), "tab-library"],
+    [t("Analysed tracks"), analysed.length, analysed.length ? t("average intensity {n}", { n: avg }) + (tests ? ` · ${tn(tests, "{n} test track", "{n} test tracks")}` : "") + (drafts ? ` · ${draftsText}` : "") : drafts ? draftsText : t("import files or scan a playlist"), "tab-library"],
     ["Spotify", auth.isLoggedIn() ? t("connected") : t("not connected"), `${tn(extra.playlists, "{n} playlist imported", "{n} playlists imported")} · ${tn(captured, "{n} track captured", "{n} tracks captured")}`, "tab-spotify"],
     [t("Lyrics to rate"), toRate, toRate ? t("sung tracks without a rating") : t("nothing pending"), "tab-library"],
     [t("Genres"), g ? `${g.labelled}/${g.analysed}` : "—", genreLine(g), "tab-library"],
@@ -49,13 +52,15 @@ function render() {
 /** Where the genres come from, in one line. */
 export function genreLine(g) {
   if (!g) return "";
+  if (g.job) return t("looking up on MusicBrainz… {d}/{n}", { d: g.job.done, n: g.job.total });
   const parts = [];
-  if (g.spotify) parts.push(t("{n} from Spotify", { n: g.spotify }));
   if (g.musicbrainz) parts.push(t("{n} from MusicBrainz", { n: g.musicbrainz }));
+  if (g.lastfm) parts.push(t("{n} from Last.fm", { n: g.lastfm }));
+  if (g.spotify) parts.push(t("{n} from Spotify", { n: g.spotify }));
   if (g.user) parts.push(t("{n} labelled by you", { n: g.user }));
   if (!parts.length) {
-    if (g.run?.fieldMissing) return t("Spotify returns no genres for this app: try MusicBrainz (Spotify tab)");
-    return g.run ? t("no genre found yet") : t("fetched automatically once logged in to Spotify");
+    if (g.run?.errors && !g.run.found) return t("MusicBrainz unreachable: check your connection, then try again.");
+    return g.run ? t("no genre found yet") : t("looked up automatically on MusicBrainz");
   }
   return parts.join(" · ");
 }

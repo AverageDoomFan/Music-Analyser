@@ -116,9 +116,9 @@ export async function playlistTracks(id) {
   }
 }
 
-/** Track search (the whole Spotify catalogue). */
-export async function searchTracks(query, limit = 10) {
-  const page = await request("GET", `/search?type=track&limit=${limit}&q=${encodeURIComponent(query)}`);
+/** Track search (the whole Spotify catalogue); `offset` pages deeper into the results. */
+export async function searchTracks(query, limit = 10, offset = 0) {
+  const page = await request("GET", `/search?type=track&limit=${limit}${offset ? `&offset=${Math.max(0, Math.floor(offset))}` : ""}&q=${encodeURIComponent(query)}`);
   return (page.tracks?.items ?? []).map((t) => toTrack(t)).filter(Boolean);
 }
 
@@ -149,7 +149,10 @@ export async function devices() {
   return (res?.devices ?? []).map((d) => ({ id: d.id, name: d.name, type: d.type, active: d.is_active, restricted: d.is_restricted, volume: d.volume_percent }));
 }
 
-/** { itemId, isPlaying, progressMs, deviceId, name } or null when nothing is playing. */
+/**
+ * { itemId, isPlaying, progressMs, deviceId, name, track } or null when nothing is playing.
+ * `track` is the playing item in our track shape (null for an episode or an ad).
+ */
 export async function playbackState() {
   const res = await player("GET", "/me/player?additional_types=track");
   if (!res) return null;
@@ -157,6 +160,7 @@ export async function playbackState() {
     itemId: res.item?.id ?? null, name: res.item?.name ?? null, isPlaying: !!res.is_playing,
     progressMs: res.progress_ms ?? 0, deviceId: res.device?.id ?? null, deviceName: res.device?.name ?? null,
     shuffle: res.shuffle_state, repeat: res.repeat_state,
+    track: toTrack(res.item),
   };
 }
 
@@ -171,43 +175,3 @@ export async function pause(deviceId) {
   }
 }
 export const setRepeat = (deviceId, mode = "off") => player("PUT", withDevice(`/me/player/repeat?state=${mode}`, deviceId));
-
-// ---------- artist genres ----------
-
-/**
- * Genres of artists (Spotify attaches genres to artists, not tracks).
- * Uses the batch endpoint, then single requests if it is not available.
- * @returns {Promise<{genres: Map<string,string[]>, fieldMissing: boolean}>}
- *   fieldMissing = Spotify returned artists without any "genres" field
- */
-export async function artistGenres(ids, onProgress = () => {}) {
-  const out = new Map();
-  let missing = 0, seen = 0;
-  const take = (a) => {
-    if (!a?.id) return;
-    seen++;
-    if (!Array.isArray(a.genres)) missing++;
-    out.set(a.id, Array.isArray(a.genres) ? a.genres : []);
-  };
-  const uniq = [...new Set(ids)];
-  let batch = true;
-  for (let i = 0; i < uniq.length; i += 50) {
-    const chunk = uniq.slice(i, i + 50);
-    if (batch) {
-      try {
-        const res = await request("GET", `/artists?ids=${chunk.join(",")}`);
-        (res?.artists ?? []).forEach(take);
-        onProgress(Math.min(uniq.length, i + 50), uniq.length);
-        continue;
-      } catch (err) {
-        if (![403, 404, 405].includes(err.status)) throw err;
-        batch = false; // batch endpoint closed for this app: one by one
-      }
-    }
-    for (const [k, id] of chunk.entries()) {
-      try { take(await request("GET", `/artists/${id}`)); } catch (err) { if (err.status !== 404) throw err; }
-      onProgress(i + k + 1, uniq.length);
-    }
-  }
-  return { genres: out, fieldMissing: seen > 0 && missing === seen };
-}

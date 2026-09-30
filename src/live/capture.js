@@ -36,6 +36,14 @@ export async function startCapture({ source, deviceId, stream: given, onData, on
   if (source === "stream") {
     stream = given; // demo mode: a MediaStream produced by the app itself
   } else if (source === "system") {
+    // When a tab (e.g. Spotify Web) or a window is shared, Chrome brings it to
+    // the front by default ("conditional focus"): the user would be taken away
+    // from the app. A CaptureController asks it to keep the focus here.
+    const controller = typeof CaptureController !== "undefined" ? new CaptureController() : null;
+    const keepFocus = () => {
+      try { controller?.setFocusBehavior?.("no-focus-change"); } catch { /* screen capture, or too late: nothing to do */ }
+    };
+    keepFocus(); // allowed before the call in recent Chrome
     stream = await navigator.mediaDevices.getDisplayMedia({
       video: { frameRate: 1, width: { ideal: 320 }, height: { ideal: 180 } },
       audio: { ...RAW, suppressLocalAudioPlayback: false },
@@ -43,7 +51,9 @@ export async function startCapture({ source, deviceId, stream: given, onData, on
       selfBrowserSurface: "exclude",
       surfaceSwitching: "exclude",
       monitorTypeSurfaces: "include",
+      ...(controller ? { controller } : {}),
     });
+    keepFocus(); // older versions only accept it right after the promise resolves
     if (!stream.getAudioTracks().length) {
       stream.getTracks().forEach((t) => t.stop());
       throw new Error(t("No shared sound: share the Spotify Web tab with “Also share tab audio” ticked, or “Entire screen” with “Also share system audio”."));

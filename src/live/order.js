@@ -66,3 +66,21 @@ export function orderTracks(tracks, order, { seed = 1, scoreOf = () => null } = 
     default: return [...tracks];
   }
 }
+
+/**
+ * Queue of a scan started with ▶ on one track: that track first, then the
+ * tracks still to do (`todo`), in play order (`order`: every track, ordered)
+ * but continuing from `resumeFrom`, the in-order track the previous scan had
+ * reached (it comes back first when it was not finished), then wrapping round
+ * to the ones before it. Tracks `skip(track)` says are already done are left out.
+ */
+export function queueAfter(first, todo, { order = todo, resumeFrom = null, skip = () => false } = {}) {
+  const pos = new Map(order.map((x, i) => [x.id, i]));
+  const rest = todo.filter((x) => x.id !== first.id && !skip(x));
+  const at = resumeFrom == null ? -1 : pos.get(resumeFrom) ?? -1;
+  if (at > 0) {
+    const key = (x) => ((pos.get(x.id) ?? 0) - at + order.length) % order.length;
+    rest.sort((a, b) => key(a) - key(b));
+  }
+  return [first, ...rest];
+}

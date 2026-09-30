@@ -9,6 +9,7 @@
 import { FFT } from "./fft.js";
 import { ANALYSIS, FEATURE_VERSION } from "../config.js";
 import { detectKey, detectSections, melFilterbank, dctMatrix } from "./music.js";
+import { fastPulseBlocks } from "./fast-pulse.js";
 
 const EPS = 1e-12;
 const BANDS = [
@@ -133,6 +134,7 @@ export const TIMELINE_KEYS = [
   "flatnessMean", "flatnessMedian", "zcrMean", "spectralCrestMean", "spectralFill",
   "bandSub", "bandBass", "bandLowMid", "bandHighMid", "bandHigh", "bassRatio", "midRatio", "highRatio",
   "lowPulse", "kickRate", "kickPunch", "lowBandDbStd", "lowFlatnessMedian", "midFlatnessMedian", "pulseRate", "pulseStrength",
+  "fastPulseShare", "fastPulseStrength",
   "plrDb", "crestDb", "loudnessRel",
   "keyIndex", "keyConfidence", "midModulation", "midLowCorr",
   "spectralContrast", "spectralEntropy", "dissonance", "fastKickRatio",
@@ -395,6 +397,14 @@ function analyzeFrames(mono, sampleRate, segments, onProgress) {
     const env = cols.od.subarray(first, f);
     const onsets = pickOnsets(env, frameRate).map(([i, v]) => [first + i, v]);
     const kicks = pickOnsets(cols.lowOd.subarray(first, f), frameRate, KICK_PICK).map(([i, v]) => [first + i, v]);
+    // extratone (1.7): each frame takes the strongest fast pulse of the blocks covering it
+    for (const bl of fastPulseBlocks(mono, segStart, segEnd, sampleRate)) {
+      if (!bl.rate) continue;
+      for (let i = first; i < f; i++) {
+        const pos = segStart + (i - first) * H + N / 2;
+        if (pos >= bl.start && pos < bl.end && bl.strength > cols.fastStr[i]) { cols.fastStr[i] = bl.strength; cols.fastRate[i] = bl.rate; }
+      }
+    }
     segs.push({ start: first, end: f, onsets, kicks });
   }
   return { ...cols, silent, fluxValid, count: f, frameRate, segments: segs };
@@ -480,7 +490,7 @@ const MFCC_COLS = Array.from({ length: MFCC_N }, (_, i) => `mfcc_${i + 1}`);
 const FRAME_COLUMNS = [
   "time", "sumSq", "peak", "rmsDb", "zcr", "od", "lowOd", "bodyOd", "lowDb", "midDb",
   "centroid", "bandwidth", "rolloff", "flatness", "crest", "fill", "lowFlat", "midFlat", "flux",
-  "contrast", "entropy", "dissonance",
+  "contrast", "entropy", "dissonance", "fastRate", "fastStr",
   ...BANDS.map(([n]) => `band_${n}`), ...CHROMA_COLS, ...MFCC_COLS,
 ];
 
@@ -595,6 +605,11 @@ function summarize(ctx, ranges, isGlobal) {
     dissonance: median(pick(F.dissonance)),
     // double kick / blast beats: share of kick intervals under 130 ms (16ths at 115+ BPM)
     fastKickRatio: kicks.length > 4 ? fastKicks(kicks, frameRate) : 0,
+    // extratone (1.7): share of the time with a regular pulse of 12.5-24 hits/s
+    // seen on the waveform (see fast-pulse.js), its rate and regularity
+    fastPulseShare: mean(pick(F.fastRate).map((v) => (v > 0 ? 1 : 0))),
+    fastPulseRate: median(pick(F.fastRate).filter((v) => v > 0)) || 0,
+    fastPulseStrength: mean(pick(F.fastStr).filter((v) => v > 0)) || 0,
     crestDb: peakDb - 20 * Math.log10(rms + EPS),
     peakDb,
     loudnessRel,

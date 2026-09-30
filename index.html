@@ -96,10 +96,10 @@
         <button type="button" class="home-feature" data-home="tab-live"><b>🔴 Live</b><span>Scan a playlist by playing it: real-time charts, whole / excerpts / adaptive modes, lyrics rating, demo mode.</span></button>
         <button type="button" class="home-feature" data-home="tab-set"><b>📈 Set</b><span>Draw the intensity curve you want: the app picks and orders the tracks (tempo, key, timbre, constraints). Split into playlists.</span></button>
         <button type="button" class="home-feature" data-home="tab-progression"><b>↗ Progression</b><span>The library from calmest to most intense, smoothed transitions, M3U export.</span></button>
-        <button type="button" class="home-feature" data-home="tab-games"><b>🎯 Games</b><span>Guess a track's score while it plays, or pick the more intense of two tracks. Fix the scores you disagree with on the spot.</span></button>
+        <button type="button" class="home-feature" data-home="tab-games"><b>🎯 Games</b><span>A daily Spotify track to guess, guess a track's score while it plays, pick the more intense of two tracks, or hunt a score. Fix the scores you disagree with on the spot.</span></button>
         <button type="button" class="home-feature" data-home="tab-rhythm"><b>🥁 Rhythm</b><span>Split a track into notes per instrument for a rhythm game map: KPS, difficulty, cues.</span></button>
         <button type="button" class="home-feature" data-home="tab-lab"><b>🧪 Test bench</b><span>Checks that every measure reacts from min to max with tracks tailored for the algorithm.</span></button>
-        <button type="button" class="home-feature" data-home="settings"><b>⚙ Settings</b><span>Language, score weights, learning, lyrics lookup, JSON backup, diagnostic and reports.</span></button>
+        <button type="button" class="home-feature" data-home="settings"><b>⚙ Settings</b><span>Language, score weights, learning, genre sources, JSON backup, diagnostic and reports.</span></button>
       </div>
       <p class="muted small">Your files never leave your browser: only the measures are kept (IndexedDB). The score is a practical perceptual ranking tool, not a scientific measure.</p>
     </section>
@@ -118,6 +118,7 @@
           <option value="analyzed">Analysed</option>
           <option value="corrected">Corrected</option>
           <option value="error">Errors</option>
+          <option value="draft">Drafts</option>
         </select>
         <select id="filter-stage" aria-label="Filter by level"></select>
         <select id="filter-genre" aria-label="Filter by genre"><option value="all">Genre: all</option></select>
@@ -146,7 +147,7 @@
         <button class="btn" id="open-duels" type="button" title="Compare pairs of tracks to tune the model to your perception">Duels</button>
         <button class="btn" id="rescore-all" type="button" title="Recomputes every score from the cached features">Recompute all</button>
       </div>
-      <p class="muted small genre-status" id="library-genre-status"></p>
+      <p class="muted small genre-status" hidden><span id="library-genre-status"></span> <button class="link-btn" id="refresh-genres" type="button" title="Looks every analysed track up again on MusicBrainz (ISRC, else artist and title), one request per second">Refresh genres</button></p>
       <div class="table-wrap">
         <table class="library" id="library">
           <thead>
@@ -342,9 +343,8 @@
         <div class="card sp-genres">
           <div class="sp-row">
             <strong>Genres</strong>
-            <button class="btn small" type="button" id="sp-genres">Fetch Spotify genres</button>
-            <button class="btn small" type="button" id="sp-mb" title="Only artist names are sent to musicbrainz.org, one per second">Fill the gaps from MusicBrainz</button>
-            <span class="muted small" id="sp-genres-status">Artists' genres are fetched automatically once logged in. They drive the genre filter, grouping by style and suggestions (you can always fix them).</span>
+            <button class="btn small" type="button" id="sp-genres" title="Only the ISRC, or the artist and title, is sent to musicbrainz.org, one track per second">Look up missing genres</button>
+            <span class="muted small" id="sp-genres-status">Genres come from MusicBrainz (track, album, artist) and are looked up automatically. They drive the genre filter, grouping by style and suggestions (you can always fix them).</span>
           </div>
         </div>
         <div class="card sp-insights">
@@ -376,19 +376,41 @@
       </div>
     </section>
     <section id="panel-games" role="tabpanel" aria-labelledby="tab-games" hidden>
-      <div class="card gm-head">
-        <div class="seg" role="group" aria-label="Game">
-          <button type="button" class="chip-btn" data-gm="mode" data-mode="trivia" aria-pressed="true">🎯 Guess the score</button>
-          <button type="button" class="chip-btn" data-gm="mode" data-mode="compare" aria-pressed="false">⚖ Compare &gt; &lt; =</button>
-          <button type="button" class="chip-btn" data-gm="mode" data-mode="hunt" aria-pressed="false">🔎 Find this score</button>
-        </div>
-        <label class="inline small"><input type="checkbox" id="gm-playable" checked> Only tracks playable here</label>
-        <label class="inline small" id="gm-trivia-opts"><input type="checkbox" id="gm-hide-title"> Hide the title until the reveal</label>
-        <label class="inline small" id="gm-duel-opts" hidden><input type="checkbox" id="gm-save-duels" checked> Save my answers as duels</label>
-        <p class="muted small" id="gm-pool"></p>
+      <div class="gm-picker" role="group" aria-label="Game">
+        <button type="button" class="gm-pick" data-gm="mode" data-mode="daily" aria-pressed="true" style="--gc: 217, 70, 239">
+          <span class="gm-pick-ico" aria-hidden="true">📅</span>
+          <span class="gm-pick-text"><b>Daily track</b><span>One Spotify track a day, the same for everyone.</span></span>
+          <span class="gm-pick-badge" id="gm-badge-daily"></span>
+        </button>
+        <button type="button" class="gm-pick" data-gm="mode" data-mode="trivia" aria-pressed="false" style="--gc: 249, 115, 22">
+          <span class="gm-pick-ico" aria-hidden="true">🎯</span>
+          <span class="gm-pick-text"><b>Guess the score</b><span>A track of your library plays: guess its intensity.</span></span>
+          <span class="gm-pick-badge" id="gm-badge-trivia"></span>
+        </button>
+        <button type="button" class="gm-pick" data-gm="mode" data-mode="compare" aria-pressed="false" style="--gc: 6, 182, 212">
+          <span class="gm-pick-ico" aria-hidden="true">⚖</span>
+          <span class="gm-pick-text"><b>Which hits harder?</b><span>Two tracks, pick the more intense one.</span></span>
+          <span class="gm-pick-badge" id="gm-badge-compare"></span>
+        </button>
+        <button type="button" class="gm-pick" data-gm="mode" data-mode="hunt" aria-pressed="false" style="--gc: 34, 197, 94">
+          <span class="gm-pick-ico" aria-hidden="true">🔎</span>
+          <span class="gm-pick-text"><b>Find this score</b><span>Find a Spotify track that hits a drawn score.</span></span>
+          <span class="gm-pick-badge" id="gm-badge-hunt"></span>
+        </button>
       </div>
-      <div class="card gm-stage" id="gm-stage"></div>
-      <p class="muted small" id="gm-stats"></p>
+      <div class="gm-arena">
+        <div class="gm-hud" id="gm-stats"></div>
+        <div class="gm-stage" id="gm-stage"></div>
+        <div class="gm-foot">
+          <div class="gm-opts">
+            <label class="inline small"><input type="checkbox" id="gm-playable" checked> Only tracks playable here</label>
+            <label class="inline small" id="gm-trivia-opts"><input type="checkbox" id="gm-hide-title"> Hide the title until the reveal</label>
+            <label class="inline small" id="gm-duel-opts" hidden><input type="checkbox" id="gm-save-duels" checked> Save my answers as duels</label>
+            <span class="muted small" id="gm-pool"></span>
+          </div>
+          <div class="gm-keys small" id="gm-keys"></div>
+        </div>
+      </div>
     </section>
 
     <section id="panel-lab" role="tabpanel" aria-labelledby="tab-lab" hidden>
@@ -445,6 +467,7 @@
           <fieldset class="lv-box">
             <legend>3 · Analysis mode</legend>
             <div class="lv-modes" id="lv-modes" role="radiogroup" aria-label="Mode"></div>
+            <div class="lv-modes lv-follow-row"><button type="button" id="lv-follow" role="switch" aria-checked="false" title="The app does not control Spotify: it analyses whatever you play there yourself">♫ Follow my Spotify listening</button></div>
             <div class="lv-params" id="lv-params-fixed" hidden>
               <label class="inline">Excerpts <input type="number" id="lv-count" min="1" max="12" value="4"></label>
               <label class="inline">of <input type="number" id="lv-length" min="6" max="60" value="12"> s</label>
@@ -455,6 +478,7 @@
             </div>
             <label class="inline small"><input type="checkbox" id="lv-skip-files" checked> Skip tracks already analysed from a file</label>
             <label class="inline small"><input type="checkbox" id="lv-rescan"> Re-analyse tracks already captured</label>
+            <label class="inline small" title="Tracks whose measures come from an older version of the extractor: the scores follow new algorithms by themselves, new measures need the audio again"><input type="checkbox" id="lv-rescan-old"> Only re-analyse tracks analysed with an older version</label>
             <p class="small muted" id="lv-estimate"></p>
           </fieldset>
         </div>
@@ -490,7 +514,7 @@
             <div class="lv-artist" id="lv-artist">Start a scan to analyse your playlist live.</div>
             <canvas class="lv-timeline" id="lv-timeline" height="46" aria-label="Parts of the track heard"></canvas>
             <div class="lv-times"><span id="lv-pos">0:00</span><span id="lv-heard" class="muted"></span><span id="lv-dur">0:00</span></div>
-            <div class="lv-lyrics" id="lv-lyrics" hidden></div>
+            <div class="lv-lyrics" id="lv-lyrics"></div>
           </div>
           <div class="lv-gauge-wrap">
             <canvas class="lv-gauge" id="lv-gauge" width="220" height="220" aria-label="Intensity"></canvas>

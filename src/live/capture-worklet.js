@@ -1,9 +1,9 @@
 // AudioWorklet: downmixes the captured stream to mono and posts blocks of
-// ~46 ms to the main thread.
+// ~23 ms (1024 samples at 44.1 kHz) to the main thread.
 class CaptureProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
-    this.buf = new Float32Array(2048);
+    this.buf = new Float32Array(1024);
     this.n = 0;
   }
 
@@ -16,7 +16,7 @@ class CaptureProcessor extends AudioWorkletProcessor {
       this.buf[this.n++] = input.length ? v / input.length : 0;
       if (this.n === this.buf.length) {
         this.port.postMessage(this.buf, [this.buf.buffer]);
-        this.buf = new Float32Array(2048);
+        this.buf = new Float32Array(1024);
         this.n = 0;
       }
     }

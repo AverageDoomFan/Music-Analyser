@@ -66,6 +66,25 @@ const fmtTime = (s) => {
 
 const clamp01 = (x) => Math.max(0, Math.min(1, x));
 
+/**
+ * Where the needle should point *now*. A live window's intensity describes
+ * 6 s of audio centred 3 s in the past and arrives ~0.2 s after the window
+ * closed (analysis), then stays for the 3 s hop. The latest audio level
+ * (a ~0.25 s average) is known at once: the gap between it and the window's
+ * own mean level moves the needle ahead of the next window (a drop lifts it,
+ * a break lowers it), by GAUGE_DB_GAIN points per dB, within ±GAUGE_LEAD_MAX.
+ * @param {number|null} windowIntensity  latest window intensity
+ * @param {{windowDb?: number|null, nowDb?: number|null}} o  mean level of that window, current level (dBFS)
+ */
+export const GAUGE_DB_GAIN = 0.9;
+export const GAUGE_LEAD_MAX = 12;
+export function gaugeTarget(windowIntensity, { windowDb = null, nowDb = null } = {}) {
+  if (windowIntensity == null) return null;
+  if (!Number.isFinite(windowDb) || !Number.isFinite(nowDb) || nowDb < -60 || windowDb < -60) return windowIntensity;
+  const lead = Math.max(-GAUGE_LEAD_MAX, Math.min(GAUGE_LEAD_MAX, (nowDb - windowDb) * GAUGE_DB_GAIN));
+  return Math.max(0, Math.min(SCORE_MAX, windowIntensity + lead));
+}
+
 export function gaugeState() {
   return { pos: null, vel: 0, readout: null, last: null, shake: [0, 0], sparks: [] };
 }
@@ -88,7 +107,8 @@ export function stepGauge(st, target, { now, level = 0, reduced = false }) {
     return st;
   }
   if (st.pos == null) { st.pos = st.readout = target; st.vel = 0; }
-  st.readout += (target - st.readout) * Math.min(1, dt * 7);
+  // ~0.14 s to 90 % (was 7/s: 0.33 s)
+  st.readout += (target - st.readout) * Math.min(1, dt * 16);
   if (reduced) {
     st.pos = st.readout;
     st.vel = 0;
@@ -96,9 +116,10 @@ export function stepGauge(st, target, { now, level = 0, reduced = false }) {
     st.sparks.length = 0;
     return st;
   }
-  // underdamped spring (overshoots ~10 %), plus a tremor that grows past 75 and with loudness
+  // underdamped spring (ω ≈ 11 rad/s, ζ ≈ 0.6: overshoots ~10 %, half-way in
+  // ~0.12 s; it was ω ≈ 6.2: 0.22 s), plus a tremor past 75 and with loudness
   const tremor = clamp01((st.pos - 75) / 50) ** 1.5 * (0.4 + 1.6 * level);
-  const acc = 38 * (target - st.pos) - 7 * st.vel + (Math.random() - 0.5) * 2 * tremor * 700;
+  const acc = 120 * (target - st.pos) - 13 * st.vel + (Math.random() - 0.5) * 2 * tremor * 1700; // same tremor amplitude as before
   st.vel += acc * dt;
   st.pos += st.vel * dt;
   // needle stops
@@ -713,30 +734,106 @@ export class Meters {
 
 // ---------------------------------------------------------------- session histogram
 
+/**
+ * Chooses how the histogram's category names fit under bars `slot` px wide.
+ * Tries, in order: one line; wrapped onto two lines; alternating rows (a
+ * name may spread over its neighbours' slots); rotated 45° (ellipsised to
+ * `maxRot` px), showing only every n-th name when even that is too tight.
+ * Pure: `measure(text)` returns a width in px.
+ * @returns {{mode: "line"|"wrap"|"stagger"|"rotate", lines: string[][], height: number, lead: number}}
+ *   lines[i]: the lines drawn for category i ([] = hidden); height: px needed
+ *   below the bars; lead: extra left margin the first rotated name needs.
+ */
+export function histogramLabelLayout(labels, slot, measure, { lineH = 11, maxRot = 72 } = {}) {
+  const room = slot - 3;
+  const fits = (txt, wd = room) => measure(txt) <= wd;
+  if (labels.every((l) => fits(l))) {
+    return { mode: "line", lines: labels.map((l) => [l]), height: lineH + 7, lead: 0 };
+  }
+  const wrap = (l) => {
+    const words = l.split(/(?<=[\s-])/);
+    if (words.length < 2) return [l];
+    let best = null; // most balanced split into two lines
+    for (let k = 1; k < words.length; k++) {
+      const a = words.slice(0, k).join("").trim(), b = words.slice(k).join("").trim();
+      const wd = Math.max(measure(a), measure(b));
+      if (!best || wd < best.wd) best = { wd, lines: [a, b] };
+    }
+    return best.lines;
+  };
+  const wrapped = labels.map(wrap);
+  if (wrapped.every((ls) => ls.every((x) => fits(x)))) {
+    return { mode: "wrap", lines: wrapped, height: 2 * lineH + 7, lead: 0 };
+  }
+  // alternating rows: each name has its own slot plus half of each neighbour's
+  if (labels.every((l, i) => fits(l, (i === 0 || i === labels.length - 1 ? 1.5 : 2) * slot - 6))) {
+    return { mode: "stagger", lines: labels.map((l) => [l]), height: 2 * lineH + 9, lead: 0 };
+  }
+  const ellipsis = (l) => {
+    if (fits(l, maxRot)) return l;
+    let s = l;
+    while (s.length > 1 && !fits(`${s}…`, maxRot)) s = s.slice(0, -1);
+    return `${s.trimEnd()}…`;
+  };
+  const step = Math.max(1, Math.ceil(((lineH + 2) * Math.SQRT2) / slot));
+  const lines = labels.map((l, i) => (i % step === 0 ? [ellipsis(l)] : []));
+  const longest = Math.max(0, ...lines.map((ls) => (ls[0] ? measure(ls[0]) : 0)));
+  const first = lines[0][0] ? measure(lines[0][0]) * Math.SQRT1_2 : 0;
+  return {
+    mode: "rotate", lines,
+    height: Math.ceil(longest * Math.SQRT1_2 + lineH),
+    lead: Math.max(0, Math.ceil(first - slot / 2)),
+  };
+}
+
 export function drawHistogram(canvas, scores) {
   const { ctx, w, h } = fit(canvas);
   const counts = STAGES.map(() => 0);
   for (const s of scores) counts[STAGES.indexOf(stageFor(s))]++;
   const max = Math.max(1, ...counts);
-  const m = { l: 6, r: 6, t: 14, b: 34 };
+  ctx.font = `10px ${FONT}`;
+  const labels = STAGES.map((s) => s.label);
+  const measure = (x) => ctx.measureText(x).width;
+  let lay = histogramLabelLayout(labels, (w - 12) / STAGES.length, measure);
+  if (lay.lead) lay = { ...lay, ...histogramLabelLayout(labels, (w - 12 - lay.lead) / STAGES.length, measure), lead: lay.lead };
+  const m = { l: 6 + lay.lead, r: 6, t: 14, b: lay.height };
   const bw = (w - m.l - m.r) / STAGES.length;
   const cs = getComputedStyle(canvas);
   const text = cs.getPropertyValue("--text").trim() || "#000";
   const muted = cs.getPropertyValue("--muted").trim() || "#777";
-  ctx.font = `10px ${FONT}`;
-  ctx.textAlign = "center";
+  const top = h - m.b;
   STAGES.forEach((s, i) => {
     const next = STAGES[i + 1]?.min ?? SCORE_MAX;
     const bh = (counts[i] / max) * (h - m.t - m.b);
     const x = m.l + i * bw + 3;
+    const cx = x + (bw - 6) / 2;
     ctx.fillStyle = intensityColor((s.min + next) / 2);
-    roundRect(ctx, x, h - m.b - bh, bw - 6, Math.max(bh, 2), 4);
+    roundRect(ctx, x, top - bh, bw - 6, Math.max(bh, 2), 4);
     ctx.fill();
+    ctx.textAlign = "center";
     ctx.fillStyle = text;
-    if (counts[i]) ctx.fillText(String(counts[i]), x + (bw - 6) / 2, h - m.b - bh - 3);
+    if (counts[i]) ctx.fillText(String(counts[i]), cx, top - bh - 3);
     ctx.fillStyle = muted;
-    const words = s.label.split(" / ");
-    words.forEach((wd, k) => ctx.fillText(wd.length > 11 ? `${wd.slice(0, 10)}.` : wd, x + (bw - 6) / 2, h - m.b + 13 + k * 11));
+    const [first] = lay.lines[i];
+    if (!first) return;
+    if (lay.mode === "rotate") {
+      ctx.save();
+      ctx.translate(cx + 3, top + 7);
+      ctx.rotate(-Math.PI / 4);
+      ctx.textAlign = "right";
+      ctx.fillText(first, 0, 0);
+      ctx.restore();
+    } else if (lay.mode === "stagger") {
+      const row = i % 2;
+      if (row) { // a tick leads the lower row's name up to its bar
+        ctx.fillRect(cx - 0.5, top + 3, 1, 10);
+      }
+      const lw = measure(first);
+      const lx = Math.max(m.l + lw / 2, Math.min(w - m.r - lw / 2, cx));
+      ctx.fillText(first, lx, top + 12 + row * 13);
+    } else {
+      lay.lines[i].forEach((ln, k) => ctx.fillText(ln, cx, top + 12 + k * 11));
+    }
   });
 }
 

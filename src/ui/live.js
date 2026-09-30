@@ -11,15 +11,17 @@ import { startCapture, audioInputs, captureSupport } from "../live/capture.js";
 import { Scanner } from "../live/scanner.js";
 import { createDemo } from "../live/demo.js";
 import { SCAN_MODES, SCAN_DEFAULTS, MODE_RANK, estimateTrackSeconds, coveredSeconds } from "../live/plan.js";
-import { PLAY_ORDERS, orderTracks } from "../live/order.js";
-import { DIMENSIONS, stageFor, LYRICS_MOODS, LYRICS_LEVELS } from "../config.js";
+import { PLAY_ORDERS, orderTracks, queueAfter } from "../live/order.js";
+import { featuresOutdated } from "../core/track.js";
+import { DIMENSIONS, stageFor, LYRICS_MOODS, LYRICS_LEVELS, FEATURE_VERSION } from "../config.js";
 import { t, tn } from "../i18n/index.js";
 import { escapeHtml, formatDuration } from "../util/format.js";
 import { toast } from "./toast.js";
 import { rememberDevice, savedDevice } from "./player.js";
 import { pickDevice } from "../spotify/devices.js";
+import { initFollow, followOn, startFollowing, followSummary, followOverall } from "./live-follow.js";
 import {
-  drawGauge, gaugeState, stepGauge, drawTimeline, drawCurve, drawRadar, drawHistogram, SpectrumView, Spectrogram, Meters,
+  drawGauge, gaugeState, stepGauge, gaugeTarget, drawTimeline, drawCurve, drawRadar, drawHistogram, SpectrumView, Spectrogram, Meters,
   intensityColor, sparkSvg, fmtTime, DIM_COLORS,
 } from "./live-draw.js";
 
@@ -46,6 +48,9 @@ const lv = {
   demo: null,          // demo instance (fake Spotify + stream)
   pendingLyrics: new Map(), // track id -> { vocals, mood, strength } rated before the track is saved
   lyricsKey: "",
+  sessionDone: new Map(), // track id -> mode, tracks analysed by a scan since the page opened
+  resumeFrom: null,    // last in-order track a scan reached (a ▶ track excepted)
+  custom: new Set(),   // tracks asked for with ▶ during the current scan
 };
 const demoOn = () => $("lv-demo").checked;
 const spectrum = new SpectrumView(96);
@@ -56,6 +61,7 @@ export function initLive({ openDetail }) {
   lv.openDetail = openDetail;
   restoreOptions();
   buildModes();
+  initFollow({ lv, beginCapture, setRunning, requestWakeLock, releaseWakeLock, applyPendingLyrics, renderEstimate, demoOn });
   buildOrders();
   buildChips();
   const sup = captureSupport();
@@ -72,8 +78,11 @@ export function initLive({ openDetail }) {
   $("lv-spdevice-refresh").addEventListener("click", () => loadDevices().catch(showError));
   $("lv-spdevice").addEventListener("change", (e) => rememberDevice(e.target.value));
   $("lv-reconnect").addEventListener("click", () => auth.beginLogin().catch(showError));
-  for (const id of ["lv-count", "lv-length", "lv-budget", "lv-gap", "lv-skip-files", "lv-rescan"]) $(id).addEventListener("change", () => { saveOptions(); renderEstimate(); });
-  $("lv-start").addEventListener("click", () => startScan().catch(showError));
+  for (const id of ["lv-count", "lv-length", "lv-budget", "lv-gap", "lv-skip-files", "lv-rescan", "lv-rescan-old"]) $(id).addEventListener("change", () => { saveOptions(); renderEstimate(); });
+  // "every track" and "only older versions" exclude each other
+  $("lv-rescan").addEventListener("change", (e) => { if (e.target.checked) $("lv-rescan-old").checked = false; saveOptions(); renderEstimate(); });
+  $("lv-rescan-old").addEventListener("change", (e) => { if (e.target.checked) $("lv-rescan").checked = false; saveOptions(); renderEstimate(); });
+  $("lv-start").addEventListener("click", () => (followOn() ? startFollowing() : startScan()).catch(showError));
   $("lv-demo").addEventListener("change", () => toggleDemo().catch(showError));
   $("lv-demo-audible").addEventListener("change", (e) => lv.demo?.setAudible(e.target.checked));
   $("lv-pause").addEventListener("click", () => (lv.status?.paused ? lv.scanner?.resume() : lv.scanner?.pause()));
@@ -147,6 +156,7 @@ function options() {
     budget: num("lv-budget", 30, 240, SCAN_DEFAULTS.budget),
     maxGap: num("lv-gap", 8, 40, SCAN_DEFAULTS.maxGap),
     rescan: $("lv-rescan").checked,
+    rescanOld: $("lv-rescan-old").checked && !$("lv-rescan").checked,
     skipFiles: $("lv-skip-files").checked,
   };
 }
@@ -166,6 +176,7 @@ function restoreOptions() {
   if (Number.isFinite(o.seed)) lv.seed = o.seed;
   for (const [id, k] of [["lv-count", "count"], ["lv-length", "length"], ["lv-budget", "budget"], ["lv-gap", "maxGap"]]) if (o[k] != null) $(id).value = o[k];
   $("lv-rescan").checked = !!o.rescan;
+  $("lv-rescan-old").checked = !o.rescan && !!o.rescanOld;
   $("lv-skip-files").checked = o.skipFiles !== false;
   const r = document.querySelector(`input[name="lv-source"][value="${o.source}"]`);
   if (r) r.checked = true;
@@ -290,11 +301,14 @@ function scanList() {
 function isDone(track, o, matches) {
   if (o.skipFiles && matches?.has(track.id) && state.records.get(matches.get(track.id).recordId)?.finalScore != null) return true;
   if (o.rescan) return false;
+  // only the tracks whose stored features come from an older extractor
+  if (o.rescanOld) return !featuresOutdated(state.records.get(ctl.capturedId(track)));
   const r = ctl.capturedRecord(track);
   return !!r && (MODE_RANK[r.source?.mode] ?? 0) >= (MODE_RANK[o.mode] ?? 0);
 }
 
 function renderEstimate() {
+  if (followOn()) return followSummary();
   const { tracks, todo } = scanList();
   if (!tracks.length) {
     $("lv-estimate").textContent = "";
@@ -303,8 +317,10 @@ function renderEstimate() {
   }
   const o = options();
   const secs = todo.reduce((a, t) => a + estimateTrackSeconds((t.durationMs ?? 0) / 1000, o), 0);
-  $("lv-estimate").textContent = t("{n} of {total} tracks to analyse · estimated time {d}.", { n: todo.length, total: tracks.length, d: formatLong(secs) });
-  $("lv-setup-summary").textContent = `${SCAN_MODES.find((m) => m.key === o.mode).label} · ${t("{n}/{total} tracks", { n: todo.length, total: tracks.length })} · ~${formatLong(secs)}`;
+  $("lv-estimate").textContent = o.rescanOld
+    ? t("{n} of {total} tracks analysed with an extractor older than v{v} to analyse again · estimated time {d}.", { n: todo.length, total: tracks.length, v: FEATURE_VERSION, d: formatLong(secs) })
+    : t("{n} of {total} tracks to analyse · estimated time {d}.", { n: todo.length, total: tracks.length, d: formatLong(secs) });
+  $("lv-setup-summary").textContent = `${SCAN_MODES.find((m) => m.key === o.mode).label}${o.rescanOld ? ` · ${t("older versions only")}` : ""} · ${t("{n}/{total} tracks", { n: todo.length, total: tracks.length })} · ~${formatLong(secs)}`;
 }
 
 // ------------------------------------------------------------------ capture
@@ -323,6 +339,12 @@ async function beginCapture() {
         let p = 0;
         for (let i = 0; i < b.length; i += 4) { const a = Math.abs(b[i]); if (a > p) p = a; }
         lv.level = Math.max(p, (lv.level ?? 0) * 0.92);
+        // latest level for the gauge: energy average over ~0.25 s
+        let sq = 0;
+        for (let i = 0; i < b.length; i++) sq += b[i] * b[i];
+        const a = 1 - Math.exp(-b.length / 44100 / 0.25);
+        lv.energy = (lv.energy ?? 0) + a * (sq / Math.max(1, b.length) - (lv.energy ?? 0));
+        lv.energyAt = performance.now();
       },
       onEnded: () => {
         lv.capture = null;
@@ -365,7 +387,9 @@ function renderCapture() {
 async function playNow(trackId) {
   const track = lv.playlist?.tracks.find((x) => x.id === trackId);
   if (!track) return;
+  if (lv.status?.follow && lv.status.running) return toast(t("Follow mode: play the track in Spotify itself."));
   if (lv.status?.running) {
+    lv.custom.add(track.id);
     if (!lv.scanner?.jumpTo(track)) toast(t("This track cannot be played through the Spotify API."), "error");
     return;
   }
@@ -383,6 +407,51 @@ export async function analyseTracks(tracks) {
   return tracks.map((tk) => state.records.get(ctl.capturedId(tk)) ?? null);
 }
 
+/**
+ * Read-only view of the running scan for other tabs (the Games draw the live
+ * needle and the progress): { status, level } — do not modify.
+ */
+export const liveScanState = () => ({ status: lv.status, level: lv.level ?? 0 });
+
+/**
+ * "Re-analyse" on a track captured from Spotify: opens the Live tab and scans
+ * only that track (Live settings, always re-analysed). Resolves with its record.
+ */
+export async function rescanRecord(record) {
+  const track = await trackOfRecord(record);
+  if (!track.durationMs) throw new Error(t("This track cannot be played through the Spotify API."));
+  $("tab-live").click();
+  const [rec] = await analyseTracks([track]);
+  return rec;
+}
+
+/** The Spotify track (scanner shape, as api.js toTrack builds it) a captured record came from. */
+async function trackOfRecord(r) {
+  const src = r.source ?? {};
+  const id = src.trackId ?? r.id.replace(/^spotify:/, "");
+  // the imported playlists keep the whole track (duration, album, covers)
+  for (const pl of await ctl.importedPlaylists().catch(() => [])) {
+    const hit = pl.tracks?.find((x) => x.id === id);
+    if (hit) return hit;
+  }
+  const artist = r.tags?.artist ?? "";
+  return {
+    id,
+    uri: src.uri ?? `spotify:track:${id}`,
+    name: r.tags?.title || r.name,
+    artists: artist ? artist.split(", ") : [],
+    artistIds: src.artistIds ?? [],
+    album: r.tags?.album || null,
+    durationMs: r.features?.duration ? Math.round(r.features.duration * 1000) : null,
+    isrc: r.tags?.isrc ?? null,
+    url: src.url ?? null,
+    isLocal: false,
+    image: src.image ?? null,
+    imageLarge: src.image ?? null,
+    addedAt: null,
+  };
+}
+
 async function startScan(first = null, only = null) {
   if (lv.status?.running) return;
   const demo = demoOn();
@@ -396,10 +465,20 @@ async function startScan(first = null, only = null) {
   }
   lv.playlist = demo ? demoPlaylist() : await ctl.spotifyStore.get("playlist").catch(() => null);
   if (!lv.playlist && !only) throw new Error(t("Import a playlist in the Spotify tab first."));
+  const o = options();
   let todo = only ?? scanList().todo;
-  // a track asked for with ▶ goes first, even if it was already analysed
-  if (first) todo = [lv.playlist.tracks.find((x) => x.id === first.id) ?? first, ...todo.filter((x) => x.id !== first.id)];
-  if (!todo.length) return toast(t("Every track is already analysed with this mode (tick “Re-analyse” to start again)."));
+  lv.custom = new Set(first ? [first.id] : []);
+  // a track asked for with ▶ goes first, even if it was already analysed; then
+  // the scan goes on from where the previous one was, without the tracks this
+  // session already analysed in this mode (or better)
+  if (first) {
+    todo = queueAfter(lv.playlist.tracks.find((x) => x.id === first.id) ?? first, todo, {
+      order: ordered(lv.playlist.tracks),
+      resumeFrom: lv.resumeFrom,
+      skip: (x) => (MODE_RANK[lv.sessionDone.get(x.id)] ?? -1) >= (MODE_RANK[o.mode] ?? 0),
+    });
+  }
+  if (!todo.length) return toast(o.rescanOld ? t("No track was analysed with an older extractor version.") : t("Every track is already analysed with this mode (tick “Re-analyse” to start again)."));
   await beginCapture();
   let player;
   if (demo) {
@@ -416,7 +495,6 @@ async function startScan(first = null, only = null) {
       state: () => api.playbackState(),
     };
   }
-  const o = options();
   lv.scanner = new Scanner({
     player,
     analyze: (mono, sr, extra) => analyzePcm(mono, sr, extra),
@@ -427,7 +505,14 @@ async function startScan(first = null, only = null) {
       return rec;
     },
     scoring: ctl.scoring,
-    onUpdate: (s) => { lv.status = s; lv.lastUpdate = performance.now(); lv.dirty = true; },
+    onUpdate: (s) => {
+      lv.status = s;
+      lv.lastUpdate = performance.now();
+      lv.dirty = true;
+      const cur = s.current?.track?.id;
+      if (cur && !only && !lv.custom.has(cur)) lv.resumeFrom = cur;
+      for (const q of s.queue) if (q.state === "done") lv.sessionDone.set(q.track.id, o.mode);
+    },
   });
   $("lv-setup").open = false;
   requestWakeLock();
@@ -489,8 +574,15 @@ function loop(now) {
   if (lv.level) lv.level *= 0.97;
   drawTimeline($("lv-timeline"), cur, pos, now);
 
-  // speed dial: a sprung needle heads for the latest window intensity
-  const target = cur?.final?.score ?? cur?.live?.current?.intensity ?? null;
+  // speed dial: a sprung needle heads for the latest window intensity, moved
+  // ahead by the current audio level while recording (see gaugeTarget)
+  const lc = cur?.live?.current;
+  // (not in the first 0.75 s of an excerpt: the level average is still rising from the silence before it)
+  const fresh = recording && performance.now() - (lv.energyAt ?? 0) < 300 && (cur.plan.find((g) => g.state === "recording")?.filled ?? 0) >= 0.75;
+  const target = cur?.final?.score ?? gaugeTarget(lc?.intensity ?? null, {
+    windowDb: lc?.levelDb,
+    nowDb: fresh ? 10 * Math.log10((lv.energy ?? 0) + 1e-12) : null,
+  });
   const level = recording ? Math.min(1, lv.level ?? 0) : 0;
   stepGauge(lv.gauge, target, { now, level, reduced: reducedMotion.matches });
   const trackScore = cur?.final?.score ?? cur?.live?.scoring?.score ?? null;
@@ -553,21 +645,22 @@ function lyricsOf(track) {
 function renderLyrics(cur) {
   const box = $("lv-lyrics");
   const track = cur?.track;
-  box.hidden = !track;
-  if (!track) return;
-  const r = lyricsOf(track);
-  const key = `${track.id}:${r.vocals}:${r.mood}:${r.strength}:${!!r.rec}`;
+  // always laid out (disabled without a track, strength buttons kept in place
+  // but invisible without a mood) so its height never changes
+  const r = track ? lyricsOf(track) : { rec: null, vocals: null, mood: null, strength: 2 };
+  const key = `${track?.id}:${r.vocals}:${r.mood}:${r.strength}:${!!r.rec}`;
   if (key === lv.lyricsKey) return;
   lv.lyricsKey = key;
-  const on = (b) => `aria-pressed="${b}"`;
+  const on = (b) => `aria-pressed="${b}"${track ? "" : " disabled"}`;
+  const levels = r.mood ? "" : ` style="visibility:hidden" aria-hidden="true" tabindex="-1"`;
   box.innerHTML = `
     <span class="lv-lyrics-k">${t("Lyrics")}</span>
     <button type="button" class="chip-btn" data-lyr="instrumental" ${on(r.vocals === "instrumental")}>${t("Instrumental")}</button>
     <button type="button" class="chip-btn" data-lyr="vocal" ${on(r.vocals === "vocal" && !r.mood)}>${t("Sung")}</button>
     <span class="lv-lyrics-sep"></span>
     ${LYRICS_MOODS.map((m) => `<button type="button" class="chip-btn" data-mood="${m.key}" ${on(r.mood === m.key)} title="${escapeHtml(m.label)}">${m.icon} ${escapeHtml(m.label)}</button>`).join("")}
-    ${r.mood ? `<span class="lv-lyrics-sep"></span>${[1, 2, 3].map((l) => `<button type="button" class="chip-btn" data-level="${l}" ${on(r.strength === l)}>${escapeHtml(LYRICS_LEVELS[l])}</button>`).join("")}` : ""}
-    <span class="muted small">${r.rec ? "" : t("applied when the track is saved")}</span>`;
+    <span class="lv-lyrics-sep"${levels}></span>${[1, 2, 3].map((l) => `<button type="button" class="chip-btn" data-level="${l}" ${on(r.strength === l)}${levels}>${escapeHtml(LYRICS_LEVELS[l])}</button>`).join("")}
+    <span class="muted small"${!track || r.rec ? ' style="visibility:hidden"' : ""}>${t("applied when the track is saved")}</span>`;
 }
 
 async function onLyricsClick(e) {
@@ -624,25 +717,27 @@ function renderTiles(cur) {
   const live = cur?.live;
   const f = live?.current?.features;
   const box = $("lv-tiles");
-  if (!f) {
-    box.innerHTML = `<p class="muted small">${t("Measures show up after the first seconds of listening (6 s windows, updated every 3 s).")}</p>`;
-    $("lv-window-info").textContent = "";
-    return;
-  }
-  const inten = live.current.intensity;
-  const series = live.series;
+  // every tile is always there (placeholders until the first window) so the
+  // page never grows or shrinks when a track starts
+  const inten = f ? live.current.intensity : null;
+  const series = live?.series ?? {};
   // series in time order; the sparkline follows the heard order of the track
   const tiles = [
-    `<div class="lv-tile"><div class="k">${t("Intensity (window)")}</div><div class="v" style="color:${intensityColor(inten)}">${Math.round(inten)}<small>${escapeHtml(stageFor(inten).label)}</small></div>${sparkSvg(live.scoring?.curves.intensity ?? [], intensityColor(inten), 0, 100)}</div>`,
+    inten != null
+      ? `<div class="lv-tile"><div class="k">${t("Intensity (window)")}</div><div class="v" style="color:${intensityColor(inten)}">${Math.round(inten)}<small>${escapeHtml(stageFor(inten).label)}</small></div>${sparkSvg(live.scoring?.curves.intensity ?? [], intensityColor(inten), 0, 100)}</div>`
+      : `<div class="lv-tile"><div class="k">${t("Intensity (window)")}</div><div class="v muted">—</div>${sparkSvg([])}</div>`,
     ...TILES.map((tile) => {
-      const v = f.timeline?.series?.[tile.k]?.[0] ?? f[tile.k];
+      const v = f ? f.timeline?.series?.[tile.k]?.[0] ?? f[tile.k] : null;
       const txt = Number.isFinite(v) ? tile.fmt(v) : "—";
-      const ex = tile.extra ? tile.extra(f) : "";
+      const ex = f && tile.extra ? tile.extra(f) : "";
       return `<div class="lv-tile" title="${escapeHtml(ex)}"><div class="k">${tile.label}${ex ? ` · ${escapeHtml(ex)}` : ""}</div><div class="v">${txt}${tile.unit ? `<small>${tile.unit}</small>` : ""}</div>${sparkSvg(series[tile.k] ?? [], "#7dd3fc")}</div>`;
     }),
   ];
   box.innerHTML = tiles.join("");
-  $("lv-window-info").textContent = `${tn(live.windowCount, "{n} window", "{n} windows")} · ${t("last at {t}", { t: fmtTime(live.current.time) })}`;
+  $("lv-window-info").textContent = f
+    ? `${tn(live.windowCount, "{n} window", "{n} windows")} · ${t("last at {t}", { t: fmtTime(live.current.time) })}`
+    : t("first window after 6 s");
+  box.title = f ? "" : t("Measures show up after the first seconds of listening (6 s windows, updated every 3 s).");
   $("lv-spec-info").textContent = lv.capture ? `${lv.capture.contextRate} Hz` : "";
 }
 
@@ -701,11 +796,12 @@ const playable = (track) => !track.isLocal && !!track.uri?.startsWith("spotify:t
 
 function recordFor(track) {
   const cap = state.records.get(ctl.capturedId(track));
-  if (cap?.finalScore != null) return cap;
+  if (cap?.finalScore != null && !cap.draft) return cap; // drafts do not count until validated
   return null;
 }
 
 function renderOverall(s) {
+  if (s?.follow) return followOverall(s);
   if (!s?.queue?.length) return;
   const c = s.counts ?? {};
   const total = s.queue.length;
@@ -738,7 +834,7 @@ function renderSession() {
     [t("Mean"), n(avg)],
     [t("Min – max"), scores.length ? `${n(Math.min(...scores))} – ${n(Math.max(...scores))}` : "—"],
   ].map(([k, v]) => `<div><b>${v}</b><span>${k}</span></div>`).join("");
-  $("lv-session-summary").textContent = pl ? `${escapeHtml(pl.name)}` : "";
+  $("lv-session-summary").textContent = pl ? pl.name : "";
 }
 
 // ------------------------------------------------------------------ utils
