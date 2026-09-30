@@ -553,21 +553,22 @@ function lyricsOf(track) {
 function renderLyrics(cur) {
   const box = $("lv-lyrics");
   const track = cur?.track;
-  box.hidden = !track;
-  if (!track) return;
-  const r = lyricsOf(track);
-  const key = `${track.id}:${r.vocals}:${r.mood}:${r.strength}:${!!r.rec}`;
+  // always laid out (disabled without a track, strength buttons kept in place
+  // but invisible without a mood) so its height never changes
+  const r = track ? lyricsOf(track) : { rec: null, vocals: null, mood: null, strength: 2 };
+  const key = `${track?.id}:${r.vocals}:${r.mood}:${r.strength}:${!!r.rec}`;
   if (key === lv.lyricsKey) return;
   lv.lyricsKey = key;
-  const on = (b) => `aria-pressed="${b}"`;
+  const on = (b) => `aria-pressed="${b}"${track ? "" : " disabled"}`;
+  const levels = r.mood ? "" : ` style="visibility:hidden" aria-hidden="true" tabindex="-1"`;
   box.innerHTML = `
     <span class="lv-lyrics-k">${t("Lyrics")}</span>
     <button type="button" class="chip-btn" data-lyr="instrumental" ${on(r.vocals === "instrumental")}>${t("Instrumental")}</button>
     <button type="button" class="chip-btn" data-lyr="vocal" ${on(r.vocals === "vocal" && !r.mood)}>${t("Sung")}</button>
     <span class="lv-lyrics-sep"></span>
     ${LYRICS_MOODS.map((m) => `<button type="button" class="chip-btn" data-mood="${m.key}" ${on(r.mood === m.key)} title="${escapeHtml(m.label)}">${m.icon} ${escapeHtml(m.label)}</button>`).join("")}
-    ${r.mood ? `<span class="lv-lyrics-sep"></span>${[1, 2, 3].map((l) => `<button type="button" class="chip-btn" data-level="${l}" ${on(r.strength === l)}>${escapeHtml(LYRICS_LEVELS[l])}</button>`).join("")}` : ""}
-    <span class="muted small">${r.rec ? "" : t("applied when the track is saved")}</span>`;
+    <span class="lv-lyrics-sep"${levels}></span>${[1, 2, 3].map((l) => `<button type="button" class="chip-btn" data-level="${l}" ${on(r.strength === l)}${levels}>${escapeHtml(LYRICS_LEVELS[l])}</button>`).join("")}
+    <span class="muted small"${!track || r.rec ? ' style="visibility:hidden"' : ""}>${t("applied when the track is saved")}</span>`;
 }
 
 async function onLyricsClick(e) {
@@ -624,25 +625,27 @@ function renderTiles(cur) {
   const live = cur?.live;
   const f = live?.current?.features;
   const box = $("lv-tiles");
-  if (!f) {
-    box.innerHTML = `<p class="muted small">${t("Measures show up after the first seconds of listening (6 s windows, updated every 3 s).")}</p>`;
-    $("lv-window-info").textContent = "";
-    return;
-  }
-  const inten = live.current.intensity;
-  const series = live.series;
+  // every tile is always there (placeholders until the first window) so the
+  // page never grows or shrinks when a track starts
+  const inten = f ? live.current.intensity : null;
+  const series = live?.series ?? {};
   // series in time order; the sparkline follows the heard order of the track
   const tiles = [
-    `<div class="lv-tile"><div class="k">${t("Intensity (window)")}</div><div class="v" style="color:${intensityColor(inten)}">${Math.round(inten)}<small>${escapeHtml(stageFor(inten).label)}</small></div>${sparkSvg(live.scoring?.curves.intensity ?? [], intensityColor(inten), 0, 100)}</div>`,
+    inten != null
+      ? `<div class="lv-tile"><div class="k">${t("Intensity (window)")}</div><div class="v" style="color:${intensityColor(inten)}">${Math.round(inten)}<small>${escapeHtml(stageFor(inten).label)}</small></div>${sparkSvg(live.scoring?.curves.intensity ?? [], intensityColor(inten), 0, 100)}</div>`
+      : `<div class="lv-tile"><div class="k">${t("Intensity (window)")}</div><div class="v muted">—</div>${sparkSvg([])}</div>`,
     ...TILES.map((tile) => {
-      const v = f.timeline?.series?.[tile.k]?.[0] ?? f[tile.k];
+      const v = f ? f.timeline?.series?.[tile.k]?.[0] ?? f[tile.k] : null;
       const txt = Number.isFinite(v) ? tile.fmt(v) : "—";
-      const ex = tile.extra ? tile.extra(f) : "";
+      const ex = f && tile.extra ? tile.extra(f) : "";
       return `<div class="lv-tile" title="${escapeHtml(ex)}"><div class="k">${tile.label}${ex ? ` · ${escapeHtml(ex)}` : ""}</div><div class="v">${txt}${tile.unit ? `<small>${tile.unit}</small>` : ""}</div>${sparkSvg(series[tile.k] ?? [], "#7dd3fc")}</div>`;
     }),
   ];
   box.innerHTML = tiles.join("");
-  $("lv-window-info").textContent = `${tn(live.windowCount, "{n} window", "{n} windows")} · ${t("last at {t}", { t: fmtTime(live.current.time) })}`;
+  $("lv-window-info").textContent = f
+    ? `${tn(live.windowCount, "{n} window", "{n} windows")} · ${t("last at {t}", { t: fmtTime(live.current.time) })}`
+    : t("first window after 6 s");
+  box.title = f ? "" : t("Measures show up after the first seconds of listening (6 s windows, updated every 3 s).");
   $("lv-spec-info").textContent = lv.capture ? `${lv.capture.contextRate} Hz` : "";
 }
 
@@ -738,7 +741,7 @@ function renderSession() {
     [t("Mean"), n(avg)],
     [t("Min – max"), scores.length ? `${n(Math.min(...scores))} – ${n(Math.max(...scores))}` : "—"],
   ].map(([k, v]) => `<div><b>${v}</b><span>${k}</span></div>`).join("");
-  $("lv-session-summary").textContent = pl ? `${escapeHtml(pl.name)}` : "";
+  $("lv-session-summary").textContent = pl ? pl.name : "";
 }
 
 // ------------------------------------------------------------------ utils

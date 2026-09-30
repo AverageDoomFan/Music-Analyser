@@ -753,6 +753,7 @@ export default {
   "excerpt {i}/{n}": "extrait {i}/{n}",
   "{d} heard ({p} %)": "{d} écoutées ({p} %)",
   "Measures show up after the first seconds of listening (6 s windows, updated every 3 s).": "Les mesures apparaissent après les premières secondes d'écoute (fenêtres de 6 s, mises à jour toutes les 3 s).",
+  "first window after 6 s": "première fenêtre après 6 s",
   "Intensity (window)": "Intensité (fenêtre)",
   "{n} window": "{n} fenêtre",
   "{n} windows": "{n} fenêtres",
