@@ -1,19 +1,24 @@
-// Extratone detector (extractor 1.7): very fast, regular attacks, from 12.5
-// to 24 per second (750 to 1450 BPM), measured on the waveform itself.
+// Attack rate (extractor 1.8): the fastest regular train of hits, from 2 to
+// 24 per second (120 to 1450 BPM), measured on the waveform itself.
 //
 // The frame pass runs at ~86 frames/s: it cannot resolve attacks closer than
-// ~25 ms, and its kick pulse stops at 22/s. Here the envelopes of two bands
-// (200–1500 Hz and 2–12 kHz) are sampled at ~2 kHz and autocorrelated over
-// 3 s blocks. A kick train moves both bands at the same period (a broadband
-// click on every hit); a detection needs the same peak in both.
+// ~25 ms. Here the envelopes of two bands (200–1500 Hz and 2–12 kHz) are
+// sampled at ~2 kHz and autocorrelated over 3 s blocks. A drum hit moves both
+// bands at once (a broadband click), a hi-hat or a pad moves only one: a
+// period counts only if both bands share it. The fastest shared period that
+// is nearly as regular as the best one gives the rate (kicks on the beat:
+// 2/s; speedcore: 5-10/s; blast beats: 13+/s; extratone: 16+/s).
 //
 // Faster than 24/s, a kick train is physically a pitched tone (49 kicks/s is
 // a G1): it cannot be told from a distorted bass note, so it is not counted.
 // A tone also correlates at every multiple of its period (a low power chord
 // every 25-35 ms): a lag counts only if its fractions correlate much less.
 
+import { FFT } from "./fft.js";
+
 const ENV_RATE = 2000;
-const LAG_MIN_S = 0.042, LAG_MAX_S = 0.08;
+const LAG_MIN_S = 0.042, LAG_MAX_S = 0.5;
+const NEAR_BEST = 0.6;
 const BLOCK_S = 3, BLOCK_HOP_S = 1.5;
 const MIN_R = 0.18;
 const MATCH_S = 0.0015;
@@ -48,26 +53,28 @@ function bandEnvelope(mono, s, e, sr, lo, hi, dec) {
   return out;
 }
 
-/** Normalised autocorrelation of env[a..b) (moving average removed) at lags lagMin-1..lagMax+1. */
-function blockAc(env, a, b, lagMin, lagMax, W) {
+/** Normalised autocorrelation of env[a..b) (moving average removed), through an FFT. */
+function blockAc(fft, env, a, b, lagMax, W) {
   const n = b - a;
-  const x = new Float64Array(n);
-  let acc = 0;
   const pre = new Float64Array(n + 1);
+  let acc = 0;
   for (let i = 0; i < n; i++) { acc += env[a + i]; pre[i + 1] = acc; }
-  let zero = 0;
+  const { size, re, im, rev } = fft;
+  re.fill(0); im.fill(0);
   for (let i = 0; i < n; i++) {
     const lo = Math.max(0, i - W), hi = Math.min(n, i + W + 1);
-    x[i] = env[a + i] - (pre[hi] - pre[lo]) / (hi - lo);
-    zero += x[i] * x[i];
+    re[rev[i]] = env[a + i] - (pre[hi] - pre[lo]) / (hi - lo);
   }
+  fft.transform();
+  // power spectrum, then back (real and symmetric: a forward transform will do)
+  const pw = new Float64Array(size);
+  for (let k = 0; k < size; k++) pw[k] = re[k] * re[k] + im[k] * im[k];
+  for (let k = 0; k < size; k++) { re[rev[k]] = pw[k]; im[rev[k]] = 0; }
+  fft.transform();
   const ac = new Float64Array(lagMax + 2);
+  const zero = re[0];
   if (zero <= 0) return ac;
-  for (let lag = lagMin - 1; lag <= lagMax + 1; lag++) {
-    let s = 0;
-    for (let i = 0; i + lag < n; i++) s += x[i] * x[i + lag];
-    ac[lag] = s / zero;
-  }
+  for (let lag = 0; lag <= lagMax + 1; lag++) ac[lag] = re[lag] / zero;
   return ac;
 }
 
@@ -110,22 +117,27 @@ export function fastPulseBlocks(mono, s, e, sampleRate) {
   const B = Math.round(BLOCK_S * envRate), H = Math.round(BLOCK_HOP_S * envRate);
   const out = [];
   const n = mid.length;
+  let size = 1;
+  while (size < Math.min(n, B) + lagMax + 2) size <<= 1;
+  const fft = new FFT(size);
   const starts = [];
   for (let a = 0; a + B <= n; a += H) starts.push(a);
   if (!starts.length && n >= Math.round(1.5 * envRate)) starts.push(0);
   for (const a of starts) {
     const b = Math.min(n, a + B);
-    const am = blockAc(mid, a, b, lagFloor, lagMax, W);
-    const ah = blockAc(hi, a, b, lagFloor, lagMax, W);
+    const am = blockAc(fft, mid, a, b, lagMax, W);
+    const ah = blockAc(fft, hi, a, b, lagMax, W);
     const ph = peaks(ah, lagMin, lagMax);
-    let best = null;
+    const found = [];
     for (const lm of peaks(am, lagMin, lagMax)) {
       const lh = ph.find((l) => Math.abs(l - lm) <= match);
       if (lh == null) continue;
       if (pitched(am, lm, match, lagFloor) && pitched(ah, lh, match, lagFloor)) continue;
-      const r = Math.min(am[lm], ah[lh]);
-      if (!best || r > best.r) best = { lag: (lm + lh) / 2, r };
+      found.push({ lag: (lm + lh) / 2, r: Math.min(am[lm], ah[lh]) });
     }
+    // the fastest period nearly as regular as the most regular one
+    const top = Math.max(0, ...found.map((c) => c.r));
+    const best = found.filter((c) => c.r >= NEAR_BEST * top).sort((a, b) => a.lag - b.lag)[0] ?? null;
     out.push({
       start: s + a * dec,
       end: s + b * dec,

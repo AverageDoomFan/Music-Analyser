@@ -16,7 +16,7 @@ export const ALGORITHM_VERSION = "2.4";
  * file again. Tracks with an older feature version are flagged "re-analysis
  * advised" but keep their scores and corrections.
  */
-export const FEATURE_VERSION = "1.7";
+export const FEATURE_VERSION = "1.8";
 
 /** Schema version of the JSON export. */
 export const EXPORT_SCHEMA_VERSION = 1;
@@ -147,15 +147,17 @@ export const CALIBRATION = [
 ];
 
 /** Highest possible score. Scores above 100 are "Off the charts". The calibration ends at
- * 125; only the extratone bonus (and manual scores) go further. */
+ * 125; only the attack-rate points (and manual scores) go further. */
 export const SCORE_MAX = 150;
 
 /**
- * 2.4: points added to an already intense window (60 → 90 fades it in) that holds a
- * regular extratone pulse (extractor 1.7, 12.5–24 hits/s). Fitted on The End of All
- * Ends (Instrumental): 97 → ~133; no other track of the user's 1.7 export has one.
+ * 2.4: points added for fast regular attacks (extractor 1.8 attack rate, hits/s),
+ * as [hits per second, points]. Nearly nothing for a beat on the kick (2-4/s),
+ * a few points for speedcore (5-10/s), a lot for blast beats and extratone
+ * (13-24/s). Scaled by how regular and how lasting the pulse is in the window,
+ * and faded in with the intensity (50 → 85): a calm track never gains.
  */
-export const EXTRATONE_POINTS = 60;
+export const ATTACK_POINTS = [[3, 0], [5, 5], [8, 12], [12, 25], [16, 45], [24, 65]];
 
 /**
  * How the user's rating of a song's lyrics shifts its perceived intensity and

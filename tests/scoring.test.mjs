@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { tracks, SR } from "./synth.mjs";
 import { extractFeatures, measureClipping } from "../src/audio/features.js";
-import { scoreFeatures, computeIntensity, toDisplay, toModel } from "../src/scoring/model.js";
+import { scoreFeatures, computeIntensity, toDisplay, toModel, attackPoints } from "../src/scoring/model.js";
 import { DEFAULT_WEIGHTS, ALGORITHM_VERSION, SUBSCORE_SCALES, SCORE_MAX, STAGES, stageFor } from "../src/config.js";
 
 const results = {};
@@ -45,8 +45,10 @@ test("coarse perceptual ordering", () => {
   assert.ok(s("piano") < s("pop"));
   assert.ok(s("pop") < s("metal"));
   assert.ok(s("metal") < s("speedcore"));
-  assert.ok(s("speedcore") < s("harshNoise"));
-  assert.ok(s("extratone") > 90, `extratone ${s("extratone")}`);
+  // 2.4: fast regular attacks add points, extratone ends on top
+  assert.ok(s("speedcore") < s("extratone"));
+  assert.ok(s("harshNoise") < s("extratone"));
+  assert.ok(s("extratone") > 120, `extratone ${s("extratone")}`);
   assert.ok(s("harshNoise") > 90);
 });
 
@@ -164,11 +166,14 @@ test("extractor 1.6: hardness cues react to distortion and double kick", async (
   assert.ok(clean.fastKickRatio < 0.1);
 });
 
-test("an extratone pulse adds points to an intense window only", () => {
+test("fast regular attacks add points along a rising curve, to intense windows only", () => {
+  assert.equal(attackPoints(2), 0);
+  assert.ok(attackPoints(5) > 0 && attackPoints(5) < attackPoints(9));
+  assert.ok(attackPoints(16) - attackPoints(12) > attackPoints(9) - attackPoints(5));
   const loud = { energy: 90, tempo: 70, density: 85, brightness: 85, harshness: 92, pressure: 80, complexity: 55, noise: 65 };
   const calm = { energy: 20, tempo: 30, density: 30, brightness: 30, harshness: 10, pressure: 15, complexity: 20, noise: 0 };
   const base = computeIntensity(loud);
-  assert.ok(computeIntensity({ ...loud, extratone: 100 }) >= base + 50);
-  assert.ok(computeIntensity({ ...loud, extratone: 100 }) <= SCORE_MAX);
-  assert.equal(computeIntensity({ ...calm, extratone: 100 }), computeIntensity(calm));
+  assert.ok(computeIntensity({ ...loud, attackSpeed: 100 }) >= base + 50);
+  assert.ok(computeIntensity({ ...loud, attackSpeed: 100 }) <= SCORE_MAX);
+  assert.equal(computeIntensity({ ...calm, attackSpeed: 100 }), computeIntensity(calm));
 });

@@ -196,7 +196,7 @@ export const tracks = {
 };
 
 /** Expected coarse order, calmest first. */
-export const EXPECTED_ORDER = ["ambient", "piano", "rapSlow", "pop", "orchestralEpic", "hardstyle", "metal", "speedcore", "extratone", "harshNoise"];
+export const EXPECTED_ORDER = ["ambient", "piano", "rapSlow", "pop", "orchestralEpic", "hardstyle", "metal", "speedcore", "harshNoise", "extratone"];
 
 export function toWav(samples, sampleRate = SR) {
   const n = samples.length;

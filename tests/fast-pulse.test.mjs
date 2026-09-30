@@ -42,7 +42,12 @@ test("an extratone kick train (16 hits/s, 960 BPM) is detected at its rate", () 
   for (const b of hits) assert.ok(Math.abs(b.rate - 16) < 0.5, `rate ${b.rate}`);
 });
 
-test("normal kicks and distorted power chords are not extratone", () => {
-  assert.equal(detected(kickTrain(4)).length, 0);
+test("a kick on every beat is found at its own rate", () => {
+  const hits = detected(kickTrain(4));
+  assert.ok(hits.length >= 3);
+  for (const b of hits) assert.ok(Math.abs(b.rate - 4) < 0.2, `rate ${b.rate}`);
+});
+
+test("sustained distorted power chords give no attack rate", () => {
   for (const f0 of [82.4, 61.7, 49]) assert.equal(detected(powerChord(f0)).length, 0, `chord at ${f0} Hz`);
 });
