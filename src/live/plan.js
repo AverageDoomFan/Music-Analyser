@@ -27,7 +27,7 @@ export const SCAN_DEFAULTS = Object.freeze({
 });
 
 /** Coverage rank: a track analysed in a better mode is never rescanned in a lesser one. */
-export const MODE_RANK = { fixed: 1, adaptive: 2, full: 3 };
+export const MODE_RANK = { fixed: 1, adaptive: 2, follow: 2, full: 3 };
 
 const clampPos = (pos, len, duration) => Math.max(0, Math.min(Math.max(0, duration - len - 0.5), pos));
 

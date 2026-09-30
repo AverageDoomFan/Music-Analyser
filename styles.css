@@ -406,6 +406,10 @@ table.library { width: 100%; border-collapse: collapse; }
 .lv-modes button { font: inherit; font-size: 0.85rem; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); cursor: pointer; }
 .lv-modes button[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .lv-params { display: flex; flex-wrap: wrap; gap: 10px; }
+/* follow mode: the app follows the user's own Spotify listening */
+.lv-follow-row button[aria-checked="true"] { background: #1db954; border-color: #1db954; color: #07130b; }
+.following #lv-modes button[aria-checked="true"] { background: var(--surface); border-color: var(--border); color: var(--text-2); }
+.following .lv-params, .following label:has(#lv-skip-files), .following label:has(#lv-rescan) { display: none; }
 .lv-params input[type="number"] { width: 70px; }
 .lv-tips { margin-top: 10px; color: var(--text-2); }
 .lv-tips summary { cursor: pointer; }
@@ -585,6 +589,10 @@ table.pl-compare td:first-child { color: var(--muted); }
 
 /* Test bench */
 .test-tag { color: #a855f7; font-weight: 600; }
+.draft-tag { display: inline-block; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--warn); border: 1px solid currentColor; border-radius: 999px; padding: 0 7px; line-height: 1.5; }
+.draft-actions { display: flex; gap: 6px; margin-top: 4px; }
+.draft-notice { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border-left: 3px solid var(--warn); }
+.draft-notice span { flex: 1 1 220px; }
 .lab-intro h2 { margin-bottom: 6px; }
 .lab-vars { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
 .lab-progress { display: grid; gap: 4px; margin-top: 8px; }

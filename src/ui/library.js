@@ -2,7 +2,7 @@
 
 import { STAGES, stageFor, AGGREGATIONS, CURVE_STATS } from "../config.js";
 import { state, notify } from "../app/store.js";
-import { statusOf, needsReanalysis } from "../core/track.js";
+import { statusOf, needsReanalysis, isCounted } from "../core/track.js";
 import { formatDuration, formatSize, formatScore, formatDelta, escapeHtml } from "../util/format.js";
 import { renderScoreChart, sparkline } from "./charts.js";
 import { moodLabel } from "../scoring/describe.js";
@@ -63,6 +63,12 @@ export function initLibrary({ openDetail }) {
       player.toggle(play.dataset.play);
       return;
     }
+    const draft = e.target.closest("[data-draft]");
+    if (draft) {
+      e.stopPropagation();
+      onDraftAction(draft.dataset.draft, draft.dataset.id).catch((err) => console.error(err));
+      return;
+    }
     const row = e.target.closest("tr[data-id]");
     if (row) onOpen(row.dataset.id);
   });
@@ -74,6 +80,14 @@ export function initLibrary({ openDetail }) {
     }
   });
   player.onChange(() => notify());
+}
+
+/** Validate / Delete buttons of a draft row. */
+async function onDraftAction(action, id) {
+  const r = state.records.get(id);
+  if (!r) return;
+  if (action === "validate") await ctl.validateDraft(id);
+  else if (action === "delete" && confirm(t("Delete the draft “{name}”?", { name: r.name }))) await ctl.deleteTrack(id);
 }
 
 const SORT_KEYS = [
@@ -121,7 +135,7 @@ function filterSort(rows) {
   const stageIdx = state.ui.stage === "all" ? null : Number(state.ui.stage);
   let out = rows.filter((row) => {
     if (q && !searchText(row).includes(q)) return false;
-    if (state.ui.status !== "all" && rowStatus(row) !== state.ui.status) return false;
+    if (state.ui.status === "draft" ? !row.record?.draft : state.ui.status !== "all" && rowStatus(row) !== state.ui.status) return false;
     if (state.ui.hideTests && row.record?.source?.kind === "test") return false;
     const gf = state.ui.genre ?? "all";
     if (gf !== "all") {
@@ -204,6 +218,7 @@ function rowHtml(row) {
     : src?.kind === "spotify"
     ? [`<span class="src-tag" title="${t("Analysed by capturing Spotify playback")}">Spotify · ${src.mode === "full" ? t("whole") : t("{n} % heard", { n: Math.round((src.coverage ?? 0) * 100) })}</span>`, formatDuration(r?.duration)]
     : [formatSize(row.size), formatDuration(r?.duration)];
+  if (r?.draft) meta.unshift(`<span class="draft-tag" title="${t("Heard less than 60 % in the Live tab: out of stats and games until you validate it")}">${t("Draft")}</span>`);
   if (final != null) meta.push(`<span class="stage-tag">${stageFor(final).label}</span>`);
   if (r && needsReanalysis(r)) meta.push(t("re-analysis advised"));
 
@@ -218,7 +233,7 @@ function rowHtml(row) {
 
   return `<tr ${row.id ? `data-id="${row.id}" tabindex="0"` : ""}>
     <td class="col-play"><button class="icon-btn" data-play="${row.id ?? ""}" ${canPlay ? "" : "disabled"} aria-label="${playing ? t("Pause") : t("Play")}" title="${canPlay ? (playing ? t("Pause") : player.kind(row.id) === "spotify" ? t("Play on Spotify") : t("Play")) : t("Playback available for files imported in this session, and for Spotify captures when logged in")}">${playing ? "❚❚" : "▶"}</button></td>
-    <td><div class="track-name">${escapeHtml(row.name)}</div><div class="track-meta">${meta.join(" · ")}</div></td>
+    <td><div class="track-name">${escapeHtml(row.name)}</div><div class="track-meta">${meta.join(" · ")}</div>${r?.draft ? draftActions(r) : ""}</td>
     <td class="col-curve hide-sm" title="${r?.auto?.stats ? curveTitle(r) : ""}">${r?.auto?.curves ? sparkline(r.auto.curves.intensity) : ""}</td>
     <td class="hide-sm">${musicCell(r)}</td>
     <td class="num"><div class="score-cell">${final != null ? `<span class="minibar" aria-hidden="true"><i style="width:${final}%"></i></span>` : ""}<b>${formatScore(final)}</b></div>${sortTag(r)}</td>
@@ -227,6 +242,11 @@ function rowHtml(row) {
     <td>${statusHtml}</td>
     <td class="num hide-sm">${row.id && r ? `<button class="btn small" type="button">${t("Details")}</button>` : ""}</td>
   </tr>`;
+}
+
+function draftActions(r) {
+  const id = escapeHtml(r.id);
+  return `<div class="draft-actions"><button class="btn small primary" type="button" data-draft="validate" data-id="${id}">${t("Validate")}</button><button class="btn small danger" type="button" data-draft="delete" data-id="${id}">${t("Delete")}</button></div>`;
 }
 
 /** Name + genres (label and fetched genres): what the search box looks into. */
@@ -337,7 +357,7 @@ function curveTitle(r) {
 
 function renderOverview() {
   const container = document.getElementById("overview");
-  const scored = [...state.records.values()].filter((r) => r.finalScore != null).sort((a, b) => a.finalScore - b.finalScore);
+  const scored = [...state.records.values()].filter(isCounted).sort((a, b) => a.finalScore - b.finalScore);
   if (scored.length < 2) {
     container.innerHTML = "";
     container._key = "";

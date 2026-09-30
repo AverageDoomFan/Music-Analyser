@@ -88,6 +88,7 @@ export function initDetail() {
         render(true);
         break;
       }
+      case "validate-draft": await ctl.validateDraft(id); toast(t("Draft validated: the track now counts in stats and games.")); break;
       case "delete":
         if (confirm(t("Delete “{name}” and its corrections from the local database?", { name: r.name }))) {
           await ctl.deleteTrack(id);
@@ -142,6 +143,7 @@ function render(force = false) {
       <button class="icon-btn" data-action="close" aria-label="${t("Close")}">✕</button>
     </div>
     <div class="dialog-body">
+      ${r.draft ? `<div class="notice draft-notice"><span>${t("Draft: only {n} % of this track was heard in the Live tab. It stays out of stats and games until you validate it.", { n: Math.round((r.source?.coverage ?? 0) * 100) })}</span> <button class="btn small primary" data-action="validate-draft">${t("Validate")}</button></div>` : ""}
       ${r.error && !auto ? `<div class="notice">⚠ ${escapeHtml(r.error)}</div>` : ""}
       ${needsReanalysis(r) ? `<div class="notice">${t("Features extracted by an older version of the analysis ({v}). The score stays valid; analyse the track again to use the new measures.", { v: escapeHtml(r.featureVersion) })}</div>` : ""}
       ${reportOpen && auto ? reportBlock(r) : ""}

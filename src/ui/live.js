@@ -18,6 +18,7 @@ import { escapeHtml, formatDuration } from "../util/format.js";
 import { toast } from "./toast.js";
 import { rememberDevice, savedDevice } from "./player.js";
 import { pickDevice } from "../spotify/devices.js";
+import { initFollow, followOn, startFollowing, followSummary, followOverall } from "./live-follow.js";
 import {
   drawGauge, gaugeState, stepGauge, drawTimeline, drawCurve, drawRadar, drawHistogram, SpectrumView, Spectrogram, Meters,
   intensityColor, sparkSvg, fmtTime, DIM_COLORS,
@@ -56,6 +57,7 @@ export function initLive({ openDetail }) {
   lv.openDetail = openDetail;
   restoreOptions();
   buildModes();
+  initFollow({ lv, beginCapture, setRunning, requestWakeLock, releaseWakeLock, applyPendingLyrics, renderEstimate, demoOn });
   buildOrders();
   buildChips();
   const sup = captureSupport();
@@ -73,7 +75,7 @@ export function initLive({ openDetail }) {
   $("lv-spdevice").addEventListener("change", (e) => rememberDevice(e.target.value));
   $("lv-reconnect").addEventListener("click", () => auth.beginLogin().catch(showError));
   for (const id of ["lv-count", "lv-length", "lv-budget", "lv-gap", "lv-skip-files", "lv-rescan"]) $(id).addEventListener("change", () => { saveOptions(); renderEstimate(); });
-  $("lv-start").addEventListener("click", () => startScan().catch(showError));
+  $("lv-start").addEventListener("click", () => (followOn() ? startFollowing() : startScan()).catch(showError));
   $("lv-demo").addEventListener("change", () => toggleDemo().catch(showError));
   $("lv-demo-audible").addEventListener("change", (e) => lv.demo?.setAudible(e.target.checked));
   $("lv-pause").addEventListener("click", () => (lv.status?.paused ? lv.scanner?.resume() : lv.scanner?.pause()));
@@ -295,6 +297,7 @@ function isDone(track, o, matches) {
 }
 
 function renderEstimate() {
+  if (followOn()) return followSummary();
   const { tracks, todo } = scanList();
   if (!tracks.length) {
     $("lv-estimate").textContent = "";
@@ -365,6 +368,7 @@ function renderCapture() {
 async function playNow(trackId) {
   const track = lv.playlist?.tracks.find((x) => x.id === trackId);
   if (!track) return;
+  if (lv.status?.follow && lv.status.running) return toast(t("Follow mode: play the track in Spotify itself."));
   if (lv.status?.running) {
     if (!lv.scanner?.jumpTo(track)) toast(t("This track cannot be played through the Spotify API."), "error");
     return;
@@ -701,11 +705,12 @@ const playable = (track) => !track.isLocal && !!track.uri?.startsWith("spotify:t
 
 function recordFor(track) {
   const cap = state.records.get(ctl.capturedId(track));
-  if (cap?.finalScore != null) return cap;
+  if (cap?.finalScore != null && !cap.draft) return cap; // drafts do not count until validated
   return null;
 }
 
 function renderOverall(s) {
+  if (s?.follow) return followOverall(s);
   if (!s?.queue?.length) return;
   const c = s.counts ?? {};
   const total = s.queue.length;
