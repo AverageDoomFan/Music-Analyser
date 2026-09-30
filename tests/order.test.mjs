@@ -1,6 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { orderTracks, PLAY_ORDERS } from "../src/live/order.js";
+import { orderTracks, PLAY_ORDERS, queueAfter } from "../src/live/order.js";
+
+test("▶ on a track: it goes first, then the scan continues where it was", () => {
+  const all = "abcdefgh".split("").map((id) => ({ id }));
+  const q = (first, todo, o) => queueAfter(all.find((x) => x.id === first), todo, { order: all, ...o }).map((x) => x.id).join("");
+  // no previous scan: the rest in play order
+  assert.equal(q("f", all), "fabcdegh");
+  // the previous scan reached d (unfinished): d, then on, then the ones before
+  assert.equal(q("f", all, { resumeFrom: "d" }), "fdeghabc");
+  // tracks done in this session are skipped; d finished is not in todo
+  const done = new Set(["a", "b", "c", "d"]);
+  assert.equal(q("f", all.filter((x) => x.id !== "d"), { resumeFrom: "d", skip: (x) => done.has(x.id) }), "fegh");
+  // a resume point missing from the playlist: plain play order
+  assert.equal(q("b", all, { resumeFrom: "zz" }), "bacdefgh");
+});
 
 const tracks = [
   { id: "1", name: "beta", artists: ["Zed"], album: "B", durationMs: 200000, addedAt: "2026-01-02T00:00:00Z" },

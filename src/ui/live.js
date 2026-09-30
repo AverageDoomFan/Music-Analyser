@@ -11,8 +11,9 @@ import { startCapture, audioInputs, captureSupport } from "../live/capture.js";
 import { Scanner } from "../live/scanner.js";
 import { createDemo } from "../live/demo.js";
 import { SCAN_MODES, SCAN_DEFAULTS, MODE_RANK, estimateTrackSeconds, coveredSeconds } from "../live/plan.js";
-import { PLAY_ORDERS, orderTracks } from "../live/order.js";
-import { DIMENSIONS, stageFor, LYRICS_MOODS, LYRICS_LEVELS } from "../config.js";
+import { PLAY_ORDERS, orderTracks, queueAfter } from "../live/order.js";
+import { featuresOutdated } from "../core/track.js";
+import { DIMENSIONS, stageFor, LYRICS_MOODS, LYRICS_LEVELS, FEATURE_VERSION } from "../config.js";
 import { t, tn } from "../i18n/index.js";
 import { escapeHtml, formatDuration } from "../util/format.js";
 import { toast } from "./toast.js";
@@ -46,6 +47,9 @@ const lv = {
   demo: null,          // demo instance (fake Spotify + stream)
   pendingLyrics: new Map(), // track id -> { vocals, mood, strength } rated before the track is saved
   lyricsKey: "",
+  sessionDone: new Map(), // track id -> mode, tracks analysed by a scan since the page opened
+  resumeFrom: null,    // last in-order track a scan reached (a ▶ track excepted)
+  custom: new Set(),   // tracks asked for with ▶ during the current scan
 };
 const demoOn = () => $("lv-demo").checked;
 const spectrum = new SpectrumView(96);
@@ -72,7 +76,10 @@ export function initLive({ openDetail }) {
   $("lv-spdevice-refresh").addEventListener("click", () => loadDevices().catch(showError));
   $("lv-spdevice").addEventListener("change", (e) => rememberDevice(e.target.value));
   $("lv-reconnect").addEventListener("click", () => auth.beginLogin().catch(showError));
-  for (const id of ["lv-count", "lv-length", "lv-budget", "lv-gap", "lv-skip-files", "lv-rescan"]) $(id).addEventListener("change", () => { saveOptions(); renderEstimate(); });
+  for (const id of ["lv-count", "lv-length", "lv-budget", "lv-gap", "lv-skip-files", "lv-rescan", "lv-rescan-old"]) $(id).addEventListener("change", () => { saveOptions(); renderEstimate(); });
+  // "every track" and "only older versions" exclude each other
+  $("lv-rescan").addEventListener("change", (e) => { if (e.target.checked) $("lv-rescan-old").checked = false; saveOptions(); renderEstimate(); });
+  $("lv-rescan-old").addEventListener("change", (e) => { if (e.target.checked) $("lv-rescan").checked = false; saveOptions(); renderEstimate(); });
   $("lv-start").addEventListener("click", () => startScan().catch(showError));
   $("lv-demo").addEventListener("change", () => toggleDemo().catch(showError));
   $("lv-demo-audible").addEventListener("change", (e) => lv.demo?.setAudible(e.target.checked));
@@ -147,6 +154,7 @@ function options() {
     budget: num("lv-budget", 30, 240, SCAN_DEFAULTS.budget),
     maxGap: num("lv-gap", 8, 40, SCAN_DEFAULTS.maxGap),
     rescan: $("lv-rescan").checked,
+    rescanOld: $("lv-rescan-old").checked && !$("lv-rescan").checked,
     skipFiles: $("lv-skip-files").checked,
   };
 }
@@ -166,6 +174,7 @@ function restoreOptions() {
   if (Number.isFinite(o.seed)) lv.seed = o.seed;
   for (const [id, k] of [["lv-count", "count"], ["lv-length", "length"], ["lv-budget", "budget"], ["lv-gap", "maxGap"]]) if (o[k] != null) $(id).value = o[k];
   $("lv-rescan").checked = !!o.rescan;
+  $("lv-rescan-old").checked = !o.rescan && !!o.rescanOld;
   $("lv-skip-files").checked = o.skipFiles !== false;
   const r = document.querySelector(`input[name="lv-source"][value="${o.source}"]`);
   if (r) r.checked = true;
@@ -290,6 +299,8 @@ function scanList() {
 function isDone(track, o, matches) {
   if (o.skipFiles && matches?.has(track.id) && state.records.get(matches.get(track.id).recordId)?.finalScore != null) return true;
   if (o.rescan) return false;
+  // only the tracks whose stored features come from an older extractor
+  if (o.rescanOld) return !featuresOutdated(state.records.get(ctl.capturedId(track)));
   const r = ctl.capturedRecord(track);
   return !!r && (MODE_RANK[r.source?.mode] ?? 0) >= (MODE_RANK[o.mode] ?? 0);
 }
@@ -303,8 +314,10 @@ function renderEstimate() {
   }
   const o = options();
   const secs = todo.reduce((a, t) => a + estimateTrackSeconds((t.durationMs ?? 0) / 1000, o), 0);
-  $("lv-estimate").textContent = t("{n} of {total} tracks to analyse · estimated time {d}.", { n: todo.length, total: tracks.length, d: formatLong(secs) });
-  $("lv-setup-summary").textContent = `${SCAN_MODES.find((m) => m.key === o.mode).label} · ${t("{n}/{total} tracks", { n: todo.length, total: tracks.length })} · ~${formatLong(secs)}`;
+  $("lv-estimate").textContent = o.rescanOld
+    ? t("{n} of {total} tracks analysed with an extractor older than v{v} to analyse again · estimated time {d}.", { n: todo.length, total: tracks.length, v: FEATURE_VERSION, d: formatLong(secs) })
+    : t("{n} of {total} tracks to analyse · estimated time {d}.", { n: todo.length, total: tracks.length, d: formatLong(secs) });
+  $("lv-setup-summary").textContent = `${SCAN_MODES.find((m) => m.key === o.mode).label}${o.rescanOld ? ` · ${t("older versions only")}` : ""} · ${t("{n}/{total} tracks", { n: todo.length, total: tracks.length })} · ~${formatLong(secs)}`;
 }
 
 // ------------------------------------------------------------------ capture
@@ -366,6 +379,7 @@ async function playNow(trackId) {
   const track = lv.playlist?.tracks.find((x) => x.id === trackId);
   if (!track) return;
   if (lv.status?.running) {
+    lv.custom.add(track.id);
     if (!lv.scanner?.jumpTo(track)) toast(t("This track cannot be played through the Spotify API."), "error");
     return;
   }
@@ -396,10 +410,20 @@ async function startScan(first = null, only = null) {
   }
   lv.playlist = demo ? demoPlaylist() : await ctl.spotifyStore.get("playlist").catch(() => null);
   if (!lv.playlist && !only) throw new Error(t("Import a playlist in the Spotify tab first."));
+  const o = options();
   let todo = only ?? scanList().todo;
-  // a track asked for with ▶ goes first, even if it was already analysed
-  if (first) todo = [lv.playlist.tracks.find((x) => x.id === first.id) ?? first, ...todo.filter((x) => x.id !== first.id)];
-  if (!todo.length) return toast(t("Every track is already analysed with this mode (tick “Re-analyse” to start again)."));
+  lv.custom = new Set(first ? [first.id] : []);
+  // a track asked for with ▶ goes first, even if it was already analysed; then
+  // the scan goes on from where the previous one was, without the tracks this
+  // session already analysed in this mode (or better)
+  if (first) {
+    todo = queueAfter(lv.playlist.tracks.find((x) => x.id === first.id) ?? first, todo, {
+      order: ordered(lv.playlist.tracks),
+      resumeFrom: lv.resumeFrom,
+      skip: (x) => (MODE_RANK[lv.sessionDone.get(x.id)] ?? -1) >= (MODE_RANK[o.mode] ?? 0),
+    });
+  }
+  if (!todo.length) return toast(o.rescanOld ? t("No track was analysed with an older extractor version.") : t("Every track is already analysed with this mode (tick “Re-analyse” to start again)."));
   await beginCapture();
   let player;
   if (demo) {
@@ -416,7 +440,6 @@ async function startScan(first = null, only = null) {
       state: () => api.playbackState(),
     };
   }
-  const o = options();
   lv.scanner = new Scanner({
     player,
     analyze: (mono, sr, extra) => analyzePcm(mono, sr, extra),
@@ -427,7 +450,14 @@ async function startScan(first = null, only = null) {
       return rec;
     },
     scoring: ctl.scoring,
-    onUpdate: (s) => { lv.status = s; lv.lastUpdate = performance.now(); lv.dirty = true; },
+    onUpdate: (s) => {
+      lv.status = s;
+      lv.lastUpdate = performance.now();
+      lv.dirty = true;
+      const cur = s.current?.track?.id;
+      if (cur && !only && !lv.custom.has(cur)) lv.resumeFrom = cur;
+      for (const q of s.queue) if (q.state === "done") lv.sessionDone.set(q.track.id, o.mode);
+    },
   });
   $("lv-setup").open = false;
   requestWakeLock();
