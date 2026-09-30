@@ -1,7 +1,10 @@
 // French interface strings, keyed by the English text of the code.
 // {name} placeholders must be kept as they are.
 
+import CONCERT from "./fr-concert.js";
+
 export default {
+  ...CONCERT,
   "Mean of peaks": "Moyenne des pics",
   "Mean of the 25 % most intense moments (choruses, drops): what you remember of a track.": "Moyenne des 25 % de moments les plus intenses (refrains, drops) : ce que l'on retient d'un morceau.",
   "Mean": "Moyenne",
