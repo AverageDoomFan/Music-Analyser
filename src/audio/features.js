@@ -134,7 +134,7 @@ export const TIMELINE_KEYS = [
   "flatnessMean", "flatnessMedian", "zcrMean", "spectralCrestMean", "spectralFill",
   "bandSub", "bandBass", "bandLowMid", "bandHighMid", "bandHigh", "bassRatio", "midRatio", "highRatio",
   "lowPulse", "kickRate", "kickPunch", "lowBandDbStd", "lowFlatnessMedian", "midFlatnessMedian", "pulseRate", "pulseStrength",
-  "fastPulseShare", "fastPulseStrength",
+  "fastPulseShare", "fastPulseRate", "fastPulseStrength",
   "plrDb", "crestDb", "loudnessRel",
   "keyIndex", "keyConfidence", "midModulation", "midLowCorr",
   "spectralContrast", "spectralEntropy", "dissonance", "fastKickRatio",

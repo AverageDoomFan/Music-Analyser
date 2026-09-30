@@ -1,0 +1,197 @@
+/* Concert mode: full-screen audio-reactive visualiser (src/ui/concert.js).
+   Always dark, whatever the page theme. --cc-base / --cc-accent (r,g,b) follow
+   the heat ramp (set ~10 times a second); the kick bump is a transform set
+   by the script (compositor only, nothing is repainted per frame). */
+
+.lv-concert-btn .cc-spark { display: inline-block; color: var(--accent); }
+
+html.concert-on, html.concert-on body { overflow: hidden; }
+
+.concert {
+  --cc-base: 59, 130, 246;
+  --cc-accent: 6, 182, 212;
+  --cc-cover: none;
+  --cc-display: "Space Grotesk", "Anton", "Bebas Neue", "Oswald", Impact, Haettenschweiler, "Arial Narrow Bold", "Roboto Condensed", "Helvetica Neue", system-ui, sans-serif;
+  --cc-text: #f5f7fb;
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: #000;
+  color: var(--cc-text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+  outline: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.concert[hidden] { display: none; }
+.concert.in { opacity: 1; }
+.concert.ui-idle { cursor: none; }
+
+.cc-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+.cc-hud {
+  position: absolute; inset: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  padding: clamp(14px, 3vh, 36px) clamp(16px, 3.5vw, 56px);
+  pointer-events: none;
+}
+.cc-center, .cc-bottom { transition: opacity 0.6s ease; }
+.concert.idle .cc-center,
+.concert.idle .cc-bottom { opacity: 0; }
+
+/* top bar */
+.cc-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.cc-status {
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  font-size: 0.78rem; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.72);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+.cc-status .cc-phase { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cc-dot { width: 9px; height: 9px; border-radius: 50%; background: rgba(255, 255, 255, 0.35); flex: none; }
+.concert.live .cc-dot { background: #ff3b3b; box-shadow: 0 0 12px #ff3b3b; animation: cc-blink 1.6s ease-in-out infinite; }
+@keyframes cc-blink { 50% { opacity: 0.35; } }
+
+.cc-actions { display: flex; gap: 8px; pointer-events: auto; transition: opacity 0.6s ease, transform 0.6s ease; }
+.cc-btn {
+  width: 44px; height: 44px; border-radius: 50%;
+  display: grid; place-items: center;
+  font: inherit; font-size: 1.1rem; line-height: 1; color: #fff; cursor: pointer;
+  background: rgba(10, 12, 18, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  transition: background 0.2s, border-color 0.2s, transform 0.2s;
+}
+.cc-btn:hover { background: rgba(var(--cc-accent), 0.35); border-color: rgba(var(--cc-accent), 0.9); transform: scale(1.06); }
+.cc-btn:focus-visible { outline: 2px solid rgb(var(--cc-accent)); outline-offset: 3px; }
+.concert.ui-idle .cc-actions,
+.concert.ui-idle .cc-status { opacity: 0; transform: translateY(-8px); }
+.concert.ui-idle .cc-actions { pointer-events: none; }
+
+/* the intensity, centred inside the spectrum ring */
+.cc-center { display: grid; place-items: center; align-content: center; text-align: center; min-height: 0; }
+.cc-num-wrap { will-change: transform; }
+.cc-num {
+  font-family: var(--cc-display);
+  font-weight: 900;
+  font-stretch: condensed;
+  font-size: clamp(64px, 17vh, 220px);
+  line-height: 0.9;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  text-shadow:
+    0 0 26px rgba(var(--cc-accent), 0.85),
+    0 0 70px rgba(var(--cc-base), 0.6),
+    0 4px 24px rgba(0, 0, 0, 0.55);
+}
+.cc-stage {
+  margin-top: 0.35em;
+  font-family: var(--cc-display);
+  font-weight: 800;
+  font-size: clamp(14px, 2.6vh, 30px);
+  letter-spacing: 0.42em;
+  padding-left: 0.42em; /* balances the tracking */
+  text-transform: uppercase;
+  color: color-mix(in srgb, rgb(var(--cc-accent)) 55%, #fff);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 0 18px rgba(var(--cc-accent), 0.7), 0 2px 12px rgba(0, 0, 0, 0.6);
+}
+.cc-stage.swap { animation: cc-rise 0.5s cubic-bezier(0.2, 0.9, 0.2, 1.2); }
+@keyframes cc-rise { from { opacity: 0; transform: translateY(10px); letter-spacing: 0.7em; } }
+
+/* off the charts: white hot, glitching type */
+.concert.hot .cc-num { color: #fff; animation: cc-glitch 0.9s steps(1) infinite; }
+.concert.hot .cc-stage { color: #fff; text-shadow: 0 0 3px #000, 0 0 18px rgba(255, 60, 200, 0.9), 0 2px 14px rgba(0, 0, 0, 0.9); }
+@keyframes cc-glitch {
+  0%, 100% { text-shadow: 0 0 40px rgba(255, 255, 255, 0.9), 0 0 90px rgba(var(--cc-accent), 0.8); transform: none; }
+  12% { text-shadow: -6px 0 rgba(255, 40, 90, 0.9), 6px 0 rgba(40, 220, 255, 0.9), 0 0 60px #fff; transform: translate(3px, -1px) skewX(-6deg); }
+  14% { transform: none; }
+  47% { text-shadow: 5px 0 rgba(255, 40, 90, 0.9), -5px 0 rgba(40, 220, 255, 0.9), 0 0 60px #fff; transform: translate(-4px, 1px); clip-path: inset(10% 0 45% 0); }
+  49% { transform: none; clip-path: none; }
+  78% { text-shadow: -3px 0 rgba(255, 40, 90, 0.9), 3px 0 rgba(40, 220, 255, 0.9), 0 0 50px #fff; transform: skewX(4deg); }
+  80% { transform: none; }
+}
+
+/* bottom: track (left), sub-scores (right) */
+.cc-bottom { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
+.cc-track { display: flex; align-items: center; gap: clamp(12px, 1.6vw, 24px); min-width: 0; max-width: min(62vw, 900px); }
+.cc-track.swap { animation: cc-slide 0.8s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes cc-slide { from { opacity: 0; transform: translateX(-24px); filter: blur(6px); } }
+.cc-cover {
+  flex: none;
+  width: clamp(64px, 12vh, 140px); height: clamp(64px, 12vh, 140px);
+  border-radius: 10px; overflow: hidden;
+  display: grid; place-items: center;
+  font-size: 2.2rem; color: rgba(255, 255, 255, 0.55);
+  background: linear-gradient(135deg, rgba(var(--cc-base), 0.55), rgba(var(--cc-accent), 0.25)), #0c0f16;
+  box-shadow: 0 0 26px rgba(var(--cc-accent), 0.45), 0 16px 40px rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+.cc-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cc-meta { min-width: 0; }
+.cc-kicker { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; color: rgb(var(--cc-accent)); margin-bottom: 6px; }
+.cc-title {
+  font-family: var(--cc-display);
+  font-weight: 900;
+  font-size: clamp(24px, 5vh, 60px);
+  line-height: 1.02;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+  overflow-wrap: anywhere;
+  text-shadow: 0 2px 20px rgba(0, 0, 0, 0.7), 0 0 30px rgba(var(--cc-base), 0.45);
+}
+.cc-artist {
+  margin-top: 8px;
+  font-size: clamp(13px, 2vh, 20px);
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.78);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.8);
+}
+
+.cc-subs { display: flex; gap: 10px; align-items: flex-end; flex: none; transition: opacity 0.6s ease; }
+.cc-sub { display: grid; justify-items: center; gap: 6px; width: 34px; }
+.cc-sub-bar { width: 6px; height: clamp(40px, 9vh, 90px); border-radius: 3px; background: rgba(255, 255, 255, 0.1); overflow: hidden; display: flex; align-items: flex-end; }
+.cc-sub-bar i { will-change: transform; display: block; width: 100%; height: 100%; background: var(--c); box-shadow: 0 0 10px var(--c); transform-origin: bottom; transform: scaleY(0); border-radius: 3px; }
+.cc-sub span {
+  writing-mode: vertical-rl; transform: rotate(180deg);
+  font-size: 0.62rem; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(255, 255, 255, 0.55);
+  max-height: 80px; overflow: hidden; white-space: nowrap;
+}
+.concert.ui-idle .cc-subs { opacity: 0.55; }
+
+/* waiting for sound */
+.cc-idle {
+  position: absolute; inset: 0;
+  display: grid; place-content: center; justify-items: center; text-align: center; gap: 14px;
+  padding: 24px;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.8s ease;
+}
+.concert.idle .cc-idle { opacity: 1; }
+.cc-idle-title {
+  font-family: var(--cc-display);
+  font-weight: 900;
+  font-size: clamp(30px, 6vh, 64px);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-shadow: 0 0 30px rgba(var(--cc-accent), 0.6);
+}
+.cc-idle-text { margin: 0; max-width: 34em; font-size: clamp(14px, 2vh, 18px); line-height: 1.5; color: rgba(255, 255, 255, 0.72); }
+
+@media (max-width: 700px) {
+  .cc-subs { display: none; }
+  .cc-track { max-width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .concert, .cc-center, .cc-bottom, .cc-idle { transition-duration: 0.01s; }
+  .concert.hot .cc-num, .cc-dot, .cc-stage.swap, .cc-track.swap { animation: none !important; }
+}
+
+/* keeps the white number readable over the white-hot centre */
+.concert.hot .cc-num-wrap { background: radial-gradient(closest-side, rgba(8, 0, 16, 0.55), transparent); border-radius: 50%; padding: 0.1em 0.3em; }

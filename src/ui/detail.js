@@ -11,6 +11,7 @@ import { formatDuration, formatSize, formatScore, formatDate, escapeHtml } from 
 import { questionById } from "../scoring/correction.js";
 import { openCorrection } from "./correction.js";
 import { toast } from "./toast.js";
+import { intensityColor } from "./live-draw.js";
 import { player } from "./player.js";
 import { openInRhythm } from "./rhythm.js";
 import { t } from "../i18n/index.js";
@@ -233,7 +234,7 @@ function seriesFor(r) {
     );
     if (sr.spectralContrast) list.push({ key: "spectralContrast", label: t("Spectral contrast (dB)"), values: sr.spectralContrast, format: (v) => v.toFixed(1) });
     if (sr.midFlatnessMedian) list.push({ key: "midFlatnessMedian", label: t("Distortion · mid flatness (dB)"), values: sr.midFlatnessMedian.map(db10), format: (v) => v.toFixed(1) });
-    if (sr.fastPulseShare) list.push({ key: "fastPulseShare", label: t("Extratone · share of the window (%)"), values: sr.fastPulseShare.map((v) => v * 100), format: (v) => v.toFixed(0) });
+    if (sr.fastPulseShare) list.push({ key: "fastPulseShare", label: t("Regular attacks / s"), values: sr.fastPulseRate ? sr.fastPulseRate.map((v, i) => (sr.fastPulseShare[i] >= 0.2 ? v : null)) : sr.fastPulseShare.map(() => null), format: (v) => v.toFixed(1) });
     if (sr.pulseRate) list.push({ key: "pulseRate", label: t("Kick speed (/s)"), values: sr.pulseRate.map((v, i) => (sr.pulseStrength[i] >= 0.3 ? v : null)), format: (v) => v.toFixed(1) });
     list.push(
     );
@@ -377,7 +378,7 @@ function scoreBlock(r, final) {
   const auto = r.auto.score;
   const showGhost = Math.round(auto) !== Math.round(final);
   return `
-    <div class="score-head">
+    <div class="score-head" style="--sc:${intensityColor(final)}">
       <span class="big-score">${formatScore(final)}</span>
       <span><strong>${stageFor(final).label}</strong><br><span class="muted small">${statusOf(r) === "corrected" ? t("automatic: {n}", { n: formatScore(auto) }) : t("automatic score")} · ${t("{agg} of the curve", { agg: escapeHtml(AGGREGATIONS.find((a) => a.key === r.auto.aggregation)?.label ?? "") })} · ${t("algorithm")} v${escapeHtml(r.auto.algorithmVersion)}</span></span>
     </div>
@@ -385,7 +386,7 @@ function scoreBlock(r, final) {
       <div class="intensity-scale">
         ${showGhost ? `<span class="intensity-marker ghost" style="left:${Math.min(auto, SCORE_MAX) / SCORE_MAX * 100}%" title="${t("Automatic")}"></span>` : ""}
         <span class="intensity-tick" style="left:${(100 / SCORE_MAX) * 100}%" title="100"></span>
-        <span class="intensity-marker" style="left:${Math.min(final, SCORE_MAX) / SCORE_MAX * 100}%"></span>
+        <span class="intensity-marker" style="--sc:${intensityColor(final)};left:${Math.min(final, SCORE_MAX) / SCORE_MAX * 100}%"></span>
       </div>
       <div class="intensity-ends"><span>0 · ${t("Ambient")}</span><span>${SCORE_MAX} · ${t("Off the charts")}</span></div>
     </div>`;
@@ -442,7 +443,7 @@ function featuresBlock(f) {
     [t("Dissonance"), n(f.dissonance, 3)],
     [t("Spectral entropy"), n(f.spectralEntropy, 3)],
     [t("Double kick (share of kicks)"), f.fastKickRatio != null ? pct(f.fastKickRatio) : "—"],
-    [t("Extratone hits / s"), f.fastPulseShare == null ? "—" : f.fastPulseShare > 0
+    [t("Regular attacks / s"), f.fastPulseShare == null ? "—" : f.fastPulseShare > 0
       ? t("{rate} ({bpm} BPM, {share} of the track)", { rate: n(f.fastPulseRate, 1), bpm: Math.round(f.fastPulseRate * 60), share: pct(f.fastPulseShare) })
       : t("none")],
     [t("Clipping"), pct(f.clippingRatio)],

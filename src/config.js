@@ -8,7 +8,7 @@ import { t } from "./i18n/index.js";
  * Bump it whenever the scoring changes: stored tracks whose version differs are
  * re-scored automatically from their cached features, without re-decoding audio.
  */
-export const ALGORITHM_VERSION = "2.3.1";
+export const ALGORITHM_VERSION = "2.4";
 
 /**
  * Version of the feature extractor (audio -> raw features).
@@ -16,7 +16,7 @@ export const ALGORITHM_VERSION = "2.3.1";
  * file again. Tracks with an older feature version are flagged "re-analysis
  * advised" but keep their scores and corrections.
  */
-export const FEATURE_VERSION = "1.7";
+export const FEATURE_VERSION = "1.8";
 
 /** Schema version of the JSON export. */
 export const EXPORT_SCHEMA_VERSION = 1;
@@ -146,8 +146,18 @@ export const CALIBRATION = [
   [1.0, 125],    // 2.2: no ceiling at 100, what goes beyond is "Off the charts"
 ];
 
-/** Highest possible score (end of the calibration). Scores above 100 are "Off the charts". */
-export const SCORE_MAX = 125;
+/** Highest possible score. Scores above 100 are "Off the charts". The calibration ends at
+ * 125; only the attack-rate points (and manual scores) go further. */
+export const SCORE_MAX = 150;
+
+/**
+ * 2.4: points added for fast regular attacks (extractor 1.8 attack rate, hits/s),
+ * as [hits per second, points]. Nearly nothing for a beat on the kick (2-4/s),
+ * a few points for speedcore (5-10/s), a lot for blast beats and extratone
+ * (13-70/s). Scaled by how regular and how lasting the pulse is in the window,
+ * and faded in with the intensity (50 → 85): a calm track never gains.
+ */
+export const ATTACK_POINTS = [[3, 0], [5, 5], [8, 12], [12, 25], [16, 45], [24, 65], [48, 80]];
 
 /**
  * How the user's rating of a song's lyrics shifts its perceived intensity and

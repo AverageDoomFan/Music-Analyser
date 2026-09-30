@@ -6,6 +6,7 @@ import { toM3U, toText } from "../playlist/progression.js";
 import { formatDuration, formatScore, formatDelta, escapeHtml } from "../util/format.js";
 import { renderScoreChart } from "./charts.js";
 import { toast } from "./toast.js";
+import { intensityColor } from "./live-draw.js";
 import { t, tn } from "../i18n/index.js";
 
 let onOpen = () => {};
@@ -88,7 +89,7 @@ function itemHtml(s) {
   return `<li class="prog-item" data-id="${s.id}" style="cursor:pointer">
     <span class="pos">${s.position}</span>
     <span><span class="track-name">${escapeHtml(s.name)}</span></span>
-    <span class="num"><b>${formatScore(s.score)}</b></span>
+    <span class="num"><b class="score-val" style="--sc:${intensityColor(s.score)}">${formatScore(s.score)}</b></span>
     <span class="jump${s.bigJump ? " big" : ""}" title="${t("score gap with the previous track · end of the previous → start of this one: {d}", { d: formatDelta(s.seam) })}">${s.position > 1 ? formatDelta(s.jump) : ""}</span>
   </li>`;
 }

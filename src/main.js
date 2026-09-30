@@ -17,7 +17,9 @@ import { initSet, showSet } from "./ui/set.js";
 import { initTestlab, showTestlab } from "./ui/testlab.js";
 import { initHome, showHome } from "./ui/home.js";
 import { initGames, showGames } from "./ui/games.js";
+import { initStats, showStats } from "./ui/stats.js";
 import { t, tn, translateDom } from "./i18n/index.js";
+import { initMotion } from "./ui/motion.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -34,10 +36,9 @@ function initImport() {
     accept(input.files);
     input.value = "";
   });
-  zone.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); }
-  });
-  // Allow dropping anywhere on the page.
+  $("import-btn").addEventListener("click", () => input.click());
+  // Allow dropping anywhere on the page: the zone is a full-window overlay
+  // shown (class "dragover") while files are dragged over the window.
   let depth = 0;
   window.addEventListener("dragenter", (e) => {
     if (!e.dataTransfer?.types.includes("Files")) return;
@@ -81,7 +82,7 @@ async function filesFromDrop(dt) {
 }
 
 function initTabs() {
-  const tabs = [["tab-home", "panel-home"], ["tab-library", "panel-library"], ["tab-progression", "panel-progression"], ["tab-set", "panel-set"], ["tab-rhythm", "panel-rhythm"], ["tab-spotify", "panel-spotify"], ["tab-lab", "panel-lab"], ["tab-live", "panel-live"], ["tab-games", "panel-games"]];
+  const tabs = [["tab-home", "panel-home"], ["tab-library", "panel-library"], ["tab-stats", "panel-stats"], ["tab-progression", "panel-progression"], ["tab-set", "panel-set"], ["tab-rhythm", "panel-rhythm"], ["tab-spotify", "panel-spotify"], ["tab-lab", "panel-lab"], ["tab-live", "panel-live"], ["tab-games", "panel-games"]];
   for (const [tabId, panelId] of tabs) {
     $(tabId).addEventListener("click", () => {
       for (const [t, p] of tabs) {
@@ -96,6 +97,7 @@ function initTabs() {
       if (tabId === "tab-lab") showTestlab();
       if (tabId === "tab-home") showHome();
       if (tabId === "tab-games") showGames();
+      if (tabId === "tab-stats") showStats();
     });
   }
   // links like index.html#tab-set (from the guide) open that tab
@@ -127,6 +129,7 @@ async function main() {
   $("version-info").textContent = `· ${t("algorithm")} v${ALGORITHM_VERSION}`;
   initImport();
   initTabs();
+  initMotion();
   initLibrary({ openDetail });
   initDetail();
   initCorrection();
@@ -139,6 +142,7 @@ async function main() {
   initTestlab({ openDetail });
   initHome();
   initGames();
+  initStats();
   document.addEventListener("open-detail", (e) => openDetail(e.detail));
   ctl.onToast(toast);
   $("rescore-all").addEventListener("click", async () => {

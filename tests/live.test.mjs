@@ -203,3 +203,59 @@ test("▶ on a queued track: it is analysed now, the interrupted one right after
   assert.ok(status.queue.every((q) => q.state === "done"));
   assert.equal(scanner.jumpTo(list[0]), false, "no scan running");
 });
+
+/** Scanner on a fake player where `refuse(id, n)` says whether the n-th play of track id is dropped. */
+async function scanRefusing(list, audio, refuse) {
+  const player = {
+    item: null, playing: false, pos: 0, delay: 0, plays: {},
+    async play(uri, ms) {
+      const id = uri.split(":").pop();
+      this.plays[id] = (this.plays[id] ?? 0) + 1;
+      this.item = id;
+      this.playing = !refuse(id, this.plays[id]);
+      this.pos = Math.round((ms / 1000) * SR);
+      this.delay = Math.round(0.3 * SR);
+    },
+    async pause() { this.playing = false; },
+    async state() { return { itemId: this.item, isPlaying: this.playing, progressMs: (this.pos / SR) * 1000 }; },
+  };
+  const scanner = new Scanner({ player, analyze: async (m, sr, x) => extractFeatures(m, sr, x), save: async () => {}, scoring, clock: () => performance.now() });
+  let stop = false;
+  const tick = () => {
+    if (stop) return;
+    const block = new Float32Array(2048);
+    const x = audio[player.item];
+    if (player.playing && x) {
+      for (let i = 0; i < block.length; i++) {
+        if (player.delay > 0) { player.delay--; continue; }
+        block[i] = player.pos < x.length ? x[player.pos] : 0;
+        player.pos++;
+      }
+    }
+    scanner.feed(block);
+    setImmediate(tick);
+  };
+  tick();
+  const tracksList = list.map((id) => ({ id, uri: `spotify:track:${id}`, name: id, artists: ["X"], durationMs: (audio[id].length / SR) * 1000 }));
+  const status = await scanner.run(tracksList, { mode: "fixed", count: 1, length: 4 });
+  stop = true;
+  return { status, player };
+}
+
+test("a dropped play command is sent again instead of stopping the scan", async () => {
+  const audio = { a: tracks.hardstyle() };
+  const { status, player } = await scanRefusing(["a"], audio, (id, n) => n === 1);
+  assert.equal(status.queue[0].state, "done", status.queue[0].message);
+  assert.equal(player.plays.a, 2);
+  assert.equal(status.error ?? null, null);
+});
+
+test("a track Spotify never plays is an error, the scan goes on; three in a row stop it", async () => {
+  const audio = { a: tracks.ambient(), b: tracks.hardstyle(), c: tracks.ambient(), d: tracks.ambient(), e: tracks.hardstyle() };
+  const one = await scanRefusing(["a", "b"], audio, (id) => id === "a");
+  assert.deepEqual(one.status.queue.map((q) => q.state), ["error", "done"]);
+  assert.equal(one.player.plays.a, 3);
+  const many = await scanRefusing(["a", "c", "d", "e"], audio, (id) => id !== "e");
+  assert.deepEqual(many.status.queue.map((q) => q.state), ["error", "error", "error", "pending"]);
+  assert.ok(many.status.error);
+});

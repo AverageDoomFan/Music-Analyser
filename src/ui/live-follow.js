@@ -10,6 +10,7 @@ import { analyzePcm } from "../audio/analyzer.js";
 import { Follower, followOutcome, heardCoverage, DRAFT_THRESHOLD } from "../live/follow.js";
 import { t, tn } from "../i18n/index.js";
 import { toast } from "./toast.js";
+import { recordListen } from "../stats/log-store.js";
 
 const $ = (id) => document.getElementById(id);
 const KEY = "mea.live.follow";
@@ -96,6 +97,8 @@ export async function startFollowing() {
       return rec;
     },
     scoring: ctl.scoring,
+    // the Stats tab's listening log: only the follow mode counts as listening
+    onListen: (l) => { recordListen(l).catch((err) => console.warn(err)); },
     onUpdate: (s) => { lv.status = s; lv.lastUpdate = performance.now(); lv.dirty = true; },
   });
   $("lv-setup").open = false;

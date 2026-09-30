@@ -5,7 +5,7 @@
 // No genre rule anywhere: only audio features. To replace the model, write a
 // module exposing the same functions and point src/scoring/index.js to it.
 
-import { ALGORITHM_VERSION, CALIBRATION, DEFAULT_WEIGHTS, DEFAULT_AGGREGATION, SUBSCORE_SCALES } from "../config.js";
+import { ALGORITHM_VERSION, CALIBRATION, DEFAULT_WEIGHTS, DEFAULT_AGGREGATION, SUBSCORE_SCALES, SCORE_MAX, ATTACK_POINTS } from "../config.js";
 import { aggregate, aggregateAll } from "./aggregate.js";
 import { describeMusic } from "./describe.js";
 
@@ -23,6 +23,12 @@ const db = (x) => 10 * Math.log10(Math.max(x, 1e-12));
  * Keeping components explicit lets the UI explain a score and lets us derive
  * a confidence from how much the components agree.
  */
+const ATTACK_MAX = ATTACK_POINTS.at(-1)[1];
+/** Points for a regular attack rate (hits/s), see ATTACK_POINTS. */
+export function attackPoints(rate) {
+  return rate > 0 ? interp(ATTACK_POINTS, rate) : 0;
+}
+
 function components(raw) {
   const f = withFallbacks(raw);
   const hf = (f.bandEnergy?.highMid ?? 0) + (f.bandEnergy?.high ?? 0);
@@ -101,6 +107,13 @@ function components(raw) {
       ["Centroid variation", lin(f.centroidStd, 300, 2000), 0.2],
       ["Flux variation", lin(f.fluxStd, 0.03, 0.12), 0.2],
     ],
+    // 2.4, extractor 1.7+: fast regular attacks. Not a dimension of the base:
+    // points on top of the calibrated score (see computeIntensity), here as a
+    // share of the maximum
+    ...(f.fastPulseShare != null ? {
+      attackSpeed: [["Attacks / s", attackPoints(f.fastPulseRate) / ATTACK_MAX
+        * lin(f.fastPulseShare, 0.2, 0.6) * lin(f.fastPulseStrength, 0.2, 0.5), 1]],
+    } : {}),
     noise: [
       ["Spectral flatness", lin(flatDb, -25, -3), 0.45],
       ["Full spectrum", lin(f.spectralFill, 0.3, 0.95), 0.2],
@@ -174,7 +187,10 @@ export function computeSubscores(features) {
  * noisy yet soft texture (rain, tape hiss) is not ranked as extreme.
  */
 export function computeIntensity(subscores, weights = DEFAULT_WEIGHTS) {
-  return round1(calibrate(rawIntensity(subscores, weights)));
+  const score = calibrate(rawIntensity(subscores, weights));
+  // fast regular attacks add points, up to beyond what the calibrated scale reaches
+  const attacks = clamp01((subscores.attackSpeed ?? 0) / 100) * lin(score, 50, 85);
+  return round1(Math.min(SCORE_MAX, score + ATTACK_MAX * attacks));
 }
 
 
@@ -184,7 +200,7 @@ export function rawIntensity(subscores, weights = DEFAULT_WEIGHTS) {
   const m = (dim) => toModel(dim, (subscores[dim] ?? 0) / 100);
   let s = 0, w = 0;
   for (const dim of Object.keys(subscores)) {
-    if (dim === "noise") continue;
+    if (dim === "noise" || dim === "attackSpeed") continue;
     const wi = Math.max(0, weights[dim] ?? 0);
     s += wi * m(dim);
     w += wi;
@@ -245,6 +261,8 @@ export function timelineWindows(features) {
   const windows = tl.times.map((_, i) => {
     const w = { ...context };
     for (const [k, arr] of Object.entries(tl.series)) w[k] = arr[i];
+    // extractor 1.7 kept no per-window attack rate
+    if (w.fastPulseShare != null) w.fastPulseRate ??= features.fastPulseRate;
     w.bandEnergy = { sub: w.bandSub, bass: w.bandBass, lowMid: w.bandLowMid, highMid: w.bandHighMid, high: w.bandHigh };
     return w;
   });

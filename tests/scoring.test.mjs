@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { tracks, SR } from "./synth.mjs";
 import { extractFeatures, measureClipping } from "../src/audio/features.js";
-import { scoreFeatures, computeIntensity, toDisplay, toModel } from "../src/scoring/model.js";
+import { scoreFeatures, computeIntensity, toDisplay, toModel, attackPoints } from "../src/scoring/model.js";
 import { DEFAULT_WEIGHTS, ALGORITHM_VERSION, SUBSCORE_SCALES, SCORE_MAX, STAGES, stageFor } from "../src/config.js";
 
 const results = {};
@@ -45,8 +45,10 @@ test("coarse perceptual ordering", () => {
   assert.ok(s("piano") < s("pop"));
   assert.ok(s("pop") < s("metal"));
   assert.ok(s("metal") < s("speedcore"));
-  assert.ok(s("speedcore") < s("harshNoise"));
-  assert.ok(s("extratone") > 90, `extratone ${s("extratone")}`);
+  // 2.4: fast regular attacks add points, extratone ends on top
+  assert.ok(s("speedcore") < s("extratone"));
+  assert.ok(s("harshNoise") < s("extratone"));
+  assert.ok(s("extratone") > 120, `extratone ${s("extratone")}`);
   assert.ok(s("harshNoise") > 90);
 });
 
@@ -135,8 +137,8 @@ test("perceptual sub-score scales: increasing, invertible, intensity computed on
 
 test("scores can go past 100 into the Off the charts stage", async () => {
   const { calibrate } = await import("../src/scoring/model.js");
-  assert.equal(calibrate(1), SCORE_MAX);
-  assert.ok(calibrate(0.92) > 100 && calibrate(0.92) < SCORE_MAX);
+  assert.equal(calibrate(1), 125);
+  assert.ok(calibrate(0.92) > 100 && calibrate(0.92) < 125);
   assert.equal(calibrate(0.85), 100);
   assert.equal(stageFor(112), STAGES.at(-1));
   assert.equal(STAGES.at(-1).min, 100);
@@ -162,4 +164,16 @@ test("extractor 1.6: hardness cues react to distortion and double kick", async (
   assert.ok(driven.spectralEntropy > clean.spectralEntropy);
   assert.ok(feat({ bpm: 180, kickDiv: 4, kick: 0.9 }).fastKickRatio > 0.8);
   assert.ok(clean.fastKickRatio < 0.1);
+});
+
+test("fast regular attacks add points along a rising curve, to intense windows only", () => {
+  assert.equal(attackPoints(2), 0);
+  assert.ok(attackPoints(5) > 0 && attackPoints(5) < attackPoints(9));
+  assert.ok(attackPoints(16) - attackPoints(12) > attackPoints(9) - attackPoints(5));
+  const loud = { energy: 90, tempo: 70, density: 85, brightness: 85, harshness: 92, pressure: 80, complexity: 55, noise: 65 };
+  const calm = { energy: 20, tempo: 30, density: 30, brightness: 30, harshness: 10, pressure: 15, complexity: 20, noise: 0 };
+  const base = computeIntensity(loud);
+  assert.ok(computeIntensity({ ...loud, attackSpeed: 100 }) >= base + 50);
+  assert.ok(computeIntensity({ ...loud, attackSpeed: 100 }) <= SCORE_MAX);
+  assert.equal(computeIntensity({ ...calm, attackSpeed: 100 }), computeIntensity(calm));
 });

@@ -35,7 +35,7 @@ export const intensityColor = (v, a = 1) => {
 const TEXT = "#eef1f7";
 const MUTED = "#8b93a7";
 const LINE = "#232835";
-const FONT = "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+const FONT = "Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
 
 /** Sizes the backing store to the CSS size × devicePixelRatio; returns a context in CSS pixels. */
 export function fit(canvas) {

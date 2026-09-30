@@ -4,6 +4,9 @@
 import { STAGES } from "../config.js";
 import { escapeHtml } from "../util/format.js";
 import { t as tr } from "../i18n/index.js";
+import { intensityColor } from "./live-draw.js";
+
+let gradSeq = 0;
 
 const NS = "http://www.w3.org/2000/svg";
 
@@ -72,9 +75,13 @@ function drawChart(container, points, { height = 200, onSelect, xLabel = "" }) {
   if (!n) return;
 
   const d = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.score).toFixed(1)}`).join("");
-  el("path", { class: "line", d }, g);
+  // the line takes the intensity ramp along the score axis, dots their own colour
+  const gid = `ramp-${++gradSeq}`;
+  const grad = el("linearGradient", { id: gid, gradientUnits: "userSpaceOnUse", x1: 0, x2: 0, y1: y(0), y2: y(yTop) }, el("defs", {}, svg));
+  for (let v = 0; v <= yTop; v += 10) el("stop", { offset: v / yTop, "stop-color": intensityColor(v) }, grad);
+  el("path", { class: "line", d, style: `stroke:url(#${gid})` }, g);
   const r = n > 120 ? 2.5 : n > 50 ? 3 : 4;
-  points.forEach((p, i) => el("circle", { class: `dot${p.flag ? " jump" : ""}`, cx: x(i), cy: y(p.score), r: p.flag ? r + 1 : r }, g));
+  points.forEach((p, i) => el("circle", { class: `dot${p.flag ? " jump" : ""}`, cx: x(i), cy: y(p.score), r: p.flag ? r + 1 : r, style: `--sc:${intensityColor(p.score)}` }, g));
 
   // hover layer
   const cross = el("line", { class: "crosshair", y1: 0, y2: h, visibility: "hidden" }, g);

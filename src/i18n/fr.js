@@ -1,7 +1,12 @@
 // French interface strings, keyed by the English text of the code.
 // {name} placeholders must be kept as they are.
 
+import FR_STATS from "./fr-stats.js";
+import CONCERT from "./fr-concert.js";
+
 export default {
+  ...FR_STATS, // Stats tab (entries below take precedence)
+  ...CONCERT,
   "Mean of peaks": "Moyenne des pics",
   "Mean of the 25 % most intense moments (choruses, drops): what you remember of a track.": "Moyenne des 25 % de moments les plus intenses (refrains, drops) : ce que l'on retient d'un morceau.",
   "Mean": "Moyenne",
@@ -175,7 +180,7 @@ export default {
   "Nothing was captured for this track.": "Rien n'a été capté pour ce titre.",
   "Final analysis…": "Analyse finale…",
   "Captured audio is silent.": "Audio capté silencieux.",
-  "No sound captured: check that Spotify plays on this PC and that system audio sharing (or the VB-Cable input) is on.": "Aucun son capté : vérifie que Spotify joue sur ce PC et que le partage de l'audio système (ou l'entrée VB-Cable) est actif.",
+  "No sound captured: Spotify did not play this track (check that Spotify plays on this PC and that system audio sharing, or the VB-Cable input, is on).": "Aucun son capté : Spotify n'a pas lu ce morceau (vérifie que Spotify joue sur ce PC et que le partage de l'audio système, ou l'entrée VB-Cable, est actif).",
   "Playback stopped before the end of the excerpt.": "La lecture s'est arrêtée avant la fin de l'extrait.",
   "Spotify is not playing the requested track (playback changed in Spotify?).": "Spotify ne joue pas le titre demandé (lecture modifiée dans Spotify ?).",
   "Probing": "Sondage",
@@ -427,9 +432,8 @@ export default {
   "Peak / loudness (dB)": "Pic / loudness (dB)",
   "Distortion · mid flatness (dB)": "Distorsion · planéité des médiums (dB)",
   "Kick speed (/s)": "Vitesse des kicks (/s)",
-  "Extratone hits / s": "Frappes extratone / s",
+  "Regular attacks / s": "Attaques régulières / s",
   "{rate} ({bpm} BPM, {share} of the track)": "{rate} ({bpm} BPM, {share} du morceau)",
-  "Extratone · share of the window (%)": "Extratone · part de la fenêtre (%)",
   "auto score": "score auto",
   "No reliable value on this track.": "Pas de valeur fiable sur ce morceau.",
   "rel. {n} %": "fiab. {n} %",
@@ -814,7 +818,7 @@ export default {
   "They are caricatures: they check that every measure reacts in the right direction and over its whole range, not that the score is right on real music. Test tracks join the library, tagged “Test”, and also let you try the Set, duels, games, splitting or the Live tab's demo mode.": "Ce sont des caricatures : elles vérifient que chaque mesure réagit dans le bon sens et sur toute sa plage, pas que le score est juste sur de la vraie musique. Les morceaux de test rejoignent la bibliothèque, marqués « Test », et servent aussi à essayer le Set, les duels, le découpage ou le mode démo de l'onglet Direct.",
   "Tick the lanes that make the map: they sound as cues and count in the KPS and difficulty. Click the matrix or a curve: play from there, click again: stop. Space: play / stop. Wheel: scroll, Ctrl + wheel: zoom.": "Coche les pistes qui forment la map : elles sonnent en cue et comptent dans les KPS et la difficulté. Clic sur la matrice ou sur une courbe : lecture depuis ce point, re-clic : stop. Espace : lecture / stop. Molette : défiler, Ctrl + molette : zoom.",
   "Every track is analysed in your browser: intensity from 0 (ambient) to 100 (paroxysmal), tempo, key, mood, structure, genre. Then sort, compare and build playlists that follow the curve you want.": "Chaque morceau est analysé dans ton navigateur : intensité de 0 (calme) à 100 (bruitiste), tempo, tonalité, ambiance, structure, genre. Ensuite, trie, compare et construis des playlists qui suivent la courbe que tu veux.",
-  "You have the files: drop them in the import area at the top of the page, they are matched automatically (ISRC, then title / artist / length). Fix a match with the row's menu.": "Tu as les fichiers : dépose-les dans la zone d'import en haut de la page, ils sont associés automatiquement (ISRC, puis titre / artiste / durée). Corrige une association avec le menu de la ligne.",
+  "You have the files: drop them anywhere on the page (or use Import), they are matched automatically (ISRC, then title / artist / length). Fix a match with the row's menu.": "Tu as les fichiers : dépose-les n'importe où sur la page (ou utilise Importer), ils sont associés automatiquement (ISRC, puis titre / artiste / durée). Corrige une association avec le menu de la ligne.",
   "Your files never leave your browser: only the measures are kept (IndexedDB). The score is a practical perceptual ranking tool, not a scientific measure.": "Tes fichiers ne quittent jamais ton navigateur : seules les mesures sont gardées (IndexedDB). Le score est un outil pratique de classement perceptif, pas une mesure scientifique.",
   "Silent scan: install VB-Cable, then Windows Settings › Sound › Volume mixer › Spotify › Output = “CABLE Input”. Here, pick the “CABLE Output” input.": "Scan silencieux : installe VB-Cable, puis Paramètres Windows › Son › Mélangeur de volume › Spotify › Sortie = « CABLE Input ». Ici, choisis l'entrée « CABLE Output ».",
   "where a variable changes over time. They go through exactly the same analysis as your files. The grid compares what the algorithm measures with what is expected.": "où une variable évolue dans le temps. Ils passent par exactement la même analyse que tes fichiers. La grille compare ce que l'algorithme mesure à ce qui est attendu.",
@@ -851,7 +855,7 @@ export default {
   "Test tracks also let you try Set, duels, games and genres.": "Les morceaux de test servent aussi à essayer Set, duels et genres.",
   ". This app is neither affiliated with nor endorsed by Spotify.": ". Cette application n'est ni affiliée ni approuvée par Spotify.",
   ": log in (once) and import the playlist.": " : connecte ton compte (une fois) et importe la playlist.",
-  "Drop them (or a whole folder) in the area at the top.": "Dépose-les (ou un dossier entier) dans la zone en haut.",
+  "Drop them (or a whole folder) anywhere on the page, or use Import.": "Dépose-les (ou un dossier entier) n'importe où sur la page, ou utilise Importer.",
   ": draw a curve, get an ordered playlist.": " : dessine une courbe, obtiens une playlist ordonnée.",
   "Skip tracks already analysed from a file": "Ignorer les titres déjà analysés depuis un fichier",
   "Start a scan to analyse your playlist live.": "Lance un scan pour analyser ta playlist en direct.",
@@ -1206,4 +1210,11 @@ export default {
   "Tracks analysed for the game leave your library when you move on, unless you keep them.": "Les morceaux analysés pour le jeu quittent ta bibliothèque quand tu passes à la suite, sauf si tu les gardes.",
   "{n} day in a row": "{n} jour d'affilée",
   "{n} days in a row": "{n} jours d'affilée",
+  // redesign: top bar, drop overlay, home
+  "Import": "Importer",
+  "Read the guide": "Lire le guide",
+  "Start from a Spotify playlist": "Partir d'une playlist Spotify",
+  "Try with nothing (test bench)": "Essayer sans rien (banc d'essai)",
+  "Local audio analysis": "Analyse audio locale",
+  "MP3, WAV, OGG, FLAC, M4A… or a whole folder": "MP3, WAV, OGG, FLAC, M4A… ou un dossier entier",
 };

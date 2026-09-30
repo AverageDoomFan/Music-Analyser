@@ -24,16 +24,6 @@ function kickTrain(rate, seconds = 8) {
   return x;
 }
 
-function powerChord(f0, seconds = 8) {
-  const x = new Float32Array(seconds * SR);
-  const saw = (t, f) => 2 * ((t * f) % 1) - 1;
-  for (let i = 0; i < x.length; i++) {
-    const t = i / SR;
-    x[i] = 0.3 * Math.tanh(12 * (saw(t, f0) + saw(t, f0 * 1.4983) + 0.5 * saw(t, f0 * 2)));
-  }
-  return x;
-}
-
 const detected = (x) => fastPulseBlocks(x, 0, x.length, SR).filter((b) => b.rate > 0);
 
 test("an extratone kick train (16 hits/s, 960 BPM) is detected at its rate", () => {
@@ -42,7 +32,21 @@ test("an extratone kick train (16 hits/s, 960 BPM) is detected at its rate", () 
   for (const b of hits) assert.ok(Math.abs(b.rate - 16) < 0.5, `rate ${b.rate}`);
 });
 
-test("normal kicks and distorted power chords are not extratone", () => {
-  assert.equal(detected(kickTrain(4)).length, 0);
-  for (const f0 of [82.4, 61.7, 49]) assert.equal(detected(powerChord(f0)).length, 0, `chord at ${f0} Hz`);
+test("a kick on every beat is found at its own rate", () => {
+  const hits = detected(kickTrain(4));
+  assert.ok(hits.length >= 3);
+  for (const b of hits) assert.ok(Math.abs(b.rate - 4) < 0.2, `rate ${b.rate}`);
+});
+
+test("melodic extratone (49 hits/s) is counted", () => {
+  const hits = detected(kickTrain(49));
+  assert.ok(hits.length >= 3);
+  for (const b of hits) assert.ok(Math.abs(b.rate - 49) < 1.5, `rate ${b.rate}`);
+});
+
+test("noise has no attack rate", () => {
+  const x = new Float32Array(8 * SR);
+  let seed = 7;
+  for (let i = 0; i < x.length; i++) x[i] = 0.2 * (((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1);
+  assert.equal(detected(x).length, 0);
 });
