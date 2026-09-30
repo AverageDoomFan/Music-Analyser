@@ -388,7 +388,7 @@ export default {
   "Scores from calmest to most intense": "Progression des scores, du plus calme au plus intense",
   "Spotify genres": "Genres Spotify",
   "Suggestion (close tracks)": "Suggestion (morceaux proches)",
-  "Score between 0 and {max}.": "Score entre 0 et {max}.",
+  "The score must be 0 or more.": "Le score doit être positif ou nul.",
   "Manual score: {n}": "Score manuel : {n}",
   "Genre: {g}": "Genre : {g}",
   "Correction removed.": "Correction retirée.",

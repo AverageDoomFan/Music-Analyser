@@ -5,7 +5,7 @@
 // can re-apply the same answers to its own sub-scores.
 
 import { computeIntensity } from "./model.js";
-import { DEFAULT_WEIGHTS, SCORE_MAX } from "../config.js";
+import { DEFAULT_WEIGHTS } from "../config.js";
 import { t } from "../i18n/index.js";
 
 export const QUESTIONS = [
@@ -111,7 +111,7 @@ export function applyCorrection(auto, answers, weights = DEFAULT_WEIGHTS) {
   // The automatic score aggregates a curve, so the correction is applied as the
   // change it causes on the aggregated sub-scores, added to that score.
   const modelScore = auto.score + computeIntensity(subscores, weights) - computeIntensity(auto.subscores, weights);
-  let score = Math.max(0, Math.min(SCORE_MAX, modelScore));
+  let score = Math.max(0, modelScore);
   if (answers.overall != null) {
     const t = QUESTIONS[0].targets[answers.overall];
     score = Math.min(t + BAND, Math.max(t - BAND, modelScore));

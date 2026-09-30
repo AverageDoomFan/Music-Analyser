@@ -82,7 +82,7 @@ export function gaugeTarget(windowIntensity, { windowDb = null, nowDb = null } =
   if (windowIntensity == null) return null;
   if (!Number.isFinite(windowDb) || !Number.isFinite(nowDb) || nowDb < -60 || windowDb < -60) return windowIntensity;
   const lead = Math.max(-GAUGE_LEAD_MAX, Math.min(GAUGE_LEAD_MAX, (nowDb - windowDb) * GAUGE_DB_GAIN));
-  return Math.max(0, Math.min(SCORE_MAX, windowIntensity + lead));
+  return Math.max(0, windowIntensity + lead);
 }
 
 export function gaugeState() {
@@ -107,10 +107,24 @@ export function stepGauge(st, target, { now, level = 0, reduced = false }) {
     return st;
   }
   if (st.pos == null) { st.pos = st.readout = target; st.vel = 0; }
+  st.broken = target > SCORE_MAX;
+  if (st.broken) {
+    // past the dial: the needle breaks loose and spins, stuttering
+    st.readout = target;
+    st.vel += ((reduced ? 0 : 900) - st.vel) * Math.min(1, dt * 3) + (reduced ? 0 : (Math.random() - 0.5) * 2600 * dt);
+    st.pos += st.vel * dt;
+    if (!reduced && Math.random() < dt * 4) st.pos += (Math.random() - 0.5) * SCORE_MAX * 0.6;
+    if (st.pos > SCORE_MAX * 4) st.pos -= SCORE_MAX * (4 / 3);
+    const amp = reduced ? 0 : 3 + 3 * level;
+    st.shake = [(Math.random() - 0.5) * 2 * amp, (Math.random() - 0.5) * 2 * amp];
+    st.sparks.length = 0;
+    return st;
+  }
+  if (st.pos > SCORE_MAX + 3) { st.pos = SCORE_MAX + 3; st.vel = Math.min(st.vel, 0); } // back from a spin
   // ~0.14 s to 90 % (was 7/s: 0.33 s)
   st.readout += (target - st.readout) * Math.min(1, dt * 16);
   if (reduced) {
-    st.pos = st.readout;
+    st.pos = Math.min(st.readout, SCORE_MAX);
     st.vel = 0;
     st.shake = [0, 0];
     st.sparks.length = 0;
@@ -144,7 +158,9 @@ export function drawGauge(canvas, { gauge, score, label, caption, active, level 
   const needle = gauge?.pos ?? null;
   const cx = w / 2, cy = h / 2 + 8, r = Math.min(w, h) / 2 - 18;
   const a0 = Math.PI * 0.75, a1 = Math.PI * 2.25;
+  const broken = !!gauge?.broken;
   const ang = (v) => a0 + (a1 - a0) * Math.max(-0.02, Math.min(1.03, v / SCORE_MAX));
+  const glitch = broken ? Math.random() : 1;
   const at = (v, rad) => [cx + Math.cos(ang(v)) * rad, cy + Math.sin(ang(v)) * rad];
   const heat = value == null ? 0 : clamp01(value / 100);
   const lvl = active ? level : 0;
@@ -180,7 +196,8 @@ export function drawGauge(canvas, { gauge, score, label, caption, active, level 
   const step = SCORE_MAX / 60;
   for (let v = 0; v < SCORE_MAX - 1e-9; v += step) {
     ctx.beginPath();
-    ctx.strokeStyle = intensityColor(v + step / 2, value != null && v <= value ? 1 : 0.14);
+    const dead = broken && Math.random() < 0.18;
+    ctx.strokeStyle = dead ? "rgba(255,255,255,0.05)" : intensityColor(v + step / 2, value != null && v <= value ? 1 : 0.14);
     ctx.lineWidth = 12;
     ctx.arc(cx, cy, r, ang(v), ang(v + step * 0.8));
     ctx.stroke();
@@ -201,7 +218,7 @@ export function drawGauge(canvas, { gauge, score, label, caption, active, level 
       const [tx, ty] = at(v, r - 28);
       ctx.font = `${v === 100 ? 700 : 500} 10px ${FONT}`;
       ctx.fillStyle = v === 100 ? TEXT : v > 100 ? "#f87171" : MUTED;
-      ctx.fillText(String(v), tx, ty + 3.5);
+      ctx.fillText(broken && glitch < 0.3 ? "?" : String(v), tx, ty + 3.5);
     }
   }
 
@@ -228,7 +245,8 @@ export function drawGauge(canvas, { gauge, score, label, caption, active, level 
 
   // needle
   if (needle != null) {
-    const a = ang(needle);
+    // a broken needle turns freely round the hub
+    const a = broken ? a0 + (a1 - a0) * (needle / SCORE_MAX) : ang(needle);
     const col = needle > 100 ? "#ffffff" : intensityColor(needle);
     const tip = r - 4, tail = 14, half = 3.2;
     const nx = Math.cos(a), ny = Math.sin(a), px = -ny, py = nx;
@@ -265,10 +283,21 @@ export function drawGauge(canvas, { gauge, score, label, caption, active, level 
   ctx.textAlign = "center";
   ctx.fillStyle = over ? `rgba(255,255,255,${0.75 + 0.25 * pulse})` : TEXT;
   ctx.font = `700 36px ${FONT}`;
-  ctx.fillText(value == null ? "—" : String(Math.round(value)), cx, cy + r * 0.56);
+  if (broken) {
+    // glitched readout: split channels, jitter
+    const jx = (Math.random() - 0.5) * 6, jy = (Math.random() - 0.5) * 3;
+    ctx.fillStyle = "rgba(255,40,80,0.8)";
+    ctx.fillText("???", cx + jx - 3, cy + r * 0.56 + jy);
+    ctx.fillStyle = "rgba(40,220,255,0.8)";
+    ctx.fillText("???", cx - jx + 3, cy + r * 0.56 - jy);
+    ctx.fillStyle = glitch < 0.15 ? "rgba(255,255,255,0.2)" : "#ffffff";
+    ctx.fillText("???", cx, cy + r * 0.56);
+  } else {
+    ctx.fillText(value == null ? "—" : String(Math.round(value)), cx, cy + r * 0.56);
+  }
   ctx.font = `600 12px ${FONT}`;
   ctx.fillStyle = value == null ? MUTED : over ? "#f87171" : intensityColor(value);
-  ctx.fillText(label ?? tr("intensity"), cx, cy + r * 0.56 + 17);
+  ctx.fillText(broken ? "???" : label ?? tr("intensity"), cx, cy + r * 0.56 + 17);
   ctx.font = `11px ${FONT}`;
   ctx.fillStyle = MUTED;
   if (caption) ctx.fillText(caption, cx, cy + r * 0.56 + 32);
@@ -357,7 +386,7 @@ export function drawCurve(canvas, { cur, enabled, position }) {
   const dur = cur?.duration || 180;
   const X = (s) => m.l + (s / dur) * pw;
   const peak = Math.max(0, ...(cur?.live?.scoring?.curves?.intensity ?? []).filter(Number.isFinite));
-  const yTop = peak > 100 ? SCORE_MAX : 100;
+  const yTop = peak > 100 ? Math.max(SCORE_MAX, Math.ceil(peak / 25) * 25) : 100;
   const Y = (v) => m.t + ph - (Math.min(v, yTop) / yTop) * ph;
   // stage bands
   STAGES.forEach((s, i) => {

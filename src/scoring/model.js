@@ -1,11 +1,11 @@
 // Intensity model: raw features -> 8 interpretable sub-scores -> 0..100, and
-// beyond (up to SCORE_MAX) for what is off the charts.
+// beyond for what is off the charts.
 //
 // The score is a practical perceptual ranking tool, not a scientific measure.
 // No genre rule anywhere: only audio features. To replace the model, write a
 // module exposing the same functions and point src/scoring/index.js to it.
 
-import { ALGORITHM_VERSION, CALIBRATION, DEFAULT_WEIGHTS, DEFAULT_AGGREGATION, SUBSCORE_SCALES, SCORE_MAX, ATTACK_POINTS } from "../config.js";
+import { ALGORITHM_VERSION, CALIBRATION, DEFAULT_WEIGHTS, DEFAULT_AGGREGATION, SUBSCORE_SCALES, ATTACK_POINTS } from "../config.js";
 import { aggregate, aggregateAll } from "./aggregate.js";
 import { describeMusic } from "./describe.js";
 
@@ -190,7 +190,7 @@ export function computeIntensity(subscores, weights = DEFAULT_WEIGHTS) {
   const score = calibrate(rawIntensity(subscores, weights));
   // fast regular attacks add points, up to beyond what the calibrated scale reaches
   const attacks = clamp01((subscores.attackSpeed ?? 0) / 100) * lin(score, 50, 85);
-  return round1(Math.min(SCORE_MAX, score + ATTACK_MAX * attacks));
+  return round1(score + ATTACK_MAX * attacks);
 }
 
 
