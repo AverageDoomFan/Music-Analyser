@@ -8,7 +8,7 @@ import { t } from "./i18n/index.js";
  * Bump it whenever the scoring changes: stored tracks whose version differs are
  * re-scored automatically from their cached features, without re-decoding audio.
  */
-export const ALGORITHM_VERSION = "2.3.1";
+export const ALGORITHM_VERSION = "2.4";
 
 /**
  * Version of the feature extractor (audio -> raw features).
@@ -146,8 +146,16 @@ export const CALIBRATION = [
   [1.0, 125],    // 2.2: no ceiling at 100, what goes beyond is "Off the charts"
 ];
 
-/** Highest possible score (end of the calibration). Scores above 100 are "Off the charts". */
-export const SCORE_MAX = 125;
+/** Highest possible score. Scores above 100 are "Off the charts". The calibration ends at
+ * 125; only the extratone bonus (and manual scores) go further. */
+export const SCORE_MAX = 150;
+
+/**
+ * 2.4: points added to an already intense window (60 → 90 fades it in) that holds a
+ * regular extratone pulse (extractor 1.7, 12.5–24 hits/s). Fitted on The End of All
+ * Ends (Instrumental): 97 → ~133; no other track of the user's 1.7 export has one.
+ */
+export const EXTRATONE_POINTS = 60;
 
 /**
  * How the user's rating of a song's lyrics shifts its perceived intensity and

@@ -5,7 +5,7 @@
 // No genre rule anywhere: only audio features. To replace the model, write a
 // module exposing the same functions and point src/scoring/index.js to it.
 
-import { ALGORITHM_VERSION, CALIBRATION, DEFAULT_WEIGHTS, DEFAULT_AGGREGATION, SUBSCORE_SCALES } from "../config.js";
+import { ALGORITHM_VERSION, CALIBRATION, DEFAULT_WEIGHTS, DEFAULT_AGGREGATION, SUBSCORE_SCALES, SCORE_MAX, EXTRATONE_POINTS } from "../config.js";
 import { aggregate, aggregateAll } from "./aggregate.js";
 import { describeMusic } from "./describe.js";
 
@@ -101,6 +101,11 @@ function components(raw) {
       ["Centroid variation", lin(f.centroidStd, 300, 2000), 0.2],
       ["Flux variation", lin(f.fluxStd, 0.03, 0.12), 0.2],
     ],
+    // 2.4, extractor 1.7+: not a dimension of the base, a bonus on top of the
+    // calibrated score (see computeIntensity)
+    ...(f.fastPulseShare != null ? {
+      extratone: [["Extratone pulse", lin(f.fastPulseShare, 0.1, 0.5) * lin(f.fastPulseStrength, 0.2, 0.4), 1]],
+    } : {}),
     noise: [
       ["Spectral flatness", lin(flatDb, -25, -3), 0.45],
       ["Full spectrum", lin(f.spectralFill, 0.3, 0.95), 0.2],
@@ -174,7 +179,10 @@ export function computeSubscores(features) {
  * noisy yet soft texture (rain, tape hiss) is not ranked as extreme.
  */
 export function computeIntensity(subscores, weights = DEFAULT_WEIGHTS) {
-  return round1(calibrate(rawIntensity(subscores, weights)));
+  const score = calibrate(rawIntensity(subscores, weights));
+  // extratone: very fast regular hits, beyond what the calibrated scale reaches
+  const extratone = clamp01((subscores.extratone ?? 0) / 100) * lin(score, 60, 90);
+  return round1(Math.min(SCORE_MAX, score + EXTRATONE_POINTS * extratone));
 }
 
 
@@ -184,7 +192,7 @@ export function rawIntensity(subscores, weights = DEFAULT_WEIGHTS) {
   const m = (dim) => toModel(dim, (subscores[dim] ?? 0) / 100);
   let s = 0, w = 0;
   for (const dim of Object.keys(subscores)) {
-    if (dim === "noise") continue;
+    if (dim === "noise" || dim === "extratone") continue;
     const wi = Math.max(0, weights[dim] ?? 0);
     s += wi * m(dim);
     w += wi;
