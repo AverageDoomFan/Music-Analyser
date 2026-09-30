@@ -478,6 +478,7 @@
             </div>
             <label class="inline small"><input type="checkbox" id="lv-skip-files" checked> Skip tracks already analysed from a file</label>
             <label class="inline small"><input type="checkbox" id="lv-rescan"> Re-analyse tracks already captured</label>
+            <label class="inline small" title="Tracks whose measures come from an older version of the extractor: the scores follow new algorithms by themselves, new measures need the audio again"><input type="checkbox" id="lv-rescan-old"> Only re-analyse tracks analysed with an older version</label>
             <p class="small muted" id="lv-estimate"></p>
           </fieldset>
         </div>
@@ -513,7 +514,7 @@
             <div class="lv-artist" id="lv-artist">Start a scan to analyse your playlist live.</div>
             <canvas class="lv-timeline" id="lv-timeline" height="46" aria-label="Parts of the track heard"></canvas>
             <div class="lv-times"><span id="lv-pos">0:00</span><span id="lv-heard" class="muted"></span><span id="lv-dur">0:00</span></div>
-            <div class="lv-lyrics" id="lv-lyrics" hidden></div>
+            <div class="lv-lyrics" id="lv-lyrics"></div>
           </div>
           <div class="lv-gauge-wrap">
             <canvas class="lv-gauge" id="lv-gauge" width="220" height="220" aria-label="Intensity"></canvas>

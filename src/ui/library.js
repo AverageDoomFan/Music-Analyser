@@ -33,7 +33,11 @@ export function initLibrary({ openDetail }) {
   $("filter-stage").addEventListener("change", (e) => { state.ui.stage = e.target.value; notify(); });
   $("refresh-genres").addEventListener("click", () => refreshGenres().catch((err) => toast(err.message, "error")));
   $("filter-vocals").addEventListener("change", (e) => { state.ui.vocals = e.target.value; notify(); });
-  $("hide-tests").addEventListener("change", (e) => { state.ui.hideTests = e.target.checked; notify(); });
+  $("hide-tests").addEventListener("change", (e) => {
+    state.ui.hideTests = e.target.checked;
+    try { localStorage.setItem(HIDE_TESTS_KEY, e.target.checked ? "1" : "0"); } catch { /* ignore */ }
+    notify();
+  });
   $("filter-genre").addEventListener("change", (e) => { state.ui.genre = e.target.value; notify(); });
   $("group-by").addEventListener("change", (e) => { state.ui.group = e.target.value; notify(); });
   $("aggregation").innerHTML = AGGREGATIONS.map((a) => `<option value="${a.key}" title="${a.hint}">${a.label}</option>`).join("");
@@ -80,6 +84,26 @@ export function initLibrary({ openDetail }) {
     }
   });
   player.onChange(() => notify());
+
+  // The browser restores form controls on reload (and the language switch
+  // reloads the page), but no "change" event fires for that: read the
+  // controls back so the filters shown are the filters applied.
+  let savedHide = null;
+  try { savedHide = localStorage.getItem(HIDE_TESTS_KEY); } catch { /* ignore */ }
+  if (savedHide !== null) $("hide-tests").checked = savedHide === "1";
+  const syncFromDom = () => {
+    state.ui.search = $("search").value;
+    state.ui.status = $("filter-status").value;
+    state.ui.stage = $("filter-stage").value;
+    state.ui.vocals = $("filter-vocals").value;
+    state.ui.hideTests = $("hide-tests").checked;
+    state.ui.group = $("group-by").value;
+    notify();
+  };
+  syncFromDom();
+  // Some browsers restore form state after the modules ran, or on a
+  // back/forward cache return.
+  window.addEventListener("pageshow", syncFromDom);
 }
 
 /** Validate / Delete buttons of a draft row. */
@@ -89,6 +113,8 @@ async function onDraftAction(action, id) {
   if (action === "validate") await ctl.validateDraft(id);
   else if (action === "delete" && confirm(t("Delete the draft “{name}”?", { name: r.name }))) await ctl.deleteTrack(id);
 }
+
+const HIDE_TESTS_KEY = "mea.hideTests";
 
 const SORT_KEYS = [
   { key: "score", label: "Score", hint: t("Final score (chosen method, corrections included)") },

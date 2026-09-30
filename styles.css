@@ -452,6 +452,14 @@ table.library { width: 100%; border-collapse: collapse; }
 .lv-panel { background: color-mix(in srgb, var(--st-panel) 92%, transparent); border: 1px solid var(--st-line); border-radius: 12px; padding: 10px 12px 12px; min-width: 0; }
 .lv-panel canvas { display: block; width: 100%; }
 .lv-full { grid-column: 1 / -1; }
+/* fixed heights: nothing on the Live stage grows or shrinks when a track changes */
+#lv-curve { height: 220px; }
+#lv-radar { height: 260px; }
+#lv-spectrum { height: 160px; }
+#lv-spectrogram { height: 120px; }
+#lv-histogram { height: 170px; }
+/* re-rendered many times a second: never the node the browser anchors scrolling to */
+#lv-queue, #lv-tiles, #lv-lyrics, #lv-loud-values, #lv-session-stats { overflow-anchor: none; }
 .lv-panel-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 0.85rem; font-weight: 600; flex-wrap: wrap; }
 .lv-chips { display: flex; gap: 4px; flex-wrap: wrap; }
 .lv-chips button { font: inherit; font-size: 0.72rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--st-line); background: transparent; color: var(--st-muted); cursor: pointer; }

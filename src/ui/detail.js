@@ -14,6 +14,7 @@ import { toast } from "./toast.js";
 import { player } from "./player.js";
 import { openInRhythm } from "./rhythm.js";
 import { t } from "../i18n/index.js";
+import { rescanRecord } from "./live.js";
 
 const dialog = () => document.getElementById("detail-dialog");
 let currentId = null;
@@ -74,8 +75,17 @@ export function initDetail() {
       case "correction-clear": await ctl.removeCorrection(id); toast(t("Correction removed.")); break;
       case "recompute": await ctl.recompute(id); toast(t("Score recomputed from the cached features.")); break;
       case "reanalyze":
-        if (ctl.reanalyze(id)) toast(t("Audio re-analysis started."));
-        else toast(t(r.source?.kind === "spotify" ? "Captured from Spotify: scan it again in the Live tab (tick “Re-analyse”)." : "Audio file not available in this session: import it again (it is recognised by its fingerprint)."), "error");
+        if (r.source?.kind === "spotify") {
+          // captured from Spotify: scan just this track again in the Live tab
+          d.close();
+          try {
+            const rec = await rescanRecord(r);
+            if (rec?.finalScore != null) toast(t("Re-analysed: {name} ({n}).", { name: r.name, n: Math.round(rec.finalScore) }));
+          } catch (err) {
+            toast(err?.message || String(err), "error", 7000);
+          }
+        } else if (ctl.reanalyze(id)) toast(t("Audio re-analysis started."));
+        else toast(t("Audio file not available in this session: import it again (it is recognised by its fingerprint)."), "error");
         break;
       case "report": reportOpen = !reportOpen; render(true); break;
       case "report-save":
@@ -185,7 +195,7 @@ function render(force = false) {
       ${canPlay ? `<button class="btn" data-action="play">${player.isPlaying(r.id) ? t("Pause") : t("Play")}</button>` : ""}
       ${state.files.has(r.id) || r.rhythm ? `<button class="btn" data-action="rhythm" title="${t("Split into notes for a rhythm game map")}">${t("Rhythm")}</button>` : ""}
       ${r.features ? `<button class="btn" data-action="recompute" title="${t("Recomputes from the cached features, without reading the audio")}">${t("Recompute")}</button>` : ""}
-      <button class="btn" data-action="reanalyze" title="${t("Reads and analyses the audio file again")}">${t("Re-analyse the audio")}</button>
+      <button class="btn" data-action="reanalyze" title="${r.source?.kind === "spotify" ? t("Plays and analyses this track again in the Live tab") : t("Reads and analyses the audio file again")}">${t("Re-analyse the audio")}</button>
       ${auto ? `<button class="btn" data-action="report" aria-pressed="${reportOpen}" title="${t("Save everything about this track for a closer look at the model")}">⚑ ${t("Report for analysis")}</button>` : ""}
       ${auto ? `<button class="btn primary" data-action="mismatch">${t("The score is off")}</button>` : ""}
     </div>`;
