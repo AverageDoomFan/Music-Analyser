@@ -11,6 +11,7 @@ import { formatDuration, formatSize, formatScore, formatDate, escapeHtml } from 
 import { questionById } from "../scoring/correction.js";
 import { openCorrection } from "./correction.js";
 import { toast } from "./toast.js";
+import { intensityColor } from "./live-draw.js";
 import { player } from "./player.js";
 import { openInRhythm } from "./rhythm.js";
 import { t } from "../i18n/index.js";
@@ -377,7 +378,7 @@ function scoreBlock(r, final) {
   const auto = r.auto.score;
   const showGhost = Math.round(auto) !== Math.round(final);
   return `
-    <div class="score-head">
+    <div class="score-head" style="--sc:${intensityColor(final)}">
       <span class="big-score">${formatScore(final)}</span>
       <span><strong>${stageFor(final).label}</strong><br><span class="muted small">${statusOf(r) === "corrected" ? t("automatic: {n}", { n: formatScore(auto) }) : t("automatic score")} · ${t("{agg} of the curve", { agg: escapeHtml(AGGREGATIONS.find((a) => a.key === r.auto.aggregation)?.label ?? "") })} · ${t("algorithm")} v${escapeHtml(r.auto.algorithmVersion)}</span></span>
     </div>
@@ -385,7 +386,7 @@ function scoreBlock(r, final) {
       <div class="intensity-scale">
         ${showGhost ? `<span class="intensity-marker ghost" style="left:${Math.min(auto, SCORE_MAX) / SCORE_MAX * 100}%" title="${t("Automatic")}"></span>` : ""}
         <span class="intensity-tick" style="left:${(100 / SCORE_MAX) * 100}%" title="100"></span>
-        <span class="intensity-marker" style="left:${Math.min(final, SCORE_MAX) / SCORE_MAX * 100}%"></span>
+        <span class="intensity-marker" style="--sc:${intensityColor(final)};left:${Math.min(final, SCORE_MAX) / SCORE_MAX * 100}%"></span>
       </div>
       <div class="intensity-ends"><span>0 · ${t("Ambient")}</span><span>${SCORE_MAX} · ${t("Off the charts")}</span></div>
     </div>`;
