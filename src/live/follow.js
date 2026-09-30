@@ -379,7 +379,7 @@ export class Follower extends Scanner {
       const { weights, aggregation } = this.scoring();
       const finalScoring = scoreFeatures(features, weights, aggregation);
       const score = record?.finalScore ?? finalScoring.score;
-      Object.assign(q, { state: "done", score, draft, message: draft ? t("draft · {n} % heard", { n: pct }) : t("{n} % heard", { n: pct }) });
+      Object.assign(q, { state: "done", score, draft, message: draft ? t("draft · {n} % heard", { n: pct }) : "" });
       if (this.status.current === cur) {
         cur.live.scoring = finalScoring;
         cur.final = { score, features, coverage };

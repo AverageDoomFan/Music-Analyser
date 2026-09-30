@@ -1114,5 +1114,4 @@ export default {
   "{n} drafts to validate in the Library": "{n} brouillons à valider dans la Bibliothèque",
   "Follow mode: play the track in Spotify itself.": "Mode suivi : lance le morceau directement dans Spotify.",
   "The app does not control Spotify: it analyses whatever you play there yourself": "L'appli ne pilote pas Spotify : elle analyse ce que tu y écoutes toi-même",
-  "Play music in Spotify yourself (the app only reads what is playing). Each track is analysed when it changes, or when you stop.": "Lance ta musique toi-même dans Spotify (l'appli lit seulement ce qui joue). Chaque morceau est analysé quand il change, ou quand tu arrêtes.",
 };

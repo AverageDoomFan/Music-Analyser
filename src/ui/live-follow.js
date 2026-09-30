@@ -7,7 +7,7 @@ import * as ctl from "../app/controller.js";
 import * as auth from "../spotify/auth.js";
 import * as api from "../spotify/api.js";
 import { analyzePcm } from "../audio/analyzer.js";
-import { Follower, followOutcome, DRAFT_THRESHOLD } from "../live/follow.js";
+import { Follower, followOutcome, heardCoverage, DRAFT_THRESHOLD } from "../live/follow.js";
 import { t, tn } from "../i18n/index.js";
 import { toast } from "./toast.js";
 
@@ -48,7 +48,6 @@ function set(value) {
 function render() {
   $("lv-follow").setAttribute("aria-checked", String(on));
   $("lv-setup").classList.toggle("following", on);
-  $("lv-follow-hint").hidden = !on;
   $("lv-start").textContent = on ? t("▶ Follow my listening") : t("▶ Start the scan");
   if (on) $("lv-setup-summary").textContent = t("Follow my Spotify listening");
 }
@@ -69,7 +68,10 @@ export function followOverall(s) {
   if (c.error) parts.push(tn(c.error, "{n} error", "{n} errors"));
   if (s.error) parts.push(s.error);
   $("lv-overall-text").textContent = parts.join(" · ");
-  $("lv-overall-bar").style.width = s.running ? "100%" : "0%";
+  // the bar shows how much of the current track was heard (60 % = a normal record)
+  const cur = s.current;
+  const heard = cur && s.running ? heardCoverage(cur.plan.map((g) => ({ pos: g.recordedFrom ?? g.pos, len: g.filled ?? 0 })), cur.duration) : 0;
+  $("lv-overall-bar").style.width = `${Math.round(heard * 100)}%`;
 }
 
 /** Starts following the user's own Spotify listening. */
