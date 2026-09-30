@@ -20,7 +20,6 @@ import { toast } from "./toast.js";
 import { rememberDevice, savedDevice } from "./player.js";
 import { pickDevice } from "../spotify/devices.js";
 import { initFollow, followOn, startFollowing, followSummary, followOverall } from "./live-follow.js";
-import { initConcert } from "./concert.js";
 import {
   drawGauge, gaugeState, stepGauge, gaugeTarget, drawTimeline, drawCurve, drawRadar, drawHistogram, SpectrumView, Spectrogram, Meters,
   intensityColor, sparkSvg, fmtTime, DIM_COLORS,
@@ -65,7 +64,6 @@ export function initLive({ openDetail }) {
   initFollow({ lv, beginCapture, setRunning, requestWakeLock, releaseWakeLock, applyPendingLyrics, renderEstimate, demoOn });
   buildOrders();
   buildChips();
-  initConcert({ state: liveConcertState, setActive: (on) => { lv.concert = on; } });
   const sup = captureSupport();
   if (!sup.system) document.querySelector('input[name="lv-source"][value="system"]').disabled = true;
 
@@ -415,9 +413,6 @@ export async function analyseTracks(tracks) {
  */
 export const liveScanState = () => ({ status: lv.status, level: lv.level ?? 0 });
 
-/** Read-only view for the concert mode (concert.js): capture, status, current track, needle. */
-const liveConcertState = () => ({ capture: lv.capture, status: lv.status, current: lv.status?.current ?? lv.lastCurrent ?? null, readout: lv.gauge.readout });
-
 /**
  * "Re-analyse" on a track captured from Spotify: opens the Live tab and scans
  * only that track (Live settings, always re-analysed). Resolves with its record.
@@ -572,11 +567,9 @@ function loop(now) {
 
   // always-moving visuals
   const an = lv.capture?.analyser ?? null;
-  if (!lv.concert) { // hidden behind the concert mode: skip the heavy canvases
-    spectrum.draw($("lv-spectrum"), an);
-    spectrogram.draw($("lv-spectrogram"), an);
-    meters.draw($("lv-meters"), lv.capture, cur?.loudness, now);
-  }
+  spectrum.draw($("lv-spectrum"), an);
+  spectrogram.draw($("lv-spectrogram"), an);
+  meters.draw($("lv-meters"), lv.capture, cur?.loudness, now);
   $("lv-level-bar").style.width = `${Math.min(100, Math.max(0, (20 * Math.log10((lv.level ?? 0) + 1e-9) + 60) / 60) * 100)}%`;
   if (lv.level) lv.level *= 0.97;
   drawTimeline($("lv-timeline"), cur, pos, now);

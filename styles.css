@@ -579,7 +579,7 @@ table.library { width: 100%; border-collapse: collapse; }
 .library tbody tr:hover { background: color-mix(in srgb, var(--text) 3.5%, transparent); }
 .library tbody tr:hover .track-name { color: var(--text); }
 .library tbody tr:last-child td { border-bottom: none; }
-.col-play { width: 44px; }
+.col-play { width: 44px; white-space: nowrap; }
 .track-name { font-weight: 500; overflow-wrap: anywhere; color: var(--text); letter-spacing: -0.005em; }
 .track-meta { font-size: 0.78rem; color: var(--muted); margin-top: 1px; }
 .score-cell { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-width: 116px; }

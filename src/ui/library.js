@@ -8,6 +8,7 @@ import { renderScoreChart, sparkline } from "./charts.js";
 import { moodLabel } from "../scoring/describe.js";
 import * as ctl from "../app/controller.js";
 import { player } from "./player.js";
+import { openConcert } from "./concert.js";
 import { t, tn } from "../i18n/index.js";
 import { genreLine } from "./home.js";
 import { toast } from "./toast.js";
@@ -62,6 +63,14 @@ export function initLibrary({ openDetail }) {
   }));
 
   $("library-body").addEventListener("click", (e) => {
+    const cc = e.target.closest("[data-concert]");
+    if (cc) {
+      e.stopPropagation();
+      const id = cc.dataset.concert;
+      // focus back on the row once the page is laid out again (after full screen)
+      openConcert(id, { onClose: () => setTimeout(() => document.querySelector(`#library-body tr[data-id="${CSS.escape(id)}"]`)?.focus({ preventScroll: true }), 150) });
+      return;
+    }
     const play = e.target.closest("[data-play]");
     if (play) {
       e.stopPropagation();
@@ -259,7 +268,7 @@ function rowHtml(row) {
   }
 
   return `<tr ${row.id ? `data-id="${row.id}" tabindex="0"` : ""}>
-    <td class="col-play"><button class="icon-btn" data-play="${row.id ?? ""}" ${canPlay ? "" : "disabled"} aria-label="${playing ? t("Pause") : t("Play")}" title="${canPlay ? (playing ? t("Pause") : player.kind(row.id) === "spotify" ? t("Play on Spotify") : t("Play")) : t("Playback available for files imported in this session, and for Spotify captures when logged in")}">${playing ? "❚❚" : "▶"}</button></td>
+    <td class="col-play"><button class="icon-btn" data-play="${row.id ?? ""}" ${canPlay ? "" : "disabled"} aria-label="${playing ? t("Pause") : t("Play")}" title="${canPlay ? (playing ? t("Pause") : player.kind(row.id) === "spotify" ? t("Play on Spotify") : t("Play")) : t("Playback available for files imported in this session, and for Spotify captures when logged in")}">${playing ? "❚❚" : "▶"}</button>${canPlay && r?.auto?.curves ? `<button class="icon-btn cc-row-btn" type="button" data-concert="${escapeHtml(row.id)}" aria-label="${t("Concert")}" title="${t("Concert mode: full-screen show driven by the analysis")}">✦</button>` : ""}</td>
     <td><div class="track-name">${escapeHtml(row.name)}</div><div class="track-meta">${meta.join(" · ")}</div>${r?.draft ? draftActions(r) : ""}</td>
     <td class="col-curve hide-sm" title="${r?.auto?.stats ? curveTitle(r) : ""}">${r?.auto?.curves ? sparkline(r.auto.curves.intensity) : ""}</td>
     <td class="hide-sm">${musicCell(r)}</td>

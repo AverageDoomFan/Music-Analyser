@@ -1,10 +1,15 @@
 // Concert mode: the pure logic behind the visuals (no DOM, no WebGL), so it
-// can be unit-tested in Node: onset / kick detection on analyser frames, the
-// intensity → palette mapping, the flash limiter (photosensitivity safety)
-// and small smoothing helpers.
+// can be unit-tested in Node: the show prepared from a stored analysis
+// (timeline sampled at any time, drops, beat clock, events), the synthesized
+// spectrum for tracks with no audio in the page, onset / kick detection on
+// analyser frames, the intensity → palette mapping, the flash limiter
+// (photosensitivity safety) and small smoothing helpers.
 
 import { intensityRgb } from "./live-draw.js";
-import { SCORE_MAX } from "../config.js";
+
+/** Top of the visual scale (white hot). Scores above it still show, the visuals stay at the top. */
+export const GAUGE_TOP = 150;
+const SCORE_MAX = GAUGE_TOP;
 
 export const clamp = (x, lo = 0, hi = 1) => (x < lo ? lo : x > hi ? hi : x);
 export const mix = (a, b, t) => a + (b - a) * t;
@@ -169,13 +174,6 @@ export function concertDrive(intensity, sub = null) {
   };
 }
 
-/**
- * Intensity the visuals follow when the live scan gives no reading yet (a
- * plain capture): a guess from the audio level, calm-ish, never "off the charts".
- * @param {number} loud  0..1 (OnsetDetector's loud)
- */
-export const levelIntensity = (loud) => clamp(loud * 1.25) * 72;
-
 const smooth = (a, b, x) => { const u = clamp((x - a) / (b - a)); return u * u * (3 - 2 * u); };
 
 /**
@@ -186,8 +184,12 @@ const smooth = (a, b, x) => { const u = clamp((x - a) / (b - a)); return u * u *
  * @param {{time:number, dt:number, travel:number, kick:number, bass:number, loud:number, idle:number,
  *   flash:number, drive:object, palette:object, reduced?:boolean, kickAt?:number, kickStrength?:number}} s
  *   kickAt / kickStrength: time and strength of the last kick (shockwave)
+ *   tension: build-up before a drop (0..1): the feedback turns inwards, the ring tightens
+ *   bigAt / bigStrength: the last drop or section change (a slow, refracting shockwave)
+ *   cam: {x, y, zoom, roll} camera offset of the final image
  */
-export function visualParams(f, { time, dt, travel, kick: k, bass, loud, idle, flash, drive, palette, reduced = false, kickAt = -100, kickStrength = 0 }) {
+export function visualParams(f, { time, dt, travel, kick: k, bass, loud, idle, flash, drive, palette, reduced = false, kickAt = -100, kickStrength = 0,
+  tension = 0, bigAt = -100, bigStrength = 0, cam = null }) {
   const { heat, hot } = drive;
   const n = clamp(dt * 60, 0.25, 6); // frames of 1/60 s in this one
   const calm = reduced ? 0.35 : 1;
@@ -204,11 +206,14 @@ export function visualParams(f, { time, dt, travel, kick: k, bass, loud, idle, f
   f.loud = loud * (1 - idle * 0.8);
   f.idle = idle;
   f.tunnel = smooth(0.35, 0.85, heat);
-  f.zoom = 1 - (0.002 + 0.009 * heat + 0.016 * k) * calm * n;
-  f.rot = ((0.0012 + 0.004 * drive.turbulence) * Math.sin(time * 0.07) + 0.008 * hot * Math.sin(time * 1.3)) * calm * n;
-  f.decay = Math.pow(0.78 + 0.08 * heat + 0.08 * idle, n);
+  const ten = tension * (1 - idle);
+  // tension: the trails implode towards the centre and spin, before the drop releases them
+  f.zoom = 1 - (0.002 + 0.009 * heat + 0.016 * k) * calm * n * (1 - ten) + 0.011 * ten * calm * n;
+  f.rot = ((0.0012 + 0.004 * drive.turbulence) * Math.sin(time * 0.07) + 0.008 * hot * Math.sin(time * 1.3) + 0.01 * ten * ten) * calm * n;
+  f.decay = Math.pow(Math.min(0.95, 0.78 + 0.08 * heat + 0.08 * idle + 0.08 * ten), n);
   f.fade = 0.004 * n;
-  f.ringR = 0.26 * (1 + 0.09 * k * (reduced ? 0.3 : 1));
+  f.tension = ten;
+  f.ringR = 0.26 * (1 + 0.09 * k * (reduced ? 0.3 : 1)) * (1 - 0.2 * ten);
   f.ringH = 0.06 + 0.13 * heat;
   f.bloom = 0.3 + 0.35 * heat + 0.4 * k;
   f.bloomThreshold = 0.75 - 0.25 * heat + 0.2 * hot;
@@ -220,8 +225,379 @@ export function visualParams(f, { time, dt, travel, kick: k, bass, loud, idle, f
   f.shock ??= [0, 0];
   f.shock[0] = Math.max(0, time - kickAt);
   f.shock[1] = kickStrength * (reduced ? 0.4 : 1) * (0.5 + 0.5 * heat) * (1 - idle);
-  f.starBright = 0.2 + 0.5 * heat + 0.3 * hot;
+  f.shock2 ??= [0, 0];
+  f.shock2[0] = Math.max(0, time - bigAt);
+  f.shock2[1] = bigStrength * (reduced ? 0.4 : 1) * (1 - idle);
+  f.cam ??= [0, 0, 1, 0];
+  f.cam[0] = cam?.x ?? 0;
+  f.cam[1] = cam?.y ?? 0;
+  f.cam[2] = cam?.zoom ?? 1;
+  f.cam[3] = cam?.roll ?? 0;
+  f.starBright = 0.2 + 0.5 * heat + 0.3 * hot + 0.6 * ten;
+  f.exposure *= 1 - 0.22 * ten;
+  f.ca += 0.01 * ten * (reduced ? 0.3 : 1);
   f.palette = palette;
   f.drive = drive;
   return f;
+}
+
+// ------------------------------------------------------------------ show from a stored analysis
+
+export const BAND_KEYS = ["bandSub", "bandBass", "bandLowMid", "bandHighMid", "bandHigh"];
+/** Band centres (Hz, geometric) of the analysis bands: sub, bass, low mids, high mids, highs. */
+export const BAND_HZ = [35, 122, 707, 3464, 11500];
+const SUB_KEYS = ["energy", "tempo", "density", "brightness", "harshness", "pressure", "complexity", "noise"];
+const finite = (x) => typeof x === "number" && Number.isFinite(x);
+
+function median3(a) {
+  return a.map((v, i) => {
+    const w = [a[Math.max(0, i - 1)], v, a[Math.min(a.length - 1, i + 1)]].sort((x, y) => x - y);
+    return w[1];
+  });
+}
+
+/**
+ * Everything the concert needs from an analysed record, precomputed once:
+ * per-window curves (intensity and sub-scores as the detail curve shows them,
+ * band energies normalised per band, level, attack rates, folded BPM), the
+ * sections, the drops and a beat clock. null when the record has no curve.
+ * @param {object} r  a library record (r.auto.curves, r.features.timeline, r.auto.music)
+ */
+export function prepareShow(r) {
+  const c = r?.auto?.curves;
+  const times = c?.times;
+  if (!times?.length || !c.intensity?.length) return null;
+  const n = times.length;
+  const f = r.features ?? {};
+  const sr = f.timeline?.series ?? {};
+  const col = (key, fallback) => {
+    const a = sr[key];
+    const fb = finite(fallback) ? fallback : 0;
+    return Array.from({ length: n }, (_, i) => (a && finite(a[i]) ? a[i] : fb));
+  };
+  const intensity = c.intensity.map((v) => (finite(v) ? v : 0));
+  const subs = {};
+  for (const k of SUB_KEYS) subs[k] = Array.from({ length: n }, (_, i) => (finite(c.subscores?.[k]?.[i]) ? c.subscores[k][i] : intensity[i]));
+  const be = f.bandEnergy ?? {};
+  const globalBands = [be.sub, be.bass, be.lowMid, be.highMid, be.high];
+  // each band on its own scale (its loudest window = 1): the highs carry a
+  // hundredth of the energy of the lows, their movement is what matters
+  const bands = BAND_KEYS.map((k, b) => {
+    const a = col(k, globalBands[b] ?? 0.2);
+    const top = Math.max(1e-9, ...a);
+    return a.map((v) => Math.sqrt(clamp(v / top)));
+  });
+  // level of each window relative to the track (LU), else from the intensity
+  const peakI = Math.max(...intensity);
+  const rel = sr.loudnessRel ? col("loudnessRel", 0) : intensity.map((v) => (v - peakI) / 5);
+  const level = rel.map((v) => clamp((v + 18) / 20));
+  const onsetRate = col("onsetRate", f.onsetRate ?? 2);
+  const share = col("fastPulseShare", f.fastPulseShare ?? 0);
+  const fastRate = col("fastPulseRate", f.fastPulseRate ?? 0).map((v, i) => (share[i] >= 0.2 ? v : 0));
+  const globalBpm = [r.auto?.music?.tempo?.bpm, f.bpm].find((x) => finite(x) && x >= 40 && x <= 250) ?? null;
+  const conf = col("bpmConfidence", f.bpmConfidence ?? 0);
+  const rawBpm = col("bpm", globalBpm ?? 0);
+  const bpm = median3(rawBpm.map((v, i) => (v >= 50 && v <= 230 && conf[i] >= 0.3 ? v : globalBpm ?? 120)));
+  const bpmSure = globalBpm != null || conf.some((x) => x >= 0.3);
+  const heat = intensity.map((v) => clamp(v / 100));
+  // how hard the beat hits: the intensity, the low end, the level
+  const beatAmt = heat.map((h, i) => clamp((0.2 + 0.8 * h) * (0.55 + 0.45 * Math.max(bands[0][i], bands[1][i])) * (0.3 + 0.7 * level[i]) * (bpmSure ? 1 : 0.6)));
+  const duration = [r.duration, f.duration].find((x) => finite(x) && x > 0) ?? times[n - 1] + 3;
+  const sections = (r.auto?.music?.sections ?? f.sections ?? [])
+    .filter((s) => finite(s?.start) && finite(s?.end) && s.end > s.start)
+    .map((s) => ({ start: s.start, end: s.end, label: s.label === "Montée" ? "Build-up" : s.label === "Pic" ? "Peak" : s.label || "Section" }))
+    .sort((a, b) => a.start - b.start);
+  const show = {
+    id: r.id, duration, times, intensity, subs, bands, level, onsetRate, fastRate, bpm, beatAmt, sections,
+    drops: [], cumBeats: null, beatOffset: 0, bpmSure,
+    peak: peakI, score: finite(r.finalScore) ? r.finalScore : null,
+  };
+  show.drops = detectDrops(times, intensity, sections);
+  // beat clock: beats integrated over the (per-window) tempo
+  const cum = new Float64Array(n);
+  cum[0] = (times[0] * bpm[0]) / 60;
+  for (let i = 1; i < n; i++) cum[i] = cum[i - 1] + ((bpm[i - 1] + bpm[i]) / 2) * (times[i] - times[i - 1]) / 60;
+  show.cumBeats = cum;
+  // a drop lands on a downbeat: anchor the bar grid on the first one (else on the first peak)
+  const anchor = show.drops[0]?.time ?? sections.find((s) => s.label === "Peak")?.start ?? null;
+  if (anchor != null) {
+    const b = beatsAt(show, anchor);
+    show.beatOffset = Math.round(b / 4) * 4 - b;
+  }
+  return show;
+}
+
+/**
+ * Drops: a big rise of the intensity between windows (6 s windows, 3 s hop:
+ * a sudden change shows over two steps) towards something lively. The time
+ * is the steepest step, snapped to a section start when one is close (the
+ * structure is measured per frame, finer than the windows).
+ * @returns {{time:number, from:number, to:number, rise:number}[]}
+ */
+export function detectDrops(times, intensity, sections = [], { minRise = 14, minTo = 42, gap = 12 } = {}) {
+  const n = intensity.length;
+  if (n < 3) return [];
+  const range = Math.max(...intensity) - Math.min(...intensity);
+  const thr = Math.max(minRise, 0.25 * range);
+  const rise = intensity.map((v, i) => (i === 0 ? 0 : v - Math.min(intensity[i - 1], intensity[Math.max(0, i - 2)])));
+  const out = [];
+  for (let i = 1; i < n; i++) {
+    if (rise[i] < thr || intensity[i] < minTo) continue;
+    // local maximum of the rise (ties: the first)
+    if (rise[i - 1] >= rise[i] || (i + 1 < n && rise[i + 1] > rise[i])) continue;
+    // steepest of the (up to) two steps that make the rise
+    let j = i;
+    if (i >= 2 && intensity[i - 1] - intensity[i - 2] > intensity[i] - intensity[i - 1]) j = i - 1;
+    let time = (times[j - 1] + times[j]) / 2;
+    let best = 4.5;
+    for (const s of sections) {
+      const d = Math.abs(s.start - time);
+      if (d <= best && s.start > 0) { best = d; time = s.start; }
+    }
+    const from = Math.min(intensity[i - 1], intensity[Math.max(0, i - 2)]);
+    const to = Math.max(...intensity.slice(i, i + 2));
+    const prev = out.at(-1);
+    if (prev && time - prev.time < gap) {
+      if (rise[i] > prev.rise) out[out.length - 1] = { time, from, to, rise: rise[i] };
+      continue;
+    }
+    out.push({ time, from, to, rise: rise[i] });
+  }
+  return out;
+}
+
+/** Index k such that times[k] <= t < times[k + 1] (clamped to the ends). */
+export function windowIndex(times, t) {
+  let lo = 0, hi = times.length - 1;
+  if (t <= times[0]) return 0;
+  if (t >= times[hi]) return hi;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (times[mid] <= t) lo = mid; else hi = mid;
+  }
+  return lo;
+}
+
+/** Smooth interpolation (Catmull-Rom, clamped between the two knots: no overshoot) of a per-window series. */
+export function interpAt(arr, times, t, k = windowIndex(times, t)) {
+  const n = arr.length;
+  if (n === 1 || t <= times[0]) return arr[0];
+  if (t >= times[n - 1]) return arr[n - 1];
+  const p1 = arr[k], p2 = arr[k + 1];
+  const p0 = arr[Math.max(0, k - 1)], p3 = arr[Math.min(n - 1, k + 2)];
+  const u = (t - times[k]) / (times[k + 1] - times[k]);
+  const u2 = u * u, u3 = u2 * u;
+  const v = 0.5 * (2 * p1 + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u2 + (-p0 + 3 * p1 - 3 * p2 + p3) * u3);
+  return clamp(v, Math.min(p1, p2), Math.max(p1, p2));
+}
+
+/** Beats elapsed at time t (before the bar-grid offset). */
+export function beatsAt(show, t) {
+  const { times, bpm, cumBeats: cum } = show;
+  const n = times.length;
+  if (t <= times[0]) return (t * bpm[0]) / 60;
+  if (t >= times[n - 1]) return cum[n - 1] + ((t - times[n - 1]) * bpm[n - 1]) / 60;
+  const k = windowIndex(times, t);
+  const u = (t - times[k]) / (times[k + 1] - times[k]);
+  const b = bpm[k] + (bpm[k + 1] - bpm[k]) * u;
+  return cum[k] + ((bpm[k] + b) / 2) * (t - times[k]) / 60;
+}
+
+/**
+ * Beat clock at time t: beat count (on the bar grid), phase in the beat (0 on
+ * the beat), beat in the bar (0 = downbeat), phase in the bar.
+ * @param {number} [nudge]  extra phase (beats), e.g. locked on the kicks heard
+ */
+export function beatClock(show, t, nudge = 0, out = {}) {
+  const b = beatsAt(show, t) + show.beatOffset + nudge;
+  const beat = Math.floor(b);
+  out.beats = b;
+  out.beat = beat;
+  out.phase = b - beat;
+  out.inBar = ((beat % 4) + 4) % 4;
+  out.barPhase = (out.inBar + out.phase) / 4;
+  return out;
+}
+
+/**
+ * The show at time t, written into `out` (reused): interpolated intensity,
+ * sub-scores, bands, level, rates, tempo; the section, the next one, the next
+ * drop, the build-up tension before it (0..1) and the time since the last.
+ */
+export function sampleShow(show, t, out = {}) {
+  const { times } = show;
+  const k = windowIndex(times, t);
+  let I = interpAt(show.intensity, times, t, k);
+  // a drop is a cliff, not a slope: hold the level before it, jump right on it
+  let next = null, last = null;
+  for (const d of show.drops) {
+    if (d.time > t) { next = d; break; }
+    last = d;
+  }
+  if (next && next.time - t < 4.5) I = Math.min(I, next.from + (I - next.from) * 0.3);
+  if (last && t - last.time < 3.5) I = Math.max(I, last.to - (last.to - I) * 0.35);
+  out.time = t;
+  out.intensity = I;
+  out.subs ??= {};
+  for (const key of SUB_KEYS) out.subs[key] = interpAt(show.subs[key], times, t, k);
+  out.bands ??= new Float32Array(5);
+  for (let b = 0; b < 5; b++) out.bands[b] = interpAt(show.bands[b], times, t, k);
+  out.level = interpAt(show.level, times, t, k);
+  out.onsetRate = interpAt(show.onsetRate, times, t, k);
+  out.fastRate = interpAt(show.fastRate, times, t, k);
+  out.bpm = interpAt(show.bpm, times, t, k);
+  out.beatAmt = interpAt(show.beatAmt, times, t, k);
+  if (next && next.time - t < 4.5) out.beatAmt *= 0.55; // the beat drops out before the drop
+  // sections
+  let si = -1;
+  for (let i = 0; i < show.sections.length; i++) if (show.sections[i].start <= t) si = i;
+  out.sectionIndex = si;
+  out.section = si >= 0 && t < show.sections[si].end + 0.5 ? show.sections[si] : null;
+  const ns = show.sections[si + 1] ?? null;
+  out.nextSection = ns;
+  out.nextSectionIn = ns ? ns.start - t : null;
+  out.nextDrop = next;
+  out.nextDropIn = next ? next.time - t : null;
+  out.sinceDrop = last ? t - last.time : null;
+  // tension: the build-up before a drop (the build-up section if it leads to it, else 8 s)
+  let tension = 0;
+  if (next) {
+    const build = show.sections.find((s) => s.label === "Build-up" && Math.abs(s.end - next.time) < 5);
+    const L = clamp(build ? next.time - build.start : 8, 4, 16);
+    const x = clamp(1 - (next.time - t) / L);
+    tension = x * x;
+  }
+  out.tension = tension;
+  out.progress = clamp(t / show.duration);
+  return out;
+}
+
+/**
+ * Turns playback time into events, frame after frame: beats (downbeat every
+ * 4), drops, section changes. A jump (seek, pause, first frame) fires
+ * nothing; it only moves the clock.
+ */
+export class ShowDirector {
+  constructor(show) {
+    this.show = show;
+    this.prev = null;
+    this.events = [];
+    this.nudge = 0;
+  }
+  reset() { this.prev = null; }
+  /** @returns {{type:"beat"|"drop"|"section", time:number, index?:number, downbeat?:boolean, drop?:object, section?:object}[]} */
+  advance(t) {
+    const ev = this.events;
+    ev.length = 0;
+    const p = this.prev;
+    this.prev = t;
+    if (p == null || t <= p || t - p > 0.75) return ev;
+    const off = this.show.beatOffset + this.nudge;
+    const b0 = Math.floor(beatsAt(this.show, p) + off);
+    const b1 = Math.floor(beatsAt(this.show, t) + off);
+    if (b1 > b0) ev.push({ type: "beat", time: t, index: b1, downbeat: ((b1 % 4) + 4) % 4 === 0 });
+    for (const d of this.show.drops) if (d.time > p && d.time <= t) ev.push({ type: "drop", time: d.time, drop: d });
+    this.show.sections.forEach((s, i) => {
+      if (s.start > p && s.start <= t && s.start > 0.5) ev.push({ type: "section", time: s.start, section: s, index: i });
+    });
+    return ev;
+  }
+}
+
+const hash = (n) => { const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); };
+
+/** Level (0..1) of the analysis bands at a frequency: interpolated in log frequency between band centres. */
+export function bandLevelAt(bands, hz) {
+  if (hz <= BAND_HZ[0]) return bands[0];
+  const lf = Math.log(hz);
+  for (let b = 1; b < 5; b++) {
+    if (hz <= BAND_HZ[b]) {
+      const u = (lf - Math.log(BAND_HZ[b - 1])) / (Math.log(BAND_HZ[b]) - Math.log(BAND_HZ[b - 1]));
+      return bands[b - 1] + (bands[b] - bands[b - 1]) * u;
+    }
+  }
+  return bands[4];
+}
+
+/**
+ * A spectrum for a track whose audio is not in the page (Spotify): the stored
+ * band energies spread over log-spaced bins (30 Hz – 16 kHz), shaped by the
+ * beat clock (kick in the lows on each beat, snare in the mids on 2 and 4,
+ * hi-hats on the fast pulse or the off-beats) and a deterministic shimmer.
+ * @param {Float32Array} out  0..1 per bin
+ * @param {{bands:ArrayLike<number>, level:number, beatAmt:number, fastRate:number, onsetRate:number, intensity?:number}} s
+ * @param {{phase:number, inBar:number}} clock
+ * @param {number} time  seconds (shimmer)
+ */
+export function synthSpectrum(out, s, clock, time) {
+  const N = out.length;
+  const lo = Math.log(30), hi = Math.log(16000);
+  const heat = clamp((s.intensity ?? 50) / 100);
+  const kick = s.beatAmt * Math.exp(-clock.phase * 7);
+  const snare = clock.inBar % 2 === 1 ? s.beatAmt * Math.exp(-clock.phase * 9) : 0;
+  // hats: the regular fast pulse when there is one, else eighth notes
+  const hatPhase = s.fastRate > 0 ? (time * s.fastRate) % 1 : (clock.phase * 2) % 1;
+  const hat = clamp(s.onsetRate / 6) * Math.exp(-hatPhase * 12) * (0.4 + 0.6 * heat);
+  const lvl = 0.25 + 0.75 * s.level;
+  for (let i = 0; i < N; i++) {
+    const hz = Math.exp(lo + ((hi - lo) * (i + 0.5)) / N);
+    let v = bandLevelAt(s.bands, hz) * lvl * (0.45 + 0.35 * heat);
+    // shimmer: two sines per bin, different speeds
+    const h1 = hash(i * 1.3), h2 = hash(i * 7.1 + 3);
+    v *= 0.72 + 0.18 * Math.sin(time * (1.1 + 3.2 * h1) + h2 * 6.283) + 0.1 * Math.sin(time * (5 + 9 * h2) + h1 * 6.283);
+    if (hz < 160) v += kick * 0.55 * Math.exp(-Math.abs(Math.log(hz / 60)) * 1.4);
+    else if (hz < 2500) v += snare * 0.35 * Math.exp(-Math.abs(Math.log(hz / 900)) * 1.1);
+    if (hz > 5000) v += hat * 0.4 * (0.6 + 0.4 * h1);
+    out[i] = clamp(v);
+  }
+  return out;
+}
+
+/** A waveform to go with the synthesized spectrum: low sines pumped by the kick, mids, a little hiss (about -1..1). */
+export function synthWave(out, s, clock, time) {
+  const N = out.length;
+  const kick = s.beatAmt * Math.exp(-clock.phase * 6);
+  const a0 = (0.25 + 0.75 * Math.max(s.bands[0], s.bands[1])) * (0.35 + 0.65 * kick);
+  const a1 = 0.35 * s.bands[2], a2 = 0.25 * s.bands[3], a3 = 0.2 * s.bands[4];
+  const lvl = 0.3 + 0.7 * s.level;
+  const tick = Math.floor(time * 30) * 977;
+  for (let i = 0; i < N; i++) {
+    const x = i / N;
+    const v = a0 * Math.sin(6.283 * (2 * x) + time * 2.1) +
+      a1 * Math.sin(6.283 * (9 * x) - time * 5.3) +
+      a2 * Math.sin(6.283 * (27 * x) + time * 11.7) +
+      a3 * (hash(i + tick) - 0.5) * 2;
+    out[i] = v * lvl * 0.8;
+  }
+  return out;
+}
+
+/** Rotates an RGB colour (0..1) around the grey axis by `deg` degrees. */
+export function hueRotate(c, deg, out = [0, 0, 0]) {
+  const a = (deg * Math.PI) / 180, cs = Math.cos(a), sn = Math.sin(a);
+  const k = (1 - cs) / 3, q = Math.sqrt(1 / 3) * sn;
+  const r = c[0], g = c[1], b = c[2];
+  out[0] = clamp(r * (cs + k) + g * (k - q) + b * (k + q));
+  out[1] = clamp(r * (k + q) + g * (cs + k) + b * (k - q));
+  out[2] = clamp(r * (k - q) + g * (k + q) + b * (cs + k));
+  return out;
+}
+
+/** Palette hue offset (degrees) a section brings: the heat colours stay readable, each part gets its own light. */
+export function sectionHue(label, index = 0) {
+  switch (label) {
+    case "Intro": return -25;
+    case "Build-up": return 20;
+    case "Peak": return index % 2 ? 12 : 0;
+    case "Break": return -70;
+    case "Outro": return -40;
+    default: return index % 2 ? 30 : -30;
+  }
+}
+
+/** m:ss */
+export function clockText(s) {
+  if (!finite(s) || s < 0) s = 0;
+  const m = Math.floor(s / 60), x = Math.floor(s % 60);
+  return `${m}:${String(x).padStart(2, "0")}`;
 }

@@ -16,6 +16,7 @@ import { player } from "./player.js";
 import { openInRhythm } from "./rhythm.js";
 import { t } from "../i18n/index.js";
 import { rescanRecord } from "./live.js";
+import { openConcert } from "./concert.js";
 
 const dialog = () => document.getElementById("detail-dialog");
 let currentId = null;
@@ -40,6 +41,13 @@ export function initDetail() {
       case "mismatch": openCorrection(id); break;
       case "play": player.toggle(id); break;
       case "rhythm": d.close(); openInRhythm(id); break;
+      case "concert": {
+        // from the playhead when the track is playing or was stopped somewhere
+        const from = player.isPlaying(id) || player.position(id) ? player.position(id) : null;
+        d.close();
+        openConcert(id, { from, onClose: () => openDetail(id) });
+        break;
+      }
       case "manual-save": {
         const v = Number(d.querySelector("#manual-score").value);
         if (!Number.isFinite(v) || v < 0 || v > SCORE_MAX) return toast(t("Score between 0 and {max}.", { max: SCORE_MAX }), "error");
@@ -194,6 +202,7 @@ function render(force = false) {
       <button class="btn danger" data-action="delete">${t("Delete")}</button>
       <span class="spacer"></span>
       ${canPlay ? `<button class="btn" data-action="play">${player.isPlaying(r.id) ? t("Pause") : t("Play")}</button>` : ""}
+      ${auto?.curves && canPlay ? `<button class="btn cc-open-btn" data-action="concert" title="${t("Full-screen show driven by this track's analysis")}"><span class="cc-spark" aria-hidden="true">✦</span> ${t("Concert")}</button>` : ""}
       ${state.files.has(r.id) || r.rhythm ? `<button class="btn" data-action="rhythm" title="${t("Split into notes for a rhythm game map")}">${t("Rhythm")}</button>` : ""}
       ${r.features ? `<button class="btn" data-action="recompute" title="${t("Recomputes from the cached features, without reading the audio")}">${t("Recompute")}</button>` : ""}
       <button class="btn" data-action="reanalyze" title="${r.source?.kind === "spotify" ? t("Plays and analyses this track again in the Live tab") : t("Reads and analyses the audio file again")}">${t("Re-analyse the audio")}</button>
