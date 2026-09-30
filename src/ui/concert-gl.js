@@ -178,6 +178,7 @@ export function createGLRenderer(canvas) {
     gl.uniform1f(pr.u.u_tunnel, f.tunnel);
     gl.uniform1f(pr.u.u_idle, f.idle);
     gl.uniform1f(pr.u.u_sparkle, f.drive.sparkle);
+    gl.uniform1f(pr.u.u_tension, f.tension ?? 0);
     v3(pr.u.u_base, pal.base); v3(pr.u.u_accent, pal.accent); v3(pr.u.u_shadow, pal.shadow);
     tri();
 
@@ -196,6 +197,8 @@ export function createGLRenderer(canvas) {
     gl.uniform1f(pr.u.u_decay, f.decay);
     gl.uniform1f(pr.u.u_fade, f.fade);
     gl.uniform2f(pr.u.u_shock, f.shock[0], f.shock[1]);
+    gl.uniform2f(pr.u.u_shock2, f.shock2?.[0] ?? 9, f.shock2?.[1] ?? 0);
+    gl.uniform1f(pr.u.u_tension, f.tension ?? 0);
     gl.uniform1f(pr.u.u_turb, f.drive.turbulence);
     gl.uniform1f(pr.u.u_heat, f.heat);
     gl.uniform1f(pr.u.u_hot, f.hot);
@@ -280,6 +283,9 @@ export function createGLRenderer(canvas) {
     gl.uniform1f(pr.u.u_grain, f.grain);
     gl.uniform1f(pr.u.u_glitch, f.glitch);
     gl.uniform1f(pr.u.u_idle, f.idle);
+    gl.uniform1f(pr.u.u_tension, f.tension ?? 0);
+    const cam = f.cam ?? [0, 0, 1, 0];
+    gl.uniform4f(pr.u.u_cam, cam[0], cam[1], cam[2], cam[3]);
     v3(pr.u.u_accent, pal.accent);
     tri();
   }

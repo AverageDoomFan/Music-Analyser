@@ -66,8 +66,11 @@ export function create2DRenderer(canvas) {
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, W, H);
 
-      // radial spectrum, mirrored
-      ctx.translate(cx, cy);
+      // radial spectrum, mirrored (camera: roll and zoom around the centre)
+      const cam = f.cam ?? [0, 0, 1, 0];
+      ctx.translate(cx + cam[0] * W, cy - cam[1] * H);
+      ctx.rotate(-cam[3]);
+      ctx.scale(cam[2], cam[2]);
       const R = f.ringR * H, bars = 48; // ring unit: the height (as in WebGL)
       ctx.lineCap = "round";
       ctx.lineWidth = Math.max(2, (Math.PI * R) / bars * 0.55);
@@ -105,6 +108,23 @@ export function create2DRenderer(canvas) {
         ctx.arc(0, 0, (f.ringR + age * (0.55 + 0.5 * f.heat)) * H, 0, Math.PI * 2);
         ctx.lineWidth = 3;
         ctx.strokeStyle = rgb(pal.accent, Math.min(1, sk * Math.exp(-age * 3.2) * 1.4), 1.5);
+        ctx.stroke();
+      }
+      // drop / section shockwave
+      const [age2, s2] = f.shock2 ?? [9, 0];
+      if (s2 > 0 && age2 < 2.5) {
+        ctx.beginPath();
+        ctx.arc(0, 0, (f.ringR + age2 * (0.9 + 0.6 * f.heat)) * H, 0, Math.PI * 2);
+        ctx.lineWidth = 8;
+        ctx.strokeStyle = `rgba(255,255,255,${Math.min(1, s2 * Math.exp(-age2 * 1.4))})`;
+        ctx.stroke();
+      }
+      // build-up: the charged inner rim
+      if (f.tension > 0) {
+        ctx.beginPath();
+        ctx.arc(0, 0, f.ringR * 0.78 * H, 0, Math.PI * 2);
+        ctx.lineWidth = 2 + 3 * f.tension;
+        ctx.strokeStyle = rgb(pal.accent, f.tension, 1.6);
         ctx.stroke();
       }
       ctx.setTransform(1, 0, 0, 1, 0, 0);
