@@ -8,7 +8,7 @@ import { t } from "./i18n/index.js";
  * Bump it whenever the scoring changes: stored tracks whose version differs are
  * re-scored automatically from their cached features, without re-decoding audio.
  */
-export const ALGORITHM_VERSION = "2.4";
+export const ALGORITHM_VERSION = "2.4.1";
 
 /**
  * Version of the feature extractor (audio -> raw features).
