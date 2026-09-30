@@ -7,6 +7,7 @@ import * as ctl from "../app/controller.js";
 import { t, tn, getLang, setLang, LANGUAGES } from "../i18n/index.js";
 import { escapeHtml } from "../util/format.js";
 import { toast } from "./toast.js";
+import { getBackdropMode, setBackdropMode } from "./backdrop.js";
 
 const dialog = () => document.getElementById("settings-dialog");
 let draft = null;
@@ -26,6 +27,7 @@ export function initSettings() {
   });
   d.addEventListener("change", async (e) => {
     if (e.target.id === "language") return setLang(e.target.value);
+    if (e.target.name === "backdrop") return setBackdropMode(e.target.value);
     if (e.target.id === "genre-auto") {
       genres.auto = e.target.checked;
       await ctl.setGenreSettings({ auto: genres.auto });
@@ -138,6 +140,12 @@ function render() {
     <div class="dialog-body">
       <h3>${t("Language")}</h3>
       <select id="language" aria-label="${t("Language")}">${LANGUAGES.map((l) => `<option value="${l.key}" ${l.key === getLang() ? "selected" : ""}>${l.label}</option>`).join("")}</select>
+
+      <h3>${t("Background")}</h3>
+      <div class="segmented" role="radiogroup" aria-label="${t("Background")}">${[["on", t("Animated")], ["still", t("Still")], ["off", t("Off")]].map(([k, label]) => `
+        <label><input type="radio" name="backdrop" value="${k}" ${getBackdropMode() === k ? "checked" : ""}><span>${label}</span></label>`).join("")}
+      </div>
+      <p class="muted small">${t("Slow coloured light behind every tab that warms up with the track you play or open. “Still” keeps the colours without movement.")}</p>
 
       <h3>${t("From the curve to the score")}</h3>
       <p class="muted small">${t("Each track is analysed in windows of a few seconds: intensity and every sub-score form a curve. Choose how that curve becomes a score (also available above the library).")}</p>

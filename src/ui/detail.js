@@ -122,6 +122,7 @@ export function openDetail(id) {
   seriesKey = "intensity";
   if (currentId !== id) reportOpen = false;
   currentId = id;
+  dialog().dataset.id = id; // read by the backdrop's heat (main.js)
   render(true);
   if (!dialog().open) dialog().showModal();
 }
