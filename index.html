@@ -10,6 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="stats.css">
   <script type="module" src="src/main.js"></script>
 </head>
 <body>
@@ -48,6 +49,7 @@
       <nav class="tabs" role="tablist">
         <button role="tab" id="tab-home" aria-selected="true" aria-controls="panel-home">Home</button>
         <button role="tab" id="tab-library" aria-selected="false" aria-controls="panel-library">Library <span class="count" id="library-count">0</span></button>
+        <button role="tab" id="tab-stats" aria-selected="false" aria-controls="panel-stats">Stats</button>
         <button role="tab" id="tab-spotify" aria-selected="false" aria-controls="panel-spotify">Spotify</button>
         <button role="tab" id="tab-live" aria-selected="false" aria-controls="panel-live"><span class="live-dot" id="live-tab-dot" aria-hidden="true"></span>Live</button>
         <button role="tab" id="tab-set" aria-selected="false" aria-controls="panel-set">Set</button>
@@ -196,6 +198,10 @@
         </table>
         <p class="empty" id="library-empty">No track yet. Import files to start.</p>
       </div>
+    </section>
+
+    <section id="panel-stats" role="tabpanel" aria-labelledby="tab-stats" hidden>
+      <div class="st" id="stats-root"></div>
     </section>
 
     <section id="panel-progression" role="tabpanel" aria-labelledby="tab-progression" hidden>

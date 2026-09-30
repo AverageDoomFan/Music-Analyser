@@ -13,6 +13,7 @@
 //   analyze (mono, sampleRate, extra) -> Promise<features>
 //   save    (track, features, info) -> Promise<record|void>   info.draft = true for a draft
 //   decide  (track, coverage) -> "record" | "draft" | "keep"  (defaults to followOutcome without an existing record)
+//   onListen (listen) -> void   optional: every track heard long enough (the listening log)
 
 import { Scanner } from "./scanner.js";
 import { coveredSeconds } from "./plan.js";
@@ -112,8 +113,9 @@ export function addChunk(chunks, chunk, sampleRate, minSeconds = FOLLOW_DEFAULTS
 // ------------------------------------------------------------------ follower
 
 export class Follower extends Scanner {
-  constructor({ decide, follow = {}, ...opts }) {
+  constructor({ decide, follow = {}, onListen = null, ...opts }) {
     super({ save: async () => null, ...opts });
+    this.onListen = onListen;
     this.cfg = { ...FOLLOW_DEFAULTS, ...follow };
     this.decide = decide ?? ((track, coverage) => followOutcome(coverage));
     this.take = null;
@@ -332,6 +334,7 @@ export class Follower extends Scanner {
     const take = this.take;
     if (!take) return;
     this.take = null;
+    take.endedAt = Date.now();
     this.saving = this.saving.then(() => this.finalize(take)).catch((err) => console.warn(err));
   }
 
@@ -391,6 +394,16 @@ export class Follower extends Scanner {
       cur.finalizing = false;
       this.updateCounts();
       this.emit();
+      // listening log: what was heard, kept or not (an analysis error does not undo the listen)
+      if (this.onListen && heardSeconds >= this.cfg.minSeconds && q.state !== "error") {
+        try {
+          this.onListen({
+            track, at: cur.startedAt, endedAt: take.endedAt ?? Date.now(),
+            heardSeconds: round2(heardSeconds), coverage: round2(coverage),
+            score: q.state === "done" ? q.score : null, draft: !!q.draft, kept: q.state === "done",
+          });
+        } catch (err) { console.warn(err); }
+      }
     }
   }
 
