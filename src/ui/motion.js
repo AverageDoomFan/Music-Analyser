@@ -124,11 +124,15 @@ function keyOf(el) {
 }
 
 function countUp(el) {
+  // an element can be reported twice in one batch (added, then moved): the
+  // second call would read the "0" the first one just wrote as its target
+  if (el._counted) return;
   const m = el.textContent.match(/^(\s*)(-?\d+)(?![.,\d])(.*)$/s);
   if (!m) return;
   const to = Number(m[2]);
   const key = keyOf(el);
   if (!key) return;
+  el._counted = true;
   const from = lastValue.has(key) ? lastValue.get(key) : 0;
   lastValue.set(key, to);
   if (reduce.matches || from === to) return;
