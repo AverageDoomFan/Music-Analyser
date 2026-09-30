@@ -1,6 +1,7 @@
 // Home tab: entry points and a status overview of the app.
 
 import { state, subscribe } from "../app/store.js";
+import { isCounted } from "../core/track.js";
 import * as ctl from "../app/controller.js";
 import * as auth from "../spotify/auth.js";
 import { escapeHtml } from "../util/format.js";
@@ -31,14 +32,16 @@ export async function showHome() {
 
 function render() {
   const recs = [...state.records.values()];
-  const analysed = recs.filter((r) => r.finalScore != null);
+  const analysed = recs.filter(isCounted);
+  const drafts = recs.filter((r) => r.draft).length;
+  const draftsText = tn(drafts, "{n} draft to validate", "{n} drafts to validate");
   const tests = recs.filter((r) => r.source?.kind === "test").length;
   const captured = recs.filter((r) => r.source?.kind === "spotify").length;
   const toRate = ctl.lyricsToRate().length;
   const g = extra.genres;
   const avg = analysed.length ? Math.round(analysed.reduce((a, r) => a + r.finalScore, 0) / analysed.length) : null;
   const items = [
-    [t("Analysed tracks"), analysed.length, analysed.length ? t("average intensity {n}", { n: avg }) + (tests ? ` · ${tn(tests, "{n} test track", "{n} test tracks")}` : "") : t("import files or scan a playlist"), "tab-library"],
+    [t("Analysed tracks"), analysed.length, analysed.length ? t("average intensity {n}", { n: avg }) + (tests ? ` · ${tn(tests, "{n} test track", "{n} test tracks")}` : "") + (drafts ? ` · ${draftsText}` : "") : drafts ? draftsText : t("import files or scan a playlist"), "tab-library"],
     ["Spotify", auth.isLoggedIn() ? t("connected") : t("not connected"), `${tn(extra.playlists, "{n} playlist imported", "{n} playlists imported")} · ${tn(captured, "{n} track captured", "{n} tracks captured")}`, "tab-spotify"],
     [t("Lyrics to rate"), toRate, toRate ? t("sung tracks without a rating") : t("nothing pending"), "tab-library"],
     [t("Genres"), g ? `${g.labelled}/${g.analysed}` : "—", genreLine(g), "tab-library"],

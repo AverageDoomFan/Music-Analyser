@@ -15,6 +15,7 @@
 //   lyrics: null | { mood, strength (1..3), at },            // user's rating of the lyrics
 //   lyricsHint: null | { found, instrumental, suggestion, at }, // LRCLIB lookup (text never stored)
 //   finalScore, valence, history: [{ at, kind, score, algorithmVersion }]
+//   draft: boolean          // Live "follow" capture heard < 60 %: kept out of stats and games until validated
 // }
 
 import { ALGORITHM_VERSION, FEATURE_VERSION, DEFAULT_WEIGHTS, DEFAULT_AGGREGATION, SCORE_MAX } from "../config.js";
@@ -157,6 +158,12 @@ export function statusOf(record) {
   if (record.manual || record.correction) return "corrected";
   return "analyzed";
 }
+
+/** A draft (partly heard Live capture) waits for the user's validation. */
+export const isDraft = (record) => !!record?.draft;
+
+/** Analysed and not a draft: what stats, games, sets and progressions use. */
+export const isCounted = (record) => record?.finalScore != null && !record.draft;
 
 export const needsReanalysis = (record) => !!record.features && record.featureVersion !== FEATURE_VERSION;
 

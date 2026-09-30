@@ -6,6 +6,7 @@
 // gets it (analysed live, with the Live tab's capture and settings).
 
 import { state, subscribe } from "../app/store.js";
+import { isCounted } from "../core/track.js";
 import * as ctl from "../app/controller.js";
 import { stageFor, SCORE_MAX } from "../config.js";
 import { t, tn } from "../i18n/index.js";
@@ -87,7 +88,7 @@ export function showGames() {
 // ------------------------------------------------------------------ pool
 
 function pool() {
-  const all = [...state.records.values()].filter((r) => r.finalScore != null && r.auto);
+  const all = [...state.records.values()].filter((r) => isCounted(r) && r.auto);
   const playable = all.filter((r) => player.canPlay(r.id));
   return g.onlyPlayable && playable.length >= 2 ? playable : all;
 }
@@ -215,7 +216,7 @@ function render() {
 }
 
 function renderPool() {
-  const all = [...state.records.values()].filter((r) => r.finalScore != null && r.auto);
+  const all = [...state.records.values()].filter((r) => isCounted(r) && r.auto);
   const playable = all.filter((r) => player.canPlay(r.id)).length;
   $("gm-pool").textContent = !all.length
     ? t("No analysed track yet: analyse files or scan a Spotify playlist first.")

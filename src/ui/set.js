@@ -2,6 +2,7 @@
 // per-transition fluidity, exports (M3U, text, Spotify) and playlist split.
 
 import { state } from "../app/store.js";
+import { isCounted } from "../core/track.js";
 import * as ctl from "../app/controller.js";
 import { generateSet, splitTracks, CURVE_PRESETS, TRANSITION_CRITERIA } from "../playlist/set.js";
 import { toM3U, toText } from "../playlist/progression.js";
@@ -85,7 +86,7 @@ export async function showSet() {
   st.editor.draw();
 }
 
-const countAnalysed = () => [...state.records.values()].filter((r) => r.finalScore != null).length;
+const countAnalysed = () => [...state.records.values()].filter(isCounted).length;
 
 /** Record ids of the chosen source (library, or tracks of a playlist that are analysed). */
 function sourceIds() {
@@ -95,7 +96,7 @@ function sourceIds() {
   if (!pl) return null;
   const records = [...state.records.values()];
   const m = matchPlaylist(pl.tracks, records, {});
-  return pl.tracks.map((t) => m.get(t.id)?.recordId).filter((id) => id && state.records.get(id)?.finalScore != null);
+  return pl.tracks.map((t) => m.get(t.id)?.recordId).filter((id) => id && isCounted(state.records.get(id)));
 }
 
 function pool() {

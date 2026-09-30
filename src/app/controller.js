@@ -10,7 +10,7 @@ import { analyzeAudio } from "../audio/analyzer.js";
 import { readTags } from "../util/tags.js";
 import {
   createRecord, applyFeatures, rescore, commitCorrection, clearCorrection, setManualScore,
-  setLyricsRating, setVocals,
+  setLyricsRating, setVocals, isDraft,
 } from "../core/track.js";
 import { lookupLyrics } from "../util/lyrics.js";
 import { parseFileName } from "../util/tags.js";
@@ -348,7 +348,7 @@ const windowsOf = (r) => {
  */
 export async function nextDuel() {
   const done = new Set((await getComparisons()).map((c) => [c.a, c.b].sort().join("|")));
-  const rs = [...state.records.values()].filter((r) => r.auto?.curves && r.finalScore != null);
+  const rs = [...state.records.values()].filter((r) => r.auto?.curves && r.finalScore != null && !isDraft(r));
   if (rs.length < 2) return null;
   const fps = libraryFingerprints();
   let best = null;
@@ -814,7 +814,7 @@ export async function clearAllData() {
 
 /** Progression input for one analysed record (null if not analysed). */
 function progressionItem(r) {
-  if (r?.finalScore == null || !r.auto) return null;
+  if (r?.finalScore == null || !r.auto || isDraft(r)) return null;
   // a correction shifts the whole curve: apply the same offset to its start / end
   const offset = r.finalScore - r.auto.score;
   const stats = r.auto.stats ?? {};
@@ -885,6 +885,8 @@ export async function saveCaptured(track, features, info) {
     trackId: track.id, uri: track.uri, url: track.url ?? null, image: track.image ?? null,
     mode: info.mode, coverage: info.coverage, excerpts: info.excerpts, probes: info.probes, capturedAt: Date.now(),
   };
+  // Live "follow" capture heard too little: a draft until the user validates it
+  record.draft = !!info.draft;
   if (track.demo) record.name = `${t("Demo")} · ${track.name}`;
   if (track.artistIds?.length) {
     record.source.artistIds = track.artistIds;
@@ -897,11 +899,22 @@ export async function saveCaptured(track, features, info) {
   return record;
 }
 
-/** Captured record of a track, if it is analysed with the current extractor. */
-export function capturedRecord(track) {
+/** Captured record of a track, if it is analysed with the current extractor (drafts included when asked). */
+export function capturedRecord(track, { drafts = false } = {}) {
   const r = state.records.get(capturedId(track));
-  return r?.features && r.featureVersion === FEATURE_VERSION ? r : null;
+  return r?.features && r.featureVersion === FEATURE_VERSION && (drafts || !isDraft(r)) ? r : null;
 }
+
+/** A draft becomes a normal record (it now counts in stats and games). */
+export async function validateDraft(id) {
+  const r = state.records.get(id);
+  if (!r?.draft) return;
+  r.draft = false;
+  r.updatedAt = Date.now();
+  await save(r);
+}
+
+export const draftCount = () => [...state.records.values()].filter(isDraft).length;
 
 // ---------- Spotify (stored locally, cleared on disconnect) ----------
 

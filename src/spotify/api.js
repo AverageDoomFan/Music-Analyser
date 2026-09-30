@@ -149,7 +149,10 @@ export async function devices() {
   return (res?.devices ?? []).map((d) => ({ id: d.id, name: d.name, type: d.type, active: d.is_active, restricted: d.is_restricted, volume: d.volume_percent }));
 }
 
-/** { itemId, isPlaying, progressMs, deviceId, name } or null when nothing is playing. */
+/**
+ * { itemId, isPlaying, progressMs, deviceId, name, track } or null when nothing is playing.
+ * `track` is the playing item in our track shape (null for an episode or an ad).
+ */
 export async function playbackState() {
   const res = await player("GET", "/me/player?additional_types=track");
   if (!res) return null;
@@ -157,6 +160,7 @@ export async function playbackState() {
     itemId: res.item?.id ?? null, name: res.item?.name ?? null, isPlaying: !!res.is_playing,
     progressMs: res.progress_ms ?? 0, deviceId: res.device?.id ?? null, deviceName: res.device?.name ?? null,
     shuffle: res.shuffle_state, repeat: res.repeat_state,
+    track: toTrack(res.item),
   };
 }
 
