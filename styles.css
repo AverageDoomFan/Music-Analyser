@@ -529,7 +529,6 @@ table.library { width: 100%; border-collapse: collapse; }
 .review-moods { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 10px 0; }
 .review-mood { font: inherit; display: flex; align-items: center; gap: 8px; padding: 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; text-align: left; }
 .review-mood:hover { border-color: var(--accent); }
-.review-mood.hinted { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .review-mood .k { font-size: 0.72rem; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
 .review-mood .ic { font-size: 1.2rem; }
 kbd { font: 0.72rem ui-monospace, monospace; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; margin-left: 4px; color: var(--muted); }

@@ -1,5 +1,5 @@
 // Settings dialog: language, model weights, learning from corrections,
-// lyrics lookup, backup, diagnostic and reports, reset.
+// genre sources, backup, diagnostic and reports, reset.
 
 import { ALGORITHM_VERSION, FEATURE_VERSION, DEFAULT_WEIGHTS, DIMENSIONS, AGGREGATIONS } from "../config.js";
 import { state } from "../app/store.js";
@@ -11,7 +11,7 @@ import { toast } from "./toast.js";
 const dialog = () => document.getElementById("settings-dialog");
 let draft = null;
 let proposal = null;
-let lyricsLookup = false;
+let genres = { auto: true, lastfmKey: "" };
 let reports = [];
 
 export function initSettings() {
@@ -26,10 +26,16 @@ export function initSettings() {
   });
   d.addEventListener("change", async (e) => {
     if (e.target.id === "language") return setLang(e.target.value);
-    if (e.target.id === "lyrics-lookup") {
-      lyricsLookup = e.target.checked;
-      await ctl.setLyricsLookup(lyricsLookup);
-      toast(lyricsLookup ? t("Lyrics lookup on: tracks are checked in the background.") : t("Lyrics lookup off."));
+    if (e.target.id === "genre-auto") {
+      genres.auto = e.target.checked;
+      await ctl.setGenreSettings({ auto: genres.auto });
+      toast(genres.auto ? t("Genre lookup on: new tracks are looked up in the background.") : t("Genre lookup off."));
+      return;
+    }
+    if (e.target.id === "lastfm-key") {
+      genres.lastfmKey = e.target.value.trim();
+      await ctl.setGenreSettings({ lastfmKey: genres.lastfmKey });
+      toast(genres.lastfmKey ? t("Last.fm key saved: used for tracks MusicBrainz does not know.") : t("Last.fm key removed."));
       return;
     }
     if (e.target.name === "aggregation") {
@@ -119,7 +125,7 @@ export function initSettings() {
 async function open() {
   draft = { ...state.weights };
   proposal = null;
-  lyricsLookup = await ctl.lyricsLookupEnabled();
+  genres = await ctl.genreSettings();
   reports = await ctl.getReports();
   render();
   dialog().showModal();
@@ -157,9 +163,11 @@ function render() {
       <p class="muted small">${tn(corrected, "Fits the global weights so the automatic score gets closer to your corrections ({n} corrected track).", "Fits the global weights so the automatic score gets closer to your corrections ({n} corrected tracks).")}</p>
       ${proposal ? proposalHtml() : `<button class="btn" data-action="learn" ${corrected < 3 ? `disabled title="${t("At least 3 corrected tracks are needed.")}"` : ""}>${t("Propose weights")}</button>`}
 
-      <h3>${t("Lyrics")}</h3>
-      <label class="inline"><input type="checkbox" id="lyrics-lookup" ${lyricsLookup ? "checked" : ""}> ${t("Look up lyrics automatically on LRCLIB")}</label>
-      <p class="muted small">${t("LRCLIB (lrclib.net) is an open lyrics database. The app only sends it the artist and title, to know whether a track is sung or instrumental and suggest a mood from the words. Lyrics are never kept, and you always confirm the rating. Without this option, the lookup stays available track by track from a track's details.")}</p>
+      <h3>${t("Genres")}</h3>
+      <label class="inline"><input type="checkbox" id="genre-auto" ${genres.auto ? "checked" : ""}> ${t("Look up genres automatically on MusicBrainz")}</label>
+      <p class="muted small">${t("MusicBrainz (musicbrainz.org) is an open music database. For each analysed track the app sends it the ISRC, or else the artist and title, one track per second, and keeps the genres voted for the track, its album and its artist. A track tagged instrumental there is marked as such unless you said otherwise. “Refresh genres” in the library looks everything up again.")}</p>
+      <label class="inline">${t("Last.fm API key (optional)")} <input type="text" id="lastfm-key" value="${escapeHtml(genres.lastfmKey)}" autocomplete="off" spellcheck="false" size="34" placeholder="${t("32 characters")}"></label>
+      <p class="muted small">${t("With your own free key (last.fm/api/account/create), tracks MusicBrainz does not know get Last.fm's top tags instead. The key stays in this browser.")}</p>
 
       <h3>${t("Backup")}</h3>
       <div class="settings-actions">

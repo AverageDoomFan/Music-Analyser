@@ -75,8 +75,7 @@ export async function initSpotify() {
   $("sp-preview").addEventListener("click", () => { buildOrder(); renderOrder(); });
   $("sp-unmatched").addEventListener("change", () => { if (sp.order) { buildOrder(); renderOrder(); } });
   $("sp-order-mode").addEventListener("change", () => { if (sp.order) { buildOrder(); renderOrder(); } });
-  $("sp-genres").addEventListener("click", () => fetchGenres(true));
-  $("sp-mb").addEventListener("click", fetchMusicBrainz);
+  $("sp-genres").addEventListener("click", fetchGenres);
   $("sp-create").addEventListener("click", createSorted);
   $("sp-go-live").addEventListener("click", () => $("tab-live").click());
   $("sp-switch").addEventListener("click", switchPlaylist);
@@ -157,7 +156,7 @@ async function importPlaylist() {
     $("sp-name").value = `${sp.playlist.name} · ${t("intensity progression")}`;
     sp.order = null;
     rematch();
-    fetchGenres(false);
+    ctl.scheduleGenreFetch();
   } catch (err) {
     $("sp-import-status").textContent = "";
     toast(err.message, "error");
@@ -224,40 +223,23 @@ function renderAll() {
 
 // ---------- genres ----------
 
-async function fetchGenres(verbose) {
+/** Looks up the tracks still without genres on MusicBrainz (Spotify no longer gives any). */
+async function fetchGenres() {
   const st = $("sp-genres-status");
   const btn = $("sp-genres");
   btn.disabled = true;
-  st.textContent = t("Fetching the artists' genres…");
+  st.textContent = t("Asking MusicBrainz (one track per second)…");
+  const tick = setInterval(() => ctl.genreStatus().then((g) => { if (g.job) st.textContent = t("MusicBrainz… {d}/{n} tracks", { d: g.job.done, n: g.job.total }); }), 1000);
   try {
-    const res = await ctl.fetchSpotifyGenres((d, n) => { st.textContent = t("Artists' genres… {d}/{n}", { d, n }); });
-    if (res.fieldMissing) {
-      st.textContent = t("Spotify returns no genres for these artists (field missing for this app). Use MusicBrainz below, or label genres by hand.");
-    } else {
-      st.textContent = tn(res.tracks, "{n} analysed track with genres ({a} artists). Filter and group by style in the library.", "{n} analysed tracks with genres ({a} artists). Filter and group by style in the library.", { a: res.artists });
-      if (verbose) toast(t("Spotify genres fetched."));
-    }
+    const res = await ctl.fetchGenres();
+    st.textContent = res.errors && !res.found
+      ? t("MusicBrainz unreachable: check your connection, then try again.")
+      : res.total ? tn(res.found, "Genres found for {n} track.", "Genres found for {n} tracks.") : t("Every analysed track already has genres. To look them all up again: “Refresh genres” in the library.");
     rematch();
   } catch (err) {
     st.textContent = t("Failed: {msg}", { msg: err.message });
   } finally {
-    btn.disabled = false;
-  }
-}
-
-/** Fallback when Spotify gives no genres: MusicBrainz artist tags (one request per second). */
-async function fetchMusicBrainz() {
-  const st = $("sp-genres-status");
-  const btn = $("sp-mb");
-  btn.disabled = true;
-  st.textContent = t("Asking MusicBrainz (only artist names are sent, one per second)…");
-  try {
-    const res = await ctl.fetchMusicBrainzGenres((d, n) => { st.textContent = t("MusicBrainz… {d}/{n} artists", { d, n }); });
-    st.textContent = tn(res.tracks, "{n} track got MusicBrainz tags.", "{n} tracks got MusicBrainz tags.");
-    rematch();
-  } catch (err) {
-    st.textContent = t("Failed: {msg}", { msg: err.message });
-  } finally {
+    clearInterval(tick);
     btn.disabled = false;
   }
 }

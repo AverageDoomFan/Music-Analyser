@@ -11,9 +11,9 @@
 //   correction: null | { answers, overrides, deltas, previousScore, modelScore, score,
 //                         algorithmVersion, createdAt },
 //   manual: null | { score, createdAt },
-//   vocals: null | { state: "vocal" | "instrumental", source: "user" | "lrclib", at },
+//   vocals: null | { state: "vocal" | "instrumental", source: "user" | "musicbrainz" | "lrclib" (older), at },
 //   lyrics: null | { mood, strength (1..3), at },            // user's rating of the lyrics
-//   lyricsHint: null | { found, instrumental, suggestion, at }, // LRCLIB lookup (text never stored)
+//   extGenres: null | { source: "musicbrainz" | "lastfm" | "spotify" (older), genres, weights, mbid, at },
 //   finalScore, valence, history: [{ at, kind, score, algorithmVersion }]
 // }
 

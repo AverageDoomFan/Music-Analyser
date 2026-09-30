@@ -49,13 +49,15 @@ function render() {
 /** Where the genres come from, in one line. */
 export function genreLine(g) {
   if (!g) return "";
+  if (g.job) return t("looking up on MusicBrainz… {d}/{n}", { d: g.job.done, n: g.job.total });
   const parts = [];
-  if (g.spotify) parts.push(t("{n} from Spotify", { n: g.spotify }));
   if (g.musicbrainz) parts.push(t("{n} from MusicBrainz", { n: g.musicbrainz }));
+  if (g.lastfm) parts.push(t("{n} from Last.fm", { n: g.lastfm }));
+  if (g.spotify) parts.push(t("{n} from Spotify", { n: g.spotify }));
   if (g.user) parts.push(t("{n} labelled by you", { n: g.user }));
   if (!parts.length) {
-    if (g.run?.fieldMissing) return t("Spotify returns no genres for this app: try MusicBrainz (Spotify tab)");
-    return g.run ? t("no genre found yet") : t("fetched automatically once logged in to Spotify");
+    if (g.run?.errors && !g.run.found) return t("MusicBrainz unreachable: check your connection, then try again.");
+    return g.run ? t("no genre found yet") : t("looked up automatically on MusicBrainz");
   }
   return parts.join(" · ");
 }

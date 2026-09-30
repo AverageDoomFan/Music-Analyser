@@ -10,6 +10,7 @@ import * as ctl from "../app/controller.js";
 import { player } from "./player.js";
 import { t, tn } from "../i18n/index.js";
 import { genreLine } from "./home.js";
+import { toast } from "./toast.js";
 
 const STATUS_LABEL = {
   pending: t("○ Not analysed"),
@@ -30,6 +31,7 @@ export function initLibrary({ openDetail }) {
   $("search").addEventListener("input", (e) => { state.ui.search = e.target.value; notify(); });
   $("filter-status").addEventListener("change", (e) => { state.ui.status = e.target.value; notify(); });
   $("filter-stage").addEventListener("change", (e) => { state.ui.stage = e.target.value; notify(); });
+  $("refresh-genres").addEventListener("click", () => refreshGenres().catch((err) => toast(err.message, "error")));
   $("filter-vocals").addEventListener("change", (e) => { state.ui.vocals = e.target.value; notify(); });
   $("hide-tests").addEventListener("change", (e) => { state.ui.hideTests = e.target.checked; notify(); });
   $("filter-genre").addEventListener("change", (e) => { state.ui.genre = e.target.value; notify(); });
@@ -227,7 +229,7 @@ function rowHtml(row) {
   </tr>`;
 }
 
-/** Name + genres (label and Spotify genres): what the search box looks into. */
+/** Name + genres (label and fetched genres): what the search box looks into. */
 function searchText(row) {
   const r = row.record;
   if (!r?.auto) return row.name.toLowerCase();
@@ -260,6 +262,17 @@ function groupedHtml(rows) {
     }).join("");
 }
 
+/** "Refresh genres": looks every analysed track up again on MusicBrainz (and Last.fm when a key is set). */
+async function refreshGenres() {
+  const g = await ctl.genreStatus();
+  if (g.analysed > 60 && !confirm(t("Look up the genres of {n} tracks again? MusicBrainz allows one request per second: it takes about {m} min, in the background.", { n: g.analysed, m: Math.ceil((g.analysed * 2.5) / 60) }))) return;
+  genreStatusAt = 0;
+  const p = ctl.fetchGenres({ force: true });
+  renderGenreStatus();
+  const res = await p;
+  toast(res.errors && !res.found ? t("MusicBrainz unreachable: check your connection, then try again.") : tn(res.found, "Genres found for {n} track.", "Genres found for {n} tracks."), res.errors && !res.found ? "error" : "info");
+}
+
 let genreStatusAt = 0;
 /** One line under the filters: where the genres come from (refreshed at most every 2 s). */
 function renderGenreStatus() {
@@ -267,8 +280,12 @@ function renderGenreStatus() {
   genreStatusAt = Date.now();
   ctl.genreStatus().then((g) => {
     const el = document.getElementById("library-genre-status");
-    if (!el || !g.analysed) { if (el) el.textContent = ""; return; }
+    const row = el?.closest(".genre-status");
+    if (row) row.hidden = !g.analysed;
+    if (!el || !g.analysed) return;
     el.textContent = `${t("Genres")}: ${genreLine(g)}`;
+    const btn = document.getElementById("refresh-genres");
+    if (btn) btn.disabled = !!g.job;
   }).catch(() => {});
 }
 
@@ -298,7 +315,7 @@ function musicCell(r) {
   return `<div class="music-cell">${parts.join(" · ")}${mood}${genre}</div>`;
 }
 
-const SOURCE_NAME = { spotify: "Spotify genres", musicbrainz: "MusicBrainz tags", neighbours: "Suggestion (close tracks)" };
+const SOURCE_NAME = { spotify: "Spotify genres", musicbrainz: "MusicBrainz genres", lastfm: "Last.fm tags", neighbours: "Suggestion (close tracks)" };
 
 const valenceColor = (v) => `hsl(${Math.round(270 - (v / 100) * 230)}, 70%, 55%)`;
 

@@ -99,7 +99,7 @@
         <button type="button" class="home-feature" data-home="tab-games"><b>🎯 Games</b><span>Guess a track's score while it plays, or pick the more intense of two tracks. Fix the scores you disagree with on the spot.</span></button>
         <button type="button" class="home-feature" data-home="tab-rhythm"><b>🥁 Rhythm</b><span>Split a track into notes per instrument for a rhythm game map: KPS, difficulty, cues.</span></button>
         <button type="button" class="home-feature" data-home="tab-lab"><b>🧪 Test bench</b><span>Checks that every measure reacts from min to max with tracks tailored for the algorithm.</span></button>
-        <button type="button" class="home-feature" data-home="settings"><b>⚙ Settings</b><span>Language, score weights, learning, lyrics lookup, JSON backup, diagnostic and reports.</span></button>
+        <button type="button" class="home-feature" data-home="settings"><b>⚙ Settings</b><span>Language, score weights, learning, genre sources, JSON backup, diagnostic and reports.</span></button>
       </div>
       <p class="muted small">Your files never leave your browser: only the measures are kept (IndexedDB). The score is a practical perceptual ranking tool, not a scientific measure.</p>
     </section>
@@ -146,7 +146,7 @@
         <button class="btn" id="open-duels" type="button" title="Compare pairs of tracks to tune the model to your perception">Duels</button>
         <button class="btn" id="rescore-all" type="button" title="Recomputes every score from the cached features">Recompute all</button>
       </div>
-      <p class="muted small genre-status" id="library-genre-status"></p>
+      <p class="muted small genre-status" hidden><span id="library-genre-status"></span> <button class="link-btn" id="refresh-genres" type="button" title="Looks every analysed track up again on MusicBrainz (ISRC, else artist and title), one request per second">Refresh genres</button></p>
       <div class="table-wrap">
         <table class="library" id="library">
           <thead>
@@ -342,9 +342,8 @@
         <div class="card sp-genres">
           <div class="sp-row">
             <strong>Genres</strong>
-            <button class="btn small" type="button" id="sp-genres">Fetch Spotify genres</button>
-            <button class="btn small" type="button" id="sp-mb" title="Only artist names are sent to musicbrainz.org, one per second">Fill the gaps from MusicBrainz</button>
-            <span class="muted small" id="sp-genres-status">Artists' genres are fetched automatically once logged in. They drive the genre filter, grouping by style and suggestions (you can always fix them).</span>
+            <button class="btn small" type="button" id="sp-genres" title="Only the ISRC, or the artist and title, is sent to musicbrainz.org, one track per second">Look up missing genres</button>
+            <span class="muted small" id="sp-genres-status">Genres come from MusicBrainz (track, album, artist) and are looked up automatically. They drive the genre filter, grouping by style and suggestions (you can always fix them).</span>
           </div>
         </div>
         <div class="card sp-insights">
