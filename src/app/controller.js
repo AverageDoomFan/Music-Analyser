@@ -4,7 +4,7 @@
 import { AUDIO_EXTENSIONS, DEFAULT_WEIGHTS, PREVIOUS_DEFAULT_WEIGHTS, FEATURE_VERSION, ALGORITHM_VERSION, AGGREGATIONS, DEFAULT_AGGREGATION } from "../config.js";
 import { state, notify } from "./store.js";
 import { db } from "../storage/db.js";
-import { buildExport, downloadJson, parseExport, mergeRecord } from "../storage/backup.js";
+import { buildExport, downloadJson, parseExport, mergeRecord, mergeDuels, mergeReports } from "../storage/backup.js";
 import { LocalFileSource, TestSource } from "../audio/sources.js";
 import { analyzeAudio } from "../audio/analyzer.js";
 import { readTags } from "../util/tags.js";
@@ -283,10 +283,20 @@ export async function getComparisons() {
   return (await db.getSetting(DUELS_KEY).catch(() => null)) ?? [];
 }
 
-export async function addComparison(a, b, winner) {
+// Kept for tuning future algorithms: generous caps, and each duel remembers
+// what the model said at the time of the answer.
+const MAX_DUELS = 5000;
+const MAX_REPORTS = 300;
+
+/** Saves a judgement "a vs b" (winner "a" | "b" | "tie"); source: "duels" | "game". */
+export async function addComparison(a, b, winner, source = "duels") {
   const list = await getComparisons();
-  list.push({ a, b, winner, at: Date.now() });
-  await db.setSetting(DUELS_KEY, list.slice(-500));
+  const score = (id) => {
+    const r = state.records.get(id);
+    return r?.finalScore != null ? Math.round(r.finalScore * 10) / 10 : null;
+  };
+  list.push({ a, b, winner, at: Date.now(), source, scores: [score(a), score(b)], algorithm: ALGORITHM_VERSION });
+  await db.setSetting(DUELS_KEY, list.slice(-MAX_DUELS));
   return list.length;
 }
 
@@ -750,7 +760,7 @@ export async function reportTrack(id, { comment = "", expected = null } = {}) {
   };
   const list = (await getReports()).filter((x) => x.id !== id);
   list.push(report);
-  await db.setSetting(REPORTS_KEY, list.slice(-60));
+  await db.setSetting(REPORTS_KEY, list.slice(-MAX_REPORTS));
   return list.length;
 }
 
@@ -770,13 +780,19 @@ export async function clearReports() {
 // ---------- backup ----------
 
 export async function exportDatabase() {
-  const data = buildExport([...state.records.values()], { weights: state.weights, aggregation: state.aggregation });
+  const data = buildExport([...state.records.values()], { weights: state.weights, aggregation: state.aggregation },
+    { duels: await getComparisons(), reports: await getReports() });
   downloadJson(data, "music-energy-database.json");
-  return data.tracks.length;
+  return { tracks: data.tracks.length, duels: data.duels.length, reports: data.reports.length };
 }
 
 export async function importDatabase(file) {
-  const { tracks, settings } = parseExport(await file.text());
+  const { tracks, settings, duels, reports } = parseExport(await file.text());
+  const before = { duels: (await getComparisons()).length, reports: (await getReports()).length };
+  const allDuels = mergeDuels(await getComparisons(), duels).slice(-MAX_DUELS);
+  const allReports = mergeReports(await getReports(), reports).slice(-MAX_REPORTS);
+  await db.setSetting(DUELS_KEY, allDuels.map(({ aName, bName, ...d }) => d));
+  await db.setSetting(REPORTS_KEY, allReports);
   const merged = [];
   for (const incoming of tracks) {
     const rec = mergeRecord(state.records.get(incoming.id), incoming);
@@ -786,7 +802,10 @@ export async function importDatabase(file) {
   }
   await db.putTracks(merged);
   notify();
-  return { count: merged.length, weights: settings.weights ?? null, aggregation: settings.aggregation ?? null };
+  return {
+    count: merged.length, weights: settings.weights ?? null, aggregation: settings.aggregation ?? null,
+    duels: allDuels.length - before.duels, reports: allReports.length - before.reports,
+  };
 }
 
 export async function clearAllData() {

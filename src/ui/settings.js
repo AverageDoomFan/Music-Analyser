@@ -47,8 +47,8 @@ export function initSettings() {
     }
     if (e.target.id !== "import-json" || !e.target.files[0]) return;
     try {
-      const { count, weights, aggregation } = await ctl.importDatabase(e.target.files[0]);
-      toast(tn(count, "{n} track imported / merged.", "{n} tracks imported / merged."));
+      const { count, weights, aggregation, duels, reports } = await ctl.importDatabase(e.target.files[0]);
+      toast(tn(count, "{n} track imported / merged.", "{n} tracks imported / merged.") + (duels || reports ? " " + t("New: {duels} duels, {reports} reports.", { duels, reports }) : ""));
       if (weights && confirm(t("The file also holds weights. Apply them?"))) {
         await ctl.setWeights({ ...DEFAULT_WEIGHTS, ...weights });
         draft = { ...state.weights };
@@ -93,7 +93,7 @@ export function initSettings() {
       case "learn-cancel": proposal = null; render(); break;
       case "export": {
         const n = await ctl.exportDatabase();
-        toast(tn(n, "{n} track exported.", "{n} tracks exported."));
+        toast(t("Exported: {tracks} tracks, {duels} duels, {reports} reports.", n));
         break;
       }
       case "import": d.querySelector("#import-json").click(); break;
@@ -183,7 +183,7 @@ function render() {
         <button class="btn" data-action="import">${t("Import a JSON")}</button>
         <input type="file" id="import-json" accept="application/json,.json" hidden>
       </div>
-      <p class="muted small">${t("Holds fingerprints, names, features, scores, corrections and the algorithm version — never the audio.")}</p>
+      <p class="muted small">${t("Holds fingerprints, names, features, scores, corrections, your duels (> < =, with the scores at the time of each answer) and your reports for analysis, plus the algorithm version — never the audio. Importing merges everything without duplicates.")}</p>
 
       <h3>${t("Reports for analysis")}</h3>
       <p class="muted small">${t("From a track's details, “Report for analysis” saves everything the model knows about it (every measure and its curve, sub-scores, how they are built) with your comment and expected score. Export them and send the file to get the model fixed on those tracks. No audio, no file path.")}</p>

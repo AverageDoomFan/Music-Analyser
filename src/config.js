@@ -19,7 +19,7 @@ export const ALGORITHM_VERSION = "2.4.1";
 export const FEATURE_VERSION = "1.8";
 
 /** Schema version of the JSON export. */
-export const EXPORT_SCHEMA_VERSION = 1;
+export const EXPORT_SCHEMA_VERSION = 2; // 2: duels and reports travel with the tracks
 
 export const ANALYSIS = {
   sampleRate: 44100,        // every file is decoded (and resampled) to this rate

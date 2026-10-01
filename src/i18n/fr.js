@@ -1222,4 +1222,8 @@ export default {
   "Still": "Fixe",
   "Off": "Désactivé",
   "Slow coloured light behind every tab that warms up with the track you play or open. “Still” keeps the colours without movement.": "Une lumière colorée et lente derrière chaque onglet, qui se réchauffe avec le morceau que tu écoutes ou que tu ouvres. « Fixe » garde les couleurs sans mouvement.",
+  "Exported: {tracks} tracks, {duels} duels, {reports} reports.": "Exporté : {tracks} morceaux, {duels} duels, {reports} signalements.",
+  "New: {duels} duels, {reports} reports.": "Nouveaux : {duels} duels, {reports} signalements.",
+  "Holds fingerprints, names, features, scores, corrections, your duels (> < =, with the scores at the time of each answer) and your reports for analysis, plus the algorithm version — never the audio. Importing merges everything without duplicates.": "Contient empreintes, noms, caractéristiques, scores, corrections, tes duels (> < =, avec les scores au moment de chaque réponse) et tes signalements pour analyse, plus la version de l'algorithme — jamais l'audio. L'import fusionne tout sans doublons.",
+  "Invalid JSON file.": "Fichier JSON invalide.",
 };

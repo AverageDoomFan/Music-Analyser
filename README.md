@@ -190,6 +190,7 @@ Each track stores its raw features, initial and current automatic score, correct
 ## Reports and diagnostic
 
 - **⚑ Report for analysis** (track details): a detailed snapshot of one track — every feature and its curves, sub-scores, their components, the curves of the model, genres, your corrections, lyrics rating, expected score and comment. Settings › Reports for analysis exports the saved reports in one JSON file. No audio, no file path.
+- **Database export** (Settings › Export the database): besides the tracks, it holds every duel (> < =, from the Duels button and the Games tab — up to 5000, each with the source, both scores and the algorithm version at the time of the answer, plus the track names) and the reports for analysis (up to 300, one per track). Import merges them without duplicates (export schema 2; schema 1 files still import). They are the ground truth for tuning later algorithm versions.
 - **Diagnostic export** (Settings): one compact JSON for the whole library (scores, sub-scores, the measures behind each dimension, genres, corrections, lyrics ratings, duels), used to recalibrate the model.
 
 ## Set tab: set generator

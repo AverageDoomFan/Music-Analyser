@@ -269,7 +269,7 @@
         <h2>Data, backup and reports</h2>
         <ul>
           <li>Measures, scores, corrections, genres and ratings are stored in this browser (IndexedDB). A file imported again is recognised by its fingerprint and not analysed again.</li>
-          <li>Settings › <b>Export the database (JSON)</b>: a full backup, without audio. Importing merges without losing your corrections.</li>
+          <li>Settings › <b>Export the database (JSON)</b>: a full backup, without audio. It also holds your <b>duels</b> (&gt; &lt; =, from the Duels button and the Games tab, each with the scores and algorithm version at the time of the answer) and your <b>reports for analysis</b>, so they can be used to tune a later version of the algorithm. Importing merges everything without duplicates and without losing your corrections.</li>
           <li><b>⚑ Report for analysis</b> (in a track's details): saves everything the model knows about the track (every measure and its curve, sub-scores and how they are built) with your comment and the score you expect. Settings › Reports for analysis exports them in one file to send, to get the model fixed on those tracks.</li>
           <li>Settings › <b>Export the diagnostic</b>: a compact file for the whole library (scores, measures, genres, corrections, duels; no audio or paths).</li>
           <li>When the algorithm changes version, scores are recomputed from the cached measures, without reading the audio. When the measures themselves change, the details advise a re-analysis.</li>
@@ -523,7 +523,7 @@
         <h2>Données, sauvegarde et signalements</h2>
         <ul>
           <li>Les mesures, scores, corrections, genres et notes sont stockés dans ce navigateur (IndexedDB). Un fichier réimporté est reconnu par son empreinte et n'est pas réanalysé.</li>
-          <li>Paramètres › <b>Exporter la base (JSON)</b> : une sauvegarde complète, sans audio. L'import fusionne sans perdre tes corrections.</li>
+          <li>Paramètres › <b>Exporter la base (JSON)</b> : une sauvegarde complète, sans audio. Elle contient aussi tes <b>duels</b> (&gt; &lt; =, du bouton Duels et de l'onglet Jeux, chacun avec les scores et la version de l'algorithme au moment de la réponse) et tes <b>signalements pour analyse</b>, pour pouvoir régler une future version de l'algorithme. L'import fusionne tout sans doublons et sans perdre tes corrections.</li>
           <li><b>⚑ Signaler pour analyse</b> (dans la fiche d'un morceau) : enregistre tout ce que le modèle sait du morceau (chaque mesure et sa courbe, les sous-scores et leur construction) avec ton commentaire et le score attendu. Paramètres › Signalements pour analyse les exporte en un fichier à envoyer, pour faire corriger le modèle sur ces morceaux.</li>
           <li>Paramètres › <b>Exporter le diagnostic</b> : un fichier compact pour toute la bibliothèque (scores, mesures, genres, corrections, duels ; ni audio ni chemins).</li>
           <li>Quand l'algorithme change de version, les scores sont recalculés depuis les mesures en cache, sans relire l'audio. Quand les mesures elles-mêmes changent, la fiche conseille une réanalyse.</li>
