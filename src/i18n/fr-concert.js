@@ -22,5 +22,9 @@ export default {
   "Play (Space)": "Lecture (Espace)",
   "Open Spotify (the app or open.spotify.com), then press Space.": "Ouvre Spotify (l'appli ou open.spotify.com), puis appuie sur Espace.",
   "Press Space to try again.": "Appuie sur Espace pour réessayer.",
-  "Space: play · ← →: move 5 s · F: full screen · Esc: close": "Espace : lecture · ← → : avancer / reculer de 5 s · F : plein écran · Échap : fermer",
+  "Space: play · ← →: move 5 s · [ ]: visuals earlier / later · F: full screen · Esc: close": "Espace : lecture · ← → : avancer / reculer de 5 s · [ ] : visuels plus tôt / plus tard · F : plein écran · Échap : fermer",
+  "Visual delay": "Décalage des visuels",
+  "Visuals earlier ([ or -)": "Visuels plus tôt ([ ou -)",
+  "Visuals later (] or +)": "Visuels plus tard (] ou +)",
+  "{n} attacks/s": "{n} attaques/s",
 };

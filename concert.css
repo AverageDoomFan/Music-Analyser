@@ -301,3 +301,38 @@ html.concert-on, html.concert-on body { overflow: hidden; }
 
 /* keeps the white number readable over the white-hot centre */
 .concert.hot .cc-num-wrap, .concert.broken .cc-num-wrap { background: radial-gradient(closest-side, rgba(8, 0, 16, 0.55), transparent); border-radius: 50%; padding: 0.1em 0.3em; }
+
+/* visual delay: − value + (tunes the sync with what is heard) */
+.cc-sync {
+  display: flex; align-items: center; gap: 2px; height: 44px; padding: 0 4px; border-radius: 22px;
+  background: rgba(10, 12, 18, 0.55); border: 1px solid rgba(255, 255, 255, 0.22);
+}
+.cc-sync-btn {
+  width: 32px; height: 32px; border-radius: 50%; padding: 0; border: 0; cursor: pointer;
+  font: inherit; font-size: 1.1rem; line-height: 1; color: #fff; background: transparent;
+  transition: background 0.2s;
+}
+.cc-sync-btn:hover { background: rgba(var(--cc-accent), 0.35); }
+.cc-sync-btn:focus-visible { outline: 2px solid rgb(var(--cc-accent)); outline-offset: 1px; }
+.cc-sync-val {
+  min-width: 4.6em; text-align: center; font-size: 0.74rem; font-weight: 700; letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums; color: rgba(255, 255, 255, 0.8); transition: color 0.3s;
+}
+.concert.sync-shown .cc-sync-val { color: rgb(var(--cc-accent)); }
+@media (max-width: 560px) { .cc-sync-val { min-width: 3.6em; font-size: 0.68rem; } }
+
+/* beat meter under the stage: a light on each kick, tempo and attacks per second */
+.cc-meter {
+  margin-top: 0.7em; display: flex; align-items: center; justify-content: center; gap: 0.6em; min-height: 1.2em;
+  font-size: clamp(10px, 1.4vh, 14px); font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase;
+  font-variant-numeric: tabular-nums; color: rgba(255, 255, 255, 0.72);
+  text-shadow: 0 0 4px #000, 0 1px 8px rgba(0, 0, 0, 0.9);
+}
+.cc-led {
+  width: 0.7em; height: 0.7em; border-radius: 50%; flex: none; will-change: transform, opacity;
+  background: rgb(var(--cc-accent)); box-shadow: 0 0 10px rgb(var(--cc-accent)), 0 0 3px #fff;
+}
+.concert.paused .cc-meter { opacity: 0.5; }
+
+/* the page under the show is neither laid out nor painted while it runs */
+html.concert-on body > :not(.concert):not(script):not(style):not(link) { content-visibility: hidden; }

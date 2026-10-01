@@ -7,6 +7,13 @@
 // for the real spectrum, waveform and kicks (no latency, it is the source).
 // A Spotify track has no audio in the page: the spectrum and the waveform are
 // synthesized from the band energies and the beat clock.
+// Kicks and snares come from the hits stored at the analysis (extractor 1.9+),
+// exact and with no detection delay, for both kinds; older analyses fall back
+// on the kicks heard (local files) or the beat clock (Spotify).
+// Sync: the show runs on a smoothed clock (the audio clock moves in steps)
+// that follows what is heard (the output latency of a local file; Spotify's
+// position, checked against the app, best round trip kept), plus a visual
+// delay the user can tune ([ ] or - +), remembered per kind of playback.
 // WebGL2 (concert-gl.js), Canvas2D fallback (concert-2d.js, or ?concert2d).
 
 import { stageFor, DIMENSIONS } from "../config.js";
@@ -19,6 +26,7 @@ import { DIM_COLORS, intensityRgb } from "./live-draw.js";
 import {
   OnsetDetector, FlashLimiter, concertPalette, concertDrive, visualParams, approach, clamp, GAUGE_TOP,
   prepareShow, sampleShow, beatClock, ShowDirector, synthSpectrum, synthWave, hueRotate, sectionHue, clockText,
+  laserAmount,
 } from "./concert-logic.js";
 import { createGLRenderer, DATA_WIDTH, BURST_SLOTS } from "./concert-gl.js";
 import { create2DRenderer } from "./concert-2d.js";
@@ -28,7 +36,16 @@ const MAX_DPR = 1.5;
 const MAX_PIXELS = 2.2e6; // ~1080p: hiDPI and 4K screens render a little softer, not slower
 const IDLE_UI_MS = 2500;
 const SEEK_STEP = 5;
-const SYNC_EVERY_MS = 5000;
+const SYNC_EVERY_MS = 4000;
+const SYNC_FIRST_MS = [700, 1500, 2500, 4000]; // Spotify: checks soon after a start (it starts late)
+const SYNC_KEEP = 6;                           // round trips kept (the fastest one is trusted)
+const DELAY_STEP = 20;                         // ms per press
+const DELAY_KEY = "mea.concert.delay.";        // + "spotify" / "file": visual delay (ms)
+const SCALE_KEY = "mea.concert.scale";
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
+};
 const reducedMq = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? { matches: false };
 const SECTION_COLORS = { Intro: "#60a5fa", "Build-up": "#fbbf24", Peak: "#ef4444", Break: "#a78bfa", Section: "#94a3b8", Outro: "#34d399" };
 
@@ -58,7 +75,12 @@ const V = {
   hue: 0, hueTarget: 0, travelBoost: 0, camZoomKick: 0, rollKick: 0, camPunch: 0,
   camBase: { x: 0, y: 0, zoom: 1.02, roll: 0 }, camTarget: { x: 0, y: 0, zoom: 1.02, roll: 0 },
   cw: 0, ch: 0, stripW: 0, timeText: "", nextText: "", phaseText: "", playingShown: null, bannerAt: 0,
+  pump: 0, snap: 0, laser: 0, fast: 0, meterText: "", lastScale: "", syncShownAt: 0,
 };
+{
+  const sc = Number(store.get(SCALE_KEY));
+  if (sc >= 0.5 && sc <= 1) V.scale = sc; // where the last show settled on this machine
+}
 const cam = { x: 0, y: 0, zoom: 1, roll: 0 };
 const bursts = Array.from({ length: BURST_SLOTS }, () => ({ x: 0, y: 0, t: -100, s: 0, r: 1, g: 1, b: 1, kind: 0 }));
 const limiter = new FlashLimiter({ reduced: reducedMq.matches });
@@ -67,6 +89,7 @@ const frame = {
   time: 0, travel: 0, heat: 0, hot: 0, kick: 0, bass: 0, loud: 0, idle: 1, tunnel: 0,
   zoom: 1, rot: 0, decay: 0.85, ringR: 0.26, ringH: 0.2, bloom: 1, bloomThreshold: 0.5, ca: 0, exposure: 1.2,
   grain: 0.03, glitch: 0, flash: 0, starBright: 0.3, shake: [0, 0], tension: 0,
+  pump: 0, snap: 0, fast: 0, laser: [0, 0, 0, 0],
   palette: PAL, drive: null, spectrum, wave, bursts,
 };
 
@@ -93,6 +116,11 @@ function build() {
       <div class="cc-top">
         <div class="cc-status"><span class="cc-dot"></span><span class="cc-phase"></span></div>
         <div class="cc-actions">
+          <div class="cc-sync" role="group" aria-label="${t("Visual delay")}">
+            <button type="button" class="cc-sync-btn" data-cc="sync-" title="${t("Visuals earlier ([ or -)")}" aria-label="${t("Visuals earlier ([ or -)")}">−</button>
+            <span class="cc-sync-val" aria-live="polite"></span>
+            <button type="button" class="cc-sync-btn" data-cc="sync+" title="${t("Visuals later (] or +)")}" aria-label="${t("Visuals later (] or +)")}">+</button>
+          </div>
           <button type="button" class="cc-btn cc-play" data-cc="play"></button>
           <button type="button" class="cc-btn cc-fs" data-cc="fs" title="${t("Full screen (F)")}" aria-label="${t("Full screen (F)")}">⛶</button>
           <button type="button" class="cc-btn cc-close" data-cc="close" title="${t("Close (Esc)")}" aria-label="${t("Close concert mode")}">✕</button>
@@ -102,6 +130,7 @@ function build() {
         <div class="cc-num-wrap"><div class="cc-num" aria-live="off">—</div></div>
         <div class="cc-stage"></div>
         <div class="cc-next"></div>
+        <div class="cc-meter" aria-hidden="true"><i class="cc-led"></i><span class="cc-meter-text"></span></div>
       </div>
       <div class="cc-bottom">
         <div class="cc-track">
@@ -137,6 +166,7 @@ function build() {
     idle: q(".cc-idle"), idleTitle: q(".cc-idle-title"), idleText: q(".cc-idle-text"), banner: q(".cc-banner"), bannerText: q(".cc-banner span"),
     strip: q(".cc-strip"), stripCanvas: q(".cc-strip-canvas"), stripFill: q(".cc-strip-fill"), stripHead: q(".cc-strip-head"),
     elapsed: q(".cc-elapsed"), total: q(".cc-total"),
+    syncVal: q(".cc-sync-val"), led: q(".cc-led"), meterText: q(".cc-meter-text"),
     subs: Object.fromEntries([...root.querySelectorAll(".cc-sub")].map((s) => [s.dataset.k, s.querySelector("i")])),
   };
   root.addEventListener("click", (e) => {
@@ -145,6 +175,8 @@ function build() {
     if (b.dataset.cc === "close") closeConcert();
     else if (b.dataset.cc === "fs") toggleFullscreen();
     else if (b.dataset.cc === "play") togglePlay();
+    else if (b.dataset.cc === "sync-") nudgeDelay(-DELAY_STEP);
+    else if (b.dataset.cc === "sync+") nudgeDelay(DELAY_STEP);
   });
   el.strip.addEventListener("pointerdown", (e) => {
     const box = el.strip.getBoundingClientRect();
@@ -211,6 +243,8 @@ function onKey(e) {
   else if (k === "ArrowLeft") seekBy(-(e.shiftKey ? 15 : SEEK_STEP));
   else if (k === "Home") seekTo(0);
   else if (k === "f" || k === "F") toggleFullscreen();
+  else if (k === "[" || k === "-" || k === "_") nudgeDelay(-DELAY_STEP);
+  else if (k === "]" || k === "+" || k === "=") nudgeDelay(DELAY_STEP);
   else if (k === "Tab") { used = false; wake(); }
   else used = false;
   if (used) {
@@ -234,8 +268,11 @@ export function openConcert(id, { from = null, onClose = null } = {}) {
   S = {
     id, record, show, kind: player.kind(id), director: new ShowDirector(show), onClose,
     pausedAt: 0, wanted: true, starting: true, seekPos: null, seekTimer: 0, failed: false,
-    spCorr: 0, spCorrTarget: 0, syncAt: 0, syncing: false, nudge: 0, wasPlaying: false,
+    spCorr: 0, spCorrTarget: 0, syncAt: 0, syncing: false, syncCount: 0, syncs: [], nudge: 0, wasPlaying: false,
+    clock: null, delay: 0,
   };
+  S.delay = clamp(Number(store.get(DELAY_KEY + S.kind)) || 0, -500, 1000);
+  showDelay(false);
   const start = Number.isFinite(from) && from > 0 && from < show.duration - 1 ? from : player.isPlaying(id) ? player.position(id) ?? 0 : 0;
   S.pausedAt = start;
   open = true;
@@ -244,6 +281,7 @@ export function openConcert(id, { from = null, onClose = null } = {}) {
   el.root.classList.remove("broken", "hot");
   el.root.focus({ preventScroll: true });
   document.documentElement.classList.add("concert-on");
+  document.dispatchEvent(new CustomEvent("concert-state", { detail: { open: true } }));
   document.addEventListener("keydown", onKey, true);
   measureNow();
   V.last = performance.now();
@@ -279,6 +317,7 @@ export function closeConcert({ silent = false } = {}) {
   el.root.classList.remove("in", "hot", "ui-idle", "broken", "paused", "tense");
   el.root.hidden = true;
   document.documentElement.classList.remove("concert-on");
+  document.dispatchEvent(new CustomEvent("concert-state", { detail: { open: false } }));
   if (document.fullscreenElement === el.root) document.exitFullscreen().catch(() => {});
   const cb = S?.onClose;
   S = null;
@@ -304,7 +343,10 @@ async function startPlayback(at) {
   }
   s.failed = false;
   s.spCorr = s.spCorrTarget = 0;
-  s.syncAt = performance.now() + 1500; // Spotify: first check once it has really started
+  s.syncs.length = 0;
+  s.syncCount = 0;
+  s.clock = null;
+  s.syncAt = performance.now() + SYNC_FIRST_MS[0]; // Spotify: first check once it has really started
 }
 
 function togglePlay() {
@@ -377,15 +419,61 @@ async function syncSpotify() {
       }
       return;
     }
+    // the position was read somewhere in the round trip: its middle is the best guess,
+    // and the fastest round trip of the last few the most precise one
     const real = st.progressMs / 1000 + rtt / 2;
     const local = player.position(s.id) ?? real;
     const err = real - local;
-    if (Math.abs(err - s.spCorr) > 3) s.spCorr = err; // a jump (seek in the app): follow at once
-    s.spCorrTarget = err;
+    if (Math.abs(err - s.spCorrTarget) > 1.5) {
+      // a jump (a seek in the app, a late start): follow at once, forget the old round trips
+      s.syncs.length = 0;
+      if (Math.abs(err - s.spCorr) > 3) s.spCorr = err;
+    }
+    s.syncs.push({ err, rtt });
+    if (s.syncs.length > SYNC_KEEP) s.syncs.shift();
+    s.spCorrTarget = s.syncs.reduce((a, b) => (b.rtt < a.rtt ? b : a)).err;
   } catch { /* offline, rate limit: keep the local clock */ } finally {
     s.syncing = false;
-    s.syncAt = performance.now() + SYNC_EVERY_MS;
+    s.syncAt = performance.now() + (SYNC_FIRST_MS[++s.syncCount] ?? SYNC_EVERY_MS);
   }
+}
+
+/** Visual delay (ms, + = later), remembered per kind of playback. */
+function nudgeDelay(ms) {
+  if (!S) return;
+  S.delay = clamp(Math.round((S.delay + ms) / DELAY_STEP) * DELAY_STEP, -500, 1000);
+  store.set(DELAY_KEY + S.kind, String(S.delay));
+  showDelay(true);
+}
+
+function showDelay(flash) {
+  if (!el || !S) return;
+  const d = S.delay;
+  el.syncVal.textContent = `${d > 0 ? "+" : d < 0 ? "−" : ""}${Math.abs(d)} ms`;
+  el.syncVal.title = t("Visual delay");
+  if (flash) {
+    V.syncShownAt = performance.now();
+    el.root.classList.add("sync-shown");
+  }
+}
+
+/**
+ * The time the show draws: what is being heard, on a smooth clock. The audio
+ * clock moves in blocks (and Spotify's is corrected now and then): the show
+ * clock runs on the frame time and eases onto it, jumping only on a seek.
+ */
+function showClock(dt, playing) {
+  const raw = currentPosition();
+  if (!playing) { S.clock = null; return raw; }
+  let lat = 0;
+  if (S.kind === "file") {
+    const c = engine.context;
+    lat = (c.outputLatency || 0) + (c.baseLatency || 0);
+  }
+  const target = raw - lat - S.delay / 1000;
+  if (S.clock == null || Math.abs(target - S.clock) > 0.25) S.clock = target;
+  else S.clock += dt + (target - S.clock - dt) * Math.min(1, dt * 6);
+  return Math.max(0, S.clock);
 }
 
 // ------------------------------------------------------------------ audio (local files)
@@ -490,12 +578,12 @@ function tick(now) {
   const reduced = reducedMq.matches;
   V.time = (now - V.t0) / 1000;
 
-  const pos = currentPosition();
   const playing = S.wanted && !S.starting && S.seekPos == null && player.isPlaying(S.id);
   if (S.kind === "spotify") {
     S.spCorr = approach(S.spCorr, S.spCorrTarget, dt, 1.5);
     if (playing && !S.syncing && now > S.syncAt) syncSpotify();
   }
+  const pos = showClock(dt, playing);
   const smp = sampleShow(S.show, pos, SMP);
   const clk = beatClock(S.show, pos, S.nudge, CLK);
   S.director.nudge = S.nudge;
@@ -517,8 +605,10 @@ function tick(now) {
   if (S.kind === "file" && tap && detector) o = readAudio(dt, now);
   else synthAudio(dt, smp, clk, playing);
 
-  // hits: kicks heard (local) or on the beat clock (Spotify, or a local track whose kicks the detector misses)
-  const heard = !!o && playing;
+  // hits: the stored kicks and snares (exact), else kicks heard (local) or on the beat clock
+  // (Spotify, or a local track whose kicks the detector misses)
+  const stored = !!S.show.kicks;
+  const heard = !stored && !!o && playing;
   if (heard && o.kick) {
     kick(o.kickStrength, heat, hot, reduced);
     V.lastKickHeard = V.time;
@@ -528,11 +618,15 @@ function tick(now) {
       if (Math.abs(e) < 0.2) S.nudge -= e * 0.08;
     }
   }
-  if (heard && o.onset && V.time - V.lastOnsetBurst > 0.14) onset(o.strength, heat);
+  if (!!o && playing && o.onset && V.time - V.lastOnsetBurst > 0.14 && !S.show.snaps) onset(o.strength, heat);
   for (const ev of events) {
-    if (ev.type === "beat") {
+    if (ev.type === "kick") {
+      kick(ev.amp * (0.55 + 0.45 * smp.beatAmt), heat, hot, reduced);
+    } else if (ev.type === "snap") {
+      snap(ev.amp, heat);
+    } else if (ev.type === "beat") {
       const s = smp.beatAmt * (ev.downbeat ? 1 : 0.72);
-      if (!heard || V.time - V.lastKickHeard > 2) { if (s > 0.12) kick(s, heat, hot, reduced); }
+      if (!stored && (!heard || V.time - V.lastKickHeard > 2)) { if (s > 0.12) kick(s, heat, hot, reduced); }
       if (ev.downbeat) V.camPunch = Math.max(V.camPunch, smp.beatAmt);
     }
   }
@@ -541,8 +635,17 @@ function tick(now) {
     if (ev.type === "drop") drop(ev.drop, reduced);
     else if (ev.type === "section") section(ev.section, ev.index, dropNow, reduced);
   }
-  // Spotify: attacks at the stored rate, as sparks
-  if (!heard && playing && Math.random() < Math.min(8, smp.onsetRate) * dt * 0.35) onset(0.3 + 0.5 * heat, heat);
+  // no stored attacks and nothing heard: attacks at the stored rate, as sparks
+  if (!S.show.snaps && !o && playing && Math.random() < Math.min(8, smp.onsetRate) * dt * 0.35) onset(0.3 + 0.5 * heat, heat);
+
+  // effects driven by the track's measures: lasers (heat, section, density, tempo),
+  // fast attacks (the attack-rate measure: speedcore, blast beats, extratone)
+  const on = playing ? 1 : 0;
+  V.laser = approach(V.laser, laserAmount(heat, smp) * on, dt, 2.5);
+  const rate = Math.max(smp.fastRate, smp.kickRate ?? 0);
+  V.fast = approach(V.fast, clamp((rate - 5) / 15) * on, dt, 3);
+  V.pump *= Math.exp(-dt * 9);
+  V.snap *= Math.exp(-dt * 11);
 
   V.kick *= Math.exp(-dt * 6);
   V.onset *= Math.exp(-dt * 8);
@@ -559,6 +662,8 @@ function tick(now) {
     kickAt: V.kickAt, kickStrength: V.kickStrength, time: V.time, dt, travel: V.travel, kick: k, bass: V.bass, loud: V.loud,
     idle: V.idle, flash: V.flash, drive, palette: PAL, reduced, tension: playing ? tension : 0,
     bigAt: V.bigAt, bigStrength: V.bigStrength, cam,
+    pump: V.pump, kickRate: stored ? smp.kickRate : smp.bpm / 60, snap: V.snap, snapRate: smp.snapRate || 2, fast: V.fast,
+    laser: V.laser, laserCount: 2 + Math.round(5 * drive.density), beats: clk.beats, laserHit: V.kick,
   });
 
   // size, with an adaptive render scale (keeps 60 fps on smaller GPUs)
@@ -592,9 +697,17 @@ function kick(strength, heat, hot, reduced) {
   V.kickStrength = s;
   burst(V.kickSlot, 0, 0, s, PAL.accent, 1);
   V.kickSlot = (V.kickSlot + 1) % 4;
+  V.pump = Math.max(V.pump, s);
+  V.camPunch = Math.max(V.camPunch, s);
   const want = heat > 0.55 ? strength * (heat - 0.45) * 1.8 + hot * 0.45 : 0;
   const fl = limiter.request(V.time, want * (reduced ? 0.4 : 1));
   if (fl > V.flash) V.flash = fl;
+}
+
+/** A snare, a clap (stored attacks that are not kicks): side panels and a spark. */
+function snap(amp, heat) {
+  V.snap = Math.max(V.snap, amp * (0.5 + 0.5 * heat));
+  if (amp > 0.35 && V.time - V.lastOnsetBurst > 0.1) onset(0.25 + 0.6 * amp * (0.4 + 0.6 * heat), heat);
 }
 
 function onset(strength, heat) {
@@ -648,14 +761,14 @@ function camera(dt, heat, tension, reduced) {
   for (const key of ["x", "y", "zoom", "roll"]) B[key] = approach(B[key], T[key], dt, 0.8);
   V.camZoomKick *= Math.exp(-dt * 2.2);
   V.rollKick *= Math.exp(-dt * 1.1);
-  V.camPunch *= Math.exp(-dt * 5);
+  V.camPunch *= Math.exp(-dt * 9);
   const drift = reduced ? 0 : 0.004 + 0.008 * heat;
   const tt = V.time;
   cam.x = B.x + Math.sin(tt * 0.13) * drift;
   cam.y = B.y + Math.sin(tt * 0.11 + 1.7) * drift * 0.7;
   cam.roll = reduced ? 0 : clamp(B.roll + V.rollKick + Math.sin(tt * 0.07) * 0.012 * heat + Math.sin(tt * 9) * 0.004 * tension, -0.06, 0.06);
   // tension pushes the camera in; the drop kicks it out
-  let z = B.zoom + V.camZoomKick * (reduced ? 0.3 : 1) + 0.012 * V.camPunch + 0.09 * tension;
+  let z = B.zoom + V.camZoomKick * (reduced ? 0.3 : 1) + (reduced ? 0.008 : 0.03) * V.camPunch + 0.09 * tension;
   const asp = (V.cw || 16) / Math.max(1, V.ch || 9);
   const need = Math.cos(cam.roll) + Math.max(asp, 1 / asp) * Math.abs(Math.sin(cam.roll)) + 2.2 * Math.max(Math.abs(cam.x), Math.abs(cam.y)) + 0.01;
   cam.zoom = Math.max(need, z);
@@ -676,10 +789,16 @@ function measure(now, dt) {
   }
   V.frameMs += (dt * 1000 - V.frameMs) * 0.05;
   // lower the resolution when frames take too long, raise it back when there is room
-  if (V.frameMs > 21) { V.slowFor += dt; V.fastFor = 0; } else if (V.frameMs < 15) { V.fastFor += dt; V.slowFor = 0; } else { V.slowFor = V.fastFor = 0; }
-  if (V.slowFor > 1.5 && V.scale > 0.5) { V.scale = Math.max(0.5, V.scale - 0.15); V.slowFor = 0; }
-  if (V.fastFor > 4 && V.scale < 1) { V.scale = Math.min(1, V.scale + 0.1); V.fastFor = 0; }
-  el.root.dataset.scale = V.scale.toFixed(2);
+  if (V.frameMs > 20) { V.slowFor += dt; V.fastFor = 0; } else if (V.frameMs < 15) { V.fastFor += dt; V.slowFor = 0; } else { V.slowFor = V.fastFor = 0; }
+  if (V.slowFor > 0.7 && V.scale > 0.5) { V.scale = Math.max(0.5, V.scale - 0.15); V.slowFor = 0; V.frameMs = 16.7; }
+  if (V.fastFor > 5 && V.scale < 1) { V.scale = Math.min(1, V.scale + 0.1); V.fastFor = 0; }
+  const sc = V.scale.toFixed(2);
+  if (sc !== V.lastScale) {
+    // a data attribute write restyles the overlay: only on a change
+    V.lastScale = sc;
+    el.root.dataset.scale = sc;
+    store.set(SCALE_KEY, sc);
+  }
 }
 
 // ------------------------------------------------------------------ HUD
@@ -808,7 +927,9 @@ function hud(pos, smp, I, k, dt, playing, tension) {
   const now = performance.now();
   if (now - V.colorAt > 100) {
     V.colorAt = now;
-    const rgb = (c) => `${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)}`;
+    // in steps of 6/255: the glow of the type repaints only when the colour visibly moves
+    const q6 = (x) => Math.min(255, Math.round((x * 255) / 6) * 6);
+    const rgb = (c) => `${q6(c[0])},${q6(c[1])},${q6(c[2])}`;
     const b = rgb(PAL.base), a = rgb(PAL.accent);
     if (b !== V.cssBase) { V.cssBase = b; r.style.setProperty("--cc-base", b); }
     if (a !== V.cssAccent) { V.cssAccent = a; r.style.setProperty("--cc-accent", a); }
@@ -847,6 +968,15 @@ function hud(pos, smp, I, k, dt, playing, tension) {
     el.next.classList.toggle("soon", soon);
   }
 
+  // the beat meter: tempo and attacks per second here, a light on each kick
+  el.led.style.opacity = (0.18 + 0.82 * Math.min(1, k * 1.4)).toFixed(3);
+  el.led.style.transform = `scale(${(0.8 + 0.6 * k).toFixed(3)})`;
+  const bpm = S.show.bpmSure ? Math.round(smp.bpm) : 0;
+  const hits = smp.kickKnown ? smp.kickRate + smp.snapRate : smp.onsetRate;
+  const meter = [bpm ? t("{n} BPM", { n: bpm }) : "", hits > 0.2 ? t("{n} attacks/s", { n: hits.toFixed(1) }) : ""].filter(Boolean).join(" · ");
+  if (meter !== V.meterText) { V.meterText = meter; el.meterText.textContent = meter; }
+  if (V.syncShownAt && now - V.syncShownAt > 2500) { V.syncShownAt = 0; r.classList.remove("sync-shown"); }
+
   // phase line and play button
   const phase = S.starting ? t("Starting playback…")
     : S.failed ? t("Playback unavailable")
@@ -863,7 +993,7 @@ function hud(pos, smp, I, k, dt, playing, tension) {
     el.idleTitle.textContent = S.failed ? t("Playback unavailable") : t("Paused");
     el.idleText.textContent = S.failed
       ? (S.kind === "spotify" ? t("Open Spotify (the app or open.spotify.com), then press Space.") : t("Press Space to try again."))
-      : t("Space: play · ← →: move 5 s · F: full screen · Esc: close");
+      : t("Space: play · ← →: move 5 s · [ ]: visuals earlier / later · F: full screen · Esc: close");
   }
 
   // time and progress

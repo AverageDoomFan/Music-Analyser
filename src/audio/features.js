@@ -117,6 +117,7 @@ export function extractFeatures(mono, sampleRate, extra = {}, onProgress = () =>
     bpmStability: tempo.stability,
     bpmAlt: tempo.alt,
     sections,
+    hits: trackHits(frames, offsets, sampleRate, duration),
     timeline: {
       windowSeconds: ANALYSIS.windowSeconds,
       hopSeconds: ANALYSIS.windowHopSeconds,
@@ -124,6 +125,90 @@ export function extractFeatures(mono, sampleRate, extra = {}, onProgress = () =>
       series,
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Hits (1.9): when the kicks and the other attacks land, in track time, for
+// the concert mode (a Spotify track has no audio in the page). Never scored.
+// Compact: times in 10 ms steps, delta-coded; strengths as one digit 0-9
+// each (relative to the track's own strong hits). ~2-6 KB for a track.
+
+export const HIT_STEP = 0.01;
+const HIT_BIAS = 0.01;      // s: measured on synthetic kicks (the flux peaks a little before the window centre)
+const SNAP_PER_SECOND = 6;   // at most, the strongest kept (hi-hat rolls would bloat the list)
+const SNAP_NEAR_KICK = 0.05; // s: an attack this close to a kick is that kick
+const SNAP_OVER_KICK = 1.6;  // an attack on a kick this much above the kicks' own is a snare on it
+const KICK_MIN = 0.3;        // of the track's strong kicks: weaker low-band rises are tails, snares, bass notes
+
+function trackHits(frames, offsets, sampleRate, duration) {
+  const half = ANALYSIS.fftSize / 2 / sampleRate;
+  let kicks = [];
+  const snaps = [];
+  frames.segments.forEach((sg, si) => {
+    const at = (i) => frames.time[i] + half + offsets[si] + HIT_BIAS;
+    for (const [i, v] of sg.kicks) kicks.push([at(i), v]);
+    for (const [i, v] of sg.onsets) snaps.push([at(i), v]);
+  });
+  kicks.sort((a, b) => a[0] - b[0]);
+  const strong = kicks.length ? KICK_MIN * quantile(kicks.map((x) => x[1]).sort((a, b) => a - b), 0.9) : 0;
+  kicks = kicks.filter((x) => x[1] >= strong);
+  // attacks that are not a kick (snares, claps, hats, stabs); one on a kick is
+  // kept when it is much stronger than the kicks alone (a snare on the kick)
+  let k = 0;
+  const near = [];
+  let others = snaps.filter((o) => {
+    const t = o[0];
+    while (k < kicks.length && kicks[k][0] < t - SNAP_NEAR_KICK) k++;
+    const onKick = k < kicks.length && Math.abs(kicks[k][0] - t) <= SNAP_NEAR_KICK;
+    if (onKick) near.push(o);
+    return !onKick;
+  });
+  if (near.length >= 8) {
+    const alone = quantile(near.map((o) => o[1]).sort((a, b) => a - b), 0.25);
+    others = others.concat(near.filter((o) => o[1] > SNAP_OVER_KICK * alone));
+  }
+  // weak ones are the tail of a stronger attack (a second flux peak)
+  const loud = others.length ? 0.25 * quantile(others.map((o) => o[1]).sort((a, b) => a - b), 0.9) : 0;
+  others = others.filter((o) => o[1] >= loud);
+  const cap = Math.ceil(SNAP_PER_SECOND * Math.max(1, frames.count / frames.frameRate));
+  if (others.length > cap) {
+    const thr = others.map((o) => o[1]).sort((a, b) => b - a)[cap - 1];
+    others = others.filter((o) => o[1] > thr).slice(0, cap);
+  }
+  others.sort((a, b) => a[0] - b[0]);
+  return { step: HIT_STEP, ...packHits("kick", kicks, duration), ...packHits("snap", others, duration) };
+}
+
+function packHits(name, list, duration) {
+  const ref = list.length ? quantile(list.map((x) => x[1]).sort((a, b) => a - b), 0.9) : 1;
+  const times = [], amps = [];
+  let prev = 0;
+  for (const [t, v] of list) {
+    if (!(t >= 0) || (duration && t > duration)) continue;
+    const q = Math.round(t / HIT_STEP);
+    if (times.length && q <= prev) continue;
+    times.push(q - prev);
+    prev = q;
+    amps.push(Math.max(0, Math.min(9, Math.round((9 * v) / (ref + EPS)))));
+  }
+  return { [name]: times, [`${name}Amp`]: amps.join("") };
+}
+
+/** Unpacks stored hits: { time: Float64Array (s), amp: Float32Array (0..1) } for "kick" or "snap". */
+export function unpackHits(hits, name) {
+  const d = hits?.[name];
+  if (!Array.isArray(d) || !d.length) return null;
+  const step = hits.step || HIT_STEP;
+  const amps = String(hits[`${name}Amp`] ?? "");
+  const time = new Float64Array(d.length), amp = new Float32Array(d.length);
+  let q = 0;
+  for (let i = 0; i < d.length; i++) {
+    q += d[i];
+    time[i] = q * step;
+    const a = amps.charCodeAt(i) - 48;
+    amp[i] = a >= 0 && a <= 9 ? a / 9 : 0.6;
+  }
+  return { time, amp };
 }
 
 /** Per-window features stored in the timeline (columnar, one array per key). */

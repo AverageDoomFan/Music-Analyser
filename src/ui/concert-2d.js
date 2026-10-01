@@ -106,8 +106,8 @@ export function create2DRenderer(canvas) {
       if (sk > 0 && age < 1.2) {
         ctx.beginPath();
         ctx.arc(0, 0, (f.ringR + age * (0.55 + 0.5 * f.heat)) * H, 0, Math.PI * 2);
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = rgb(pal.accent, Math.min(1, sk * Math.exp(-age * 3.2) * 1.4), 1.5);
+        ctx.lineWidth = 5;
+        ctx.strokeStyle = rgb(pal.accent, Math.min(1, sk * Math.exp(-age * 3) * 1.8), 1.5);
         ctx.stroke();
       }
       // drop / section shockwave
@@ -117,6 +117,22 @@ export function create2DRenderer(canvas) {
         ctx.arc(0, 0, (f.ringR + age2 * (0.9 + 0.6 * f.heat)) * H, 0, Math.PI * 2);
         ctx.lineWidth = 8;
         ctx.strokeStyle = `rgba(255,255,255,${Math.min(1, s2 * Math.exp(-age2 * 1.4))})`;
+        ctx.stroke();
+      }
+      // lasers from below the stage (same sweep as WebGL, simpler: straight lines)
+      const lz = f.laser;
+      if (lz && lz[0] > 0.01) {
+        const beams = lz[1], sweep = (lz[2] * Math.PI) / 8;
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = rgb(pal.accent, Math.min(1, lz[0] * (0.3 + 0.9 * lz[3])), 1.5);
+        ctx.beginPath();
+        for (let i = 0; i < beams; i++) {
+          const u = beams > 1 ? i / (beams - 1) - 0.5 : 0;
+          const a = u * 1.3 + Math.sin(sweep) * 0.45;
+          const ox = u * (W / H) * 0.9 * H, oy = 0.62 * H;
+          ctx.moveTo(ox, oy);
+          ctx.lineTo(ox + Math.sin(a) * 2 * H, oy - Math.cos(a) * 2 * H);
+        }
         ctx.stroke();
       }
       // build-up: the charged inner rim
@@ -149,6 +165,23 @@ export function create2DRenderer(canvas) {
       }
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = "source-over";
+      // kick pump and snare panels
+      if (f.pump > 0.01) {
+        ctx.globalCompositeOperation = "lighter";
+        ctx.fillStyle = rgb(pal.accent, f.pump * 0.35);
+        ctx.fillRect(0, 0, W, H);
+        ctx.globalCompositeOperation = "source-over";
+      }
+      if (f.snap > 0.01) {
+        const pw = W * 0.08;
+        for (const [x0, x1] of [[0, pw], [W, W - pw]]) {
+          const g2 = ctx.createLinearGradient(x0, 0, x1, 0);
+          g2.addColorStop(0, rgb(pal.accent, Math.min(0.6, f.snap * 0.5), 1.4));
+          g2.addColorStop(1, "rgba(0,0,0,0)");
+          ctx.fillStyle = g2;
+          ctx.fillRect(Math.min(x0, x1), 0, pw, H);
+        }
+      }
       if (f.flash > 0.01) {
         ctx.fillStyle = `rgba(255,248,240,${Math.min(0.6, f.flash * 0.6)})`;
         ctx.fillRect(0, 0, W, H);
