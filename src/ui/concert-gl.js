@@ -12,6 +12,7 @@ export const DATA_WIDTH = 512;
 export const BURST_SLOTS = 8;
 const PER_BURST = 700;
 const STARS = 5000;
+const NO_LASER = [0, 0, 0, 0];
 
 function compile(gl, type, src) {
   const sh = gl.createShader(type);
@@ -207,6 +208,9 @@ export function createGLRenderer(canvas) {
     gl.uniform1f(pr.u.u_ringR, f.ringR);
     gl.uniform1f(pr.u.u_ringH, f.ringH);
     gl.uniform1f(pr.u.u_idle, f.idle);
+    gl.uniform1f(pr.u.u_fast, f.fast ?? 0);
+    const lz = f.laser ?? NO_LASER;
+    gl.uniform4f(pr.u.u_laser, lz[0], lz[1], lz[2], lz[3]);
     v3(pr.u.u_base, pal.base); v3(pr.u.u_accent, pal.accent);
     tri();
 
@@ -284,6 +288,8 @@ export function createGLRenderer(canvas) {
     gl.uniform1f(pr.u.u_glitch, f.glitch);
     gl.uniform1f(pr.u.u_idle, f.idle);
     gl.uniform1f(pr.u.u_tension, f.tension ?? 0);
+    gl.uniform1f(pr.u.u_pump, f.pump ?? 0);
+    gl.uniform1f(pr.u.u_snap, f.snap ?? 0);
     const cam = f.cam ?? [0, 0, 1, 0];
     gl.uniform4f(pr.u.u_cam, cam[0], cam[1], cam[2], cam[3]);
     v3(pr.u.u_accent, pal.accent);

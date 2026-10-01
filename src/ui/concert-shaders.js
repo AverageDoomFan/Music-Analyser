@@ -42,29 +42,40 @@ ${NOISE}
 void main() {
   vec2 p = (v_uv - .5) * vec2(u_res.x / u_res.y, 1.);
   float t = u_time;
-  // nebula: fbm warped by fbm (the warp grows with the turbulence)
-  vec2 q = vec2(fbm(p * 1.4 + vec2(0., t * .03)), fbm(p * 1.4 + vec2(5.2, 1.3) - t * .025));
-  float w = 1.2 + u_turb * 2.4;
-  vec2 r = vec2(fbm(p * 1.4 + q * w + vec2(1.7, 9.2) + u_travel * .07), fbm(p * 1.4 + q * w + vec2(8.3, 2.8) - u_travel * .05));
-  float n = fbm(p * 1.3 + r * 2.2);
-  vec3 neb = mix(u_shadow, u_base * .42, smoothstep(.4, .95, n));
-  neb += u_accent * .35 * smoothstep(.6, 1.15, length(r) * n * 1.35);
-  neb *= .55 + .45 * smoothstep(1.4, .1, length(p));
+  float tun = max(u_tunnel, u_tension * .8);
+  // nebula: fbm warped by fbm (the warp grows with the turbulence). Hidden
+  // behind the tunnel: only a cheap warp for the tunnel walls (5 fbm saved)
+  vec2 r;
+  vec3 neb = vec3(0.);
+  if (tun < .995) {
+    vec2 q = vec2(fbm(p * 1.4 + vec2(0., t * .03)), fbm(p * 1.4 + vec2(5.2, 1.3) - t * .025));
+    float w = 1.2 + u_turb * 2.4;
+    r = vec2(fbm(p * 1.4 + q * w + vec2(1.7, 9.2) + u_travel * .07), fbm(p * 1.4 + q * w + vec2(8.3, 2.8) - u_travel * .05));
+    float n = fbm(p * 1.3 + r * 2.2);
+    neb = mix(u_shadow, u_base * .42, smoothstep(.4, .95, n));
+    neb += u_accent * .35 * smoothstep(.6, 1.15, length(r) * n * 1.35);
+    neb *= .55 + .45 * smoothstep(1.4, .1, length(p));
+  } else {
+    r = vec2(vnoise(p * 2.1 + t * .05 + u_travel * .07), vnoise(p * 2.1 + 5.3 - t * .04 - u_travel * .05)) * 1.1;
+  }
 
   // tunnel: depth = 1/radius, mirrored angle (kaleidoscopic, seamless)
   float rad = length(p);
   float ang = abs(atan(p.x, -p.y)) / 3.14159;
   float z = .32 / max(rad, .015);
-  vec2 tuv = vec2(ang * 3., z + u_travel);
-  float wall = fbm(tuv * vec2(1.4, .55) + r * .8);
-  float streak = pow(vnoise(vec2(ang * 38., z * .35 + u_travel * .6)), 6.) * (.5 + 1. * u_sparkle);
-  float rings = pow(abs(sin((z + u_travel * 1.3) * 3.14159 * .9)), 18. - 12. * u_kick);
   float fog = smoothstep(0.02, .55, rad);
-  vec3 tun = mix(u_shadow * 1.3, u_base * .6, pow(smoothstep(.42, .95, wall), 1.6)) * fog;
-  tun += u_accent * (streak + rings * (.12 + .7 * u_kick)) * fog * fog;
-  tun += mix(u_accent, vec3(1.), .5) * .5 / (1. + rad * rad * 160.) * (.4 + u_bass);
+  vec3 tunCol = vec3(0.);
+  if (tun > .005) {
+    vec2 tuv = vec2(ang * 3., z + u_travel);
+    float wall = fbm(tuv * vec2(1.4, .55) + r * .8);
+    float streak = pow(vnoise(vec2(ang * 38., z * .35 + u_travel * .6)), 6.) * (.5 + 1. * u_sparkle);
+    float rings = pow(abs(sin((z + u_travel * 1.3) * 3.14159 * .9)), 18. - 12. * u_kick);
+    tunCol = mix(u_shadow * 1.3, u_base * .6, pow(smoothstep(.42, .95, wall), 1.6)) * fog;
+    tunCol += u_accent * (streak + rings * (.12 + .9 * u_kick)) * fog * fog;
+    tunCol += mix(u_accent, vec3(1.), .5) * .5 / (1. + rad * rad * 160.) * (.4 + u_bass);
+  }
 
-  vec3 col = mix(neb, tun, max(u_tunnel, u_tension * .8));
+  vec3 col = mix(neb, tunCol, tun);
   // build-up: rings of light converging on the centre, faster and faster
   if (u_tension > 0.) {
     float conv = fract(z * .35 + u_time * (.4 + 2.6 * u_tension * u_tension));
@@ -72,8 +83,8 @@ void main() {
     float spokes = pow(abs(sin(ang * 3.14159 * 24. + u_time * .5)), 30.) * u_tension * u_tension * fog;
     col += mix(u_accent, vec3(1.), .4) * (riser * 1.1 + spokes * .35);
   }
-  // light at the centre, breathing with the bass
-  col += u_accent * .10 * (u_bass + u_kick) / (1. + rad * 6.);
+  // light at the centre, breathing with the bass, thumping on the kicks
+  col += u_accent * (.10 * u_bass + .32 * u_kick) / (1. + rad * 6.);
   // white hot past 100
   float l = dot(col, vec3(.3, .55, .15));
   col = mix(col, vec3(l * .9), u_hot * .35) + vec3(1., .95, .9) * l * l * 2.2 * u_hot;
@@ -91,7 +102,8 @@ in vec2 v_uv;
 out vec4 o;
 uniform sampler2D u_prev, u_data;
 uniform vec2 u_res;
-uniform float u_time, u_zoom, u_rot, u_decay, u_fade, u_turb, u_heat, u_hot, u_kick, u_loud, u_ringR, u_ringH, u_idle, u_tension;
+uniform float u_time, u_zoom, u_rot, u_decay, u_fade, u_turb, u_heat, u_hot, u_kick, u_loud, u_ringR, u_ringH, u_idle, u_tension, u_fast;
+uniform vec4 u_laser;  // amount, beams, beat count, kick envelope
 uniform vec2 u_shock;  // age (s), strength of the last kick
 uniform vec2 u_shock2; // age (s), strength of the last drop / section change
 uniform vec3 u_base, u_accent;
@@ -136,6 +148,8 @@ void main() {
   // waveform ring inside it
   float wv = texture(u_data, vec2(ang * .98 + .01, .75)).r;
   float rw = u_ringR * .8 + wv * (.05 + .1 * u_loud);
+  // fast attacks: the ring vibrates (a jitter, not a strobe)
+  if (u_fast > 0.) rw += u_fast * .03 * (vnoise(vec2(ang * 46., u_time * 37.)) - .5);
   float d = abs(rad - rw) / px;
   float line = smoothstep(2.2, .4, d) + .25 * exp(-d * .18);
   col += mix(u_accent, vec3(1.), .55 + .45 * u_hot) * line * (.55 + .9 * u_loud) * (1. - u_idle * .7);
@@ -143,8 +157,8 @@ void main() {
   if (u_shock.y > 0. && u_shock.x < 1.2) {
     float sr = u_ringR + u_shock.x * (.55 + .5 * u_heat);
     float sd = abs(rad - sr) / px;
-    float sw = (smoothstep(3., 0., sd) + .35 * exp(-sd * .08)) * u_shock.y * exp(-u_shock.x * 3.2);
-    col += mix(u_accent, vec3(1.), .5 + .5 * u_hot) * sw * 1.4;
+    float sw = (smoothstep(5., 0., sd) + .5 * exp(-sd * .06)) * u_shock.y * exp(-u_shock.x * 3.);
+    col += mix(u_accent, vec3(1.), .5 + .5 * u_hot) * sw * 1.8;
   }
   if (big > 0.) {
     // thick ring with a chromatic fringe
@@ -153,6 +167,32 @@ void main() {
     col += vec3(1., .35, .6) * smoothstep(9., 0., abs(bd + 5.)) * fr * .9;
     col += vec3(.35, .8, 1.) * smoothstep(9., 0., abs(bd - 5.)) * fr * .9;
     col += vec3(1.) * smoothstep(4., 0., abs(bd)) * fr * 1.3;
+  }
+  // lasers from below the stage: sweeping in time (the beat count), brighter on the kicks;
+  // the pattern changes every 8 bars (fan, scissors, wave). Drawn into the trails: they smear.
+  if (u_laser.x > .01) {
+    int beams = int(u_laser.y);
+    float beats = u_laser.z;
+    float pat = mod(floor(beats / 32.), 3.);
+    float sweep = beats * 3.14159 / 8.;
+    vec3 lc = mix(u_accent, vec3(1.), .45);
+    float lsum = 0.;
+    for (int i = 0; i < 8; i++) {
+      if (i >= beams) break;
+      float u = beams > 1 ? float(i) / float(beams - 1) - .5 : 0.;
+      vec2 o = vec2(u * asp * .9, -.62);
+      float a = pat < .5 ? u * 1.3 + sin(sweep) * .45
+              : pat < 1.5 ? u * 1.6 * sin(sweep * 2.) + .15 * sin(sweep * .5)
+              : u * .8 + .35 * sin(sweep * 4. + u * 4.);
+      vec2 dir = vec2(sin(a), cos(a));
+      vec2 rel = c - o;
+      float along = dot(rel, dir);
+      if (along < 0.) continue;
+      float d = abs(rel.x * dir.y - rel.y * dir.x) / px;
+      float on = pat > 1.5 ? .35 + .65 * step(.5, fract((beats + float(i)) * .5)) : 1.;
+      lsum += (exp(-d * d * .18) + .07 * exp(-d * .06)) * exp(-along * .7) * on;
+    }
+    col += lc * lsum * u_laser.x * (.2 + .55 * u_laser.w);
   }
   // tension: the ring charges up (a bright inner rim that trembles)
   if (u_tension > 0.) {
@@ -281,12 +321,9 @@ out vec4 o;
 uniform sampler2D u_bg, u_trail, u_b1, u_b2;
 uniform vec2 u_res, u_shake;
 uniform vec4 u_cam; // x, y offset; zoom; roll (radians)
-uniform float u_time, u_ca, u_bloom, u_exposure, u_hot, u_flash, u_grain, u_glitch, u_idle, u_tension;
+uniform float u_time, u_ca, u_bloom, u_exposure, u_hot, u_flash, u_grain, u_glitch, u_idle, u_tension, u_pump, u_snap;
 uniform vec3 u_accent;
 float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
-vec3 scene(vec2 uv) {
-  return texture(u_bg, uv).rgb + texture(u_trail, uv).rgb + u_bloom * (texture(u_b1, uv).rgb * .55 + texture(u_b2, uv).rgb * .8);
-}
 void main() {
   // camera: roll and zoom around the centre (aspect-correct), then shake and offset
   float asp = u_res.x / u_res.y;
@@ -304,18 +341,25 @@ void main() {
     uv.x += band * .03 * u_glitch;
   }
   vec2 dir = uv - .5;
-  vec3 col;
-  col.r = scene(uv + dir * u_ca).r;
-  col.g = scene(uv).g;
-  col.b = scene(uv - dir * u_ca).b;
-  // filmic-ish tone map
-  col = 1. - exp(-col * u_exposure);
+  // chromatic aberration on the sharp layer (the trails); the background and the bloom are soft anyway
+  vec3 col = texture(u_bg, uv).rgb + u_bloom * (texture(u_b1, uv).rgb * .55 + texture(u_b2, uv).rgb * .8);
+  col.r += texture(u_trail, uv + dir * u_ca).r;
+  col.g += texture(u_trail, uv).g;
+  col.b += texture(u_trail, uv - dir * u_ca).b;
+  // filmic-ish tone map; the kick pumps the exposure
+  col = 1. - exp(-col * u_exposure * (1. + u_pump));
   col = mix(col, col * col * (3. - 2. * col), .35); // a touch of contrast
   // white hot: highlights burn to white, the rest desaturates slightly
   float l = dot(col, vec3(.3, .55, .15));
   col = mix(col, vec3(l) * vec3(1.08, 1., .92) + l * l * .6, u_hot * .5);
   // flash: an exposure pump plus a little light (bright parts flare, the darks stay dark)
   col = col * (1. + u_flash * .9) + u_flash * mix(u_accent, vec3(1.), .7) * .18;
+  // snares and claps: light panels on the left and right edges
+  if (u_snap > .01) {
+    float side = min(v_uv.x, 1. - v_uv.x) * asp;
+    float panel = exp(-side * 9.) * (.7 + .3 * sin(v_uv.y * 40. + u_time * 3.));
+    col += mix(u_accent, vec3(1.), .6) * panel * u_snap * .5;
+  }
   // tension: colours drain towards the edges, the vignette closes in
   float lt = dot(col, vec3(.3, .55, .15));
   float edgeD = length((v_uv - .5) * vec2(asp, 1.));
