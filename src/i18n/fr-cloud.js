@@ -5,7 +5,7 @@ export default {
   // Settings › Share with the developer
   "Cloud is not set up in this copy of the app.": "Le cloud n'est pas configuré dans cette copie de l'application.",
   "Share with the developer": "Partager avec le développeur",
-  "Optional. Sign in with Google and turn sharing on to send your duels, your reports for analysis and a small profile (name, e-mail, counters) to the app's database, where only the admins can read them, to improve the algorithm. Never audio or file paths. You can delete what you shared at any time.": "Facultatif. Connecte-toi avec Google et active le partage pour envoyer tes duels, tes signalements pour analyse et un petit profil (nom, e-mail, compteurs) dans la base de l'application, où seuls les admins peuvent les lire, pour améliorer l'algorithme. Jamais d'audio ni de chemin de fichier. Tu peux supprimer ce que tu as partagé à tout moment.",
+  "Optional. Turn sharing on to send your duels, your reports for analysis and a small profile (name, e-mail, counters) to the app's database, where only the admins can read them, to improve the algorithm. Never audio or file paths. You can delete what you shared at any time.": "Facultatif. Active le partage pour envoyer tes duels, tes signalements pour analyse et un petit profil (nom, e-mail, compteurs) dans la base de l'application, où seuls les admins peuvent les lire, pour améliorer l'algorithme. Jamais d'audio ni de chemin de fichier. Tu peux supprimer ce que tu as partagé à tout moment.",
   "Sign in with Google": "Se connecter avec Google",
   "Signed in as {name}.": "Connecté en tant que {name}.",
   "admin": "admin",

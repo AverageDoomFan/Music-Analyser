@@ -15,7 +15,7 @@ const report = { trackId: "spotify:1", name: "A", at: "2026-10-01T10:00:00Z", ex
 before(async () => {
   env = await initializeTestEnvironment({
     projectId: "demo-mea",
-    firestore: { rules: readFileSync(new URL("../../firestore.rules", import.meta.url), "utf8"), host: "127.0.0.1", port: 8080 },
+    firestore: { rules: readFileSync(new URL("./firestore.rules", import.meta.url), "utf8"), host: "127.0.0.1", port: 8080 },
   });
 });
 after(async () => { await env?.cleanup(); });

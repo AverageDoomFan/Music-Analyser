@@ -8,15 +8,17 @@ import { t, tn, getLang, setLang, LANGUAGES } from "../i18n/index.js";
 import { escapeHtml } from "../util/format.js";
 import { toast } from "./toast.js";
 import { getBackdropMode, setBackdropMode } from "./backdrop.js";
-import { cloudConfigured, currentUser, isAdmin, signIn, signOut } from "../cloud/firebase.js";
-import { cloudSettings, setShare, syncNow, deleteMyCloudData, status as syncStatus } from "../cloud/sync.js";
+import { cloudConfigured, isAdmin } from "../cloud/firebase.js";
+import { acc, isSignedIn, updateProfile } from "../cloud/account.js";
+import { syncPrefs, setSyncPrefs } from "../cloud/sync.js";
+import { cloudSettings, setShare, syncNow, deleteMyCloudData, status as syncStatus } from "../cloud/share.js";
 
 const dialog = () => document.getElementById("settings-dialog");
 let draft = null;
 let proposal = null;
 let genres = { auto: true, lastfmKey: "" };
 let reports = [];
-let cloud = { user: null, admin: false, share: false, error: null };
+let cloud = { admin: false, share: false, error: null };
 
 export function initSettings() {
   document.getElementById("open-settings").addEventListener("click", open);
@@ -31,7 +33,7 @@ export function initSettings() {
   d.addEventListener("change", async (e) => {
     if (e.target.id === "language") return setLang(e.target.value);
     if (e.target.name === "backdrop") return setBackdropMode(e.target.value);
-    if (e.target.id === "cloud-share") {
+    if (e.target.id === "dev-share") {
       cloud.share = e.target.checked;
       try {
         const res = await setShare(cloud.share);
@@ -51,6 +53,22 @@ export function initSettings() {
       genres.lastfmKey = e.target.value.trim();
       await ctl.setGenreSettings({ lastfmKey: genres.lastfmKey });
       toast(genres.lastfmKey ? t("Last.fm key saved: used for tracks MusicBrainz does not know.") : t("Last.fm key removed."));
+      return;
+    }
+    if (e.target.id === "cloud-public") {
+      try {
+        await updateProfile({ isPublic: e.target.checked });
+        toast(e.target.checked ? t("Your account is public: others can find your page.") : t("Your account is private: only your friends see your page."));
+      } catch (err) {
+        e.target.checked = !e.target.checked;
+        toast(err.message, "error");
+      }
+      return;
+    }
+    if (e.target.id === "cloud-share") return setSyncPrefs({ share: e.target.checked });
+    if (e.target.id === "cloud-community") {
+      await setSyncPrefs({ community: e.target.checked });
+      toast(t("Scores recomputed."));
       return;
     }
     if (e.target.name === "aggregation") {
@@ -81,6 +99,7 @@ export function initSettings() {
     const action = e.target.closest("[data-action]")?.dataset.action;
     switch (action) {
       case "close": d.close(); break;
+      case "go-account": d.close(); document.getElementById("tab-stats")?.click(); break;
       case "apply-weights":
         await ctl.setWeights(draft);
         toast(t("Weights applied, scores recomputed."));
@@ -127,21 +146,6 @@ export function initSettings() {
         reports = [];
         render();
         break;
-      case "cloud-signin":
-        try {
-          await signIn();
-          await refreshCloud();
-          toast(t("Signed in as {name}.", { name: cloud.user?.displayName || cloud.user?.email || "?" }));
-        } catch (err) {
-          toast(err.message, "error");
-        }
-        render();
-        break;
-      case "cloud-signout":
-        await signOut();
-        await refreshCloud();
-        render();
-        break;
       case "cloud-sync":
         try {
           const res = await syncNow();
@@ -185,8 +189,7 @@ async function open() {
 async function refreshCloud() {
   if (!cloudConfigured()) return;
   try {
-    cloud.user = await currentUser();
-    cloud.admin = cloud.user ? await isAdmin() : false;
+    cloud.admin = isSignedIn() ? await isAdmin() : false;
     cloud.share = (await cloudSettings()).share;
     cloud.error = null;
   } catch (err) {
@@ -194,25 +197,22 @@ async function refreshCloud() {
   }
 }
 
-function cloudHtml() {
-  if (!cloudConfigured()) return "";
-  const u = cloud.user;
+/** Opt-in sharing of duels and reports with the developer (admin panel). */
+function devShareHtml() {
+  if (!isSignedIn()) return "";
   const st = syncStatus;
   return `
       <h3>${t("Share with the developer")}</h3>
-      <p class="muted small">${t("Optional. Sign in with Google and turn sharing on to send your duels, your reports for analysis and a small profile (name, e-mail, counters) to the app's database, where only the admins can read them, to improve the algorithm. Never audio or file paths. You can delete what you shared at any time.")}</p>
+      <p class="muted small">${t("Optional. Turn sharing on to send your duels, your reports for analysis and a small profile (name, e-mail, counters) to the app's database, where only the admins can read them, to improve the algorithm. Never audio or file paths. You can delete what you shared at any time.")}</p>
       ${cloud.error ? `<p class="notice">${escapeHtml(cloud.error)}</p>` : ""}
-      ${u ? `
-        <p class="small">${t("Signed in as {name}.", { name: `<b>${escapeHtml(u.displayName || u.email || "?")}</b>` })} <span class="muted">uid: <code>${escapeHtml(u.uid)}</code></span>${cloud.admin ? ` · <b>${t("admin")}</b>` : ""}</p>
-        <label class="inline"><input type="checkbox" id="cloud-share" ${cloud.share ? "checked" : ""}> ${t("Share my duels and reports")}</label>
-        <p class="muted small">${st.syncing ? t("Sharing…") : st.error ? escapeHtml(st.error) : st.lastSync ? t("Last shared at {time}.", { time: new Date(st.lastSync).toLocaleTimeString() }) : ""}</p>
-        <div class="settings-actions">
-          ${cloud.share ? `<button class="btn" data-action="cloud-sync">${t("Share now")}</button>` : ""}
-          ${cloud.admin ? `<a class="btn primary" href="admin.html" target="_blank" rel="noopener">${t("Open the admin panel")} ↗</a>` : ""}
-          <button class="btn" data-action="cloud-signout">${t("Sign out")}</button>
-          <button class="btn danger" data-action="cloud-delete">${t("Delete my cloud data")}</button>
-        </div>`
-      : `<div class="settings-actions"><button class="btn" data-action="cloud-signin">${t("Sign in with Google")}</button></div>`}
+      <p class="muted small">uid: <code>${escapeHtml(acc.user?.uid ?? "")}</code>${cloud.admin ? ` · <b>${t("admin")}</b>` : ""}</p>
+      <label class="inline"><input type="checkbox" id="dev-share" ${cloud.share ? "checked" : ""}> ${t("Share my duels and reports")}</label>
+      <p class="muted small">${st.syncing ? t("Sharing…") : st.error ? escapeHtml(st.error) : st.lastSync ? t("Last shared at {time}.", { time: new Date(st.lastSync).toLocaleTimeString() }) : ""}</p>
+      <div class="settings-actions">
+        ${cloud.share ? `<button class="btn" data-action="cloud-sync">${t("Share now")}</button>` : ""}
+        ${cloud.admin ? `<a class="btn primary" href="admin.html" target="_blank" rel="noopener">${t("Open the admin panel")} ↗</a>` : ""}
+        <button class="btn danger" data-action="cloud-delete">${t("Delete my cloud data")}</button>
+      </div>
 `;
 }
 
@@ -277,6 +277,7 @@ function render() {
       </div>
 
 ${cloudHtml()}
+${devShareHtml()}
       <h3>${t("Diagnostic export")}</h3>
       <p class="muted small">${t("A compact file to improve the model on your real library: for every track, its name, genres, scores, sub-scores, the measures they are made of, and your corrections, lyrics ratings and duels. No audio, no file path.")}</p>
       <div class="settings-actions"><button class="btn" data-action="diagnostic">${t("Export the diagnostic")}</button>
@@ -302,4 +303,22 @@ function proposalHtml() {
       <button class="btn" data-action="learn-cancel">${t("Cancel")}</button>
     </div>
   </div>`;
+}
+
+/** Online account: privacy, sharing, community scores (when a Firebase project is set up). */
+function cloudHtml() {
+  if (!cloudConfigured()) return "";
+  const p = syncPrefs();
+  if (!isSignedIn()) {
+    return `<h3>${t("Online account")}</h3>
+      <p class="muted small">${t("Not signed in. Sign in from the Account tab to share analyses, vote on scores, add friends and appear in the leaderboards.")} <button class="linklike" data-action="go-account">${t("Account")}</button></p>`;
+  }
+  return `<h3>${t("Online account")}</h3>
+    <p class="small">${t("Signed in as {name}.", { name: `<b>${escapeHtml(acc.profile.name)}</b>` })}</p>
+    <label class="inline"><input type="checkbox" id="cloud-public" ${acc.profile.public ? "checked" : ""}> ${t("Public account")}</label>
+    <p class="muted small">${t("Public: anyone can find your page (name, library and listening summaries) and your name shows in the leaderboards. Private: only your friends see your page; leaderboards say “private user”.")}</p>
+    <label class="inline"><input type="checkbox" id="cloud-share" ${p.share ? "checked" : ""}> ${t("Share my analyses")}</label>
+    <p class="muted small">${t("Tracks captured from Spotify go to the shared database (measures and title, never audio), so others get them without analysing.")}</p>
+    <label class="inline"><input type="checkbox" id="cloud-community" ${p.community ? "checked" : ""}> ${t("Use community scores")}</label>
+    <p class="muted small">${t("A track with votes takes the mean of everyone's votes instead of its automatic score. Your own correction or manual score always wins.")}</p>`;
 }

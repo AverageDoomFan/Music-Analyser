@@ -4,11 +4,13 @@
 import FR_STATS from "./fr-stats.js";
 import CONCERT from "./fr-concert.js";
 import CLOUD from "./fr-cloud.js";
+import ACCOUNT from "./fr-account.js";
 
 export default {
   ...FR_STATS, // Stats tab (entries below take precedence)
   ...CONCERT,
   ...CLOUD,
+  ...ACCOUNT,
   "Mean of peaks": "Moyenne des pics",
   "Mean of the 25 % most intense moments (choruses, drops): what you remember of a track.": "Moyenne des 25 % de moments les plus intenses (refrains, drops) : ce que l'on retient d'un morceau.",
   "Mean": "Moyenne",

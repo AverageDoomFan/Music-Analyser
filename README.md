@@ -50,6 +50,42 @@ Tests (Node ≥ 20): `npm test` — feature extraction and score ordering on syn
 - **Option A**: Settings → Pages → Source “GitHub Actions”. The `.github/workflows/pages.yml` workflow runs the tests then deploys on every push to `main`. It also adds `?v=<commit>` to every module URL (`scripts/stamp-version.mjs`): after a deployment, the browser cannot mix a new page with modules left in cache.
 - **Option B**: Settings → Pages → “Deploy from a branch”, `main` branch, `/ (root)` folder. The site is served as is, without tests or versioning: after an update, a hard reload (Ctrl+Shift+R) may be needed.
 
+## Online account (Firebase)
+
+Optional. Without a Firebase project the app stays fully local, as before. With one, the **Account** tab (it replaces Stats and keeps its listening, library and duel views) adds:
+
+- **Sign-in** with email + password or Google; a profile name, **public or private** (chosen at sign-up, changed in the Account card or in Settings).
+- **Shared track database**: every Spotify track captured while signed in is stored once, keyed by its Spotify id (title, artist, automatic score with default weights, and the packed measures: a few KB per track). A playlist import, a Live scan, the follow mode and the games load tracks already in the database instead of analysing them. A track is replaced only by a newer extractor version, or by a capture that heard clearly more of it.
+- **Votes**: a correction or a manual score on a shared track is a vote; "I agree with this score" in the track details votes for the current score; a track added without touching its score is not a vote. A track with votes takes the mean of the votes (setting "Use community scores"); your own correction or manual score always wins on your side.
+- **Search** the database (tracks, then "Add to library" with no analysis) and public users.
+- **Friends** by friend code (8 characters, regenerable). Friends see each other's page even when private, and the duel uses their online profile (no file to swap; the file import still works).
+- **Public leaderboards** for every game (today's daily track, daily total, guess the score, which is harder, find this score). Private accounts show as "private user".
+- **Account pages**: library and listening summaries, readable by anyone when public, by friends when private.
+- Your listening log is backed up privately and merged into another browser on sign-in. "Delete my account" removes everything (shared analyses stay, they hold no personal data).
+
+### What protects the data
+
+The Firebase web config in `src/cloud/config.js` is public by design. Safety comes from `firebase/firestore.rules`: every write is checked field by field (own documents only, vote counters that move by exactly the vote written in the same batch, friendships that need the other person's code, leaderboards that only go up, sizes capped). The rules are tested on the emulator:
+
+```
+npm i --no-save firebase@12 @firebase/rules-unit-testing firebase-tools
+npx firebase emulators:exec --only firestore --project demo-mea "node --test firebase/rules.test.mjs"
+```
+
+Stored data stays small: no audio, lyrics or cover art; votes are integers; library and listening data are gzipped. A client could still upload made-up measures for a track or claim a game score it did not earn: without a server (Cloud Functions, paid plan) that cannot be fully prevented, only bounded by the rules.
+
+### Setup (once, in the Firebase console)
+
+1. console.firebase.google.com › Add project (Analytics not needed). Plan Spark (free) is enough.
+2. Build › Authentication › Get started › Sign-in method: enable **Email/Password** and **Google**. Settings › Authorized domains: add `averagedoomfan.github.io` (keep `localhost`).
+3. Build › Firestore Database › Create database (production mode, a region near you).
+4. Firestore › Rules: paste `firebase/firestore.rules`, Publish. Indexes: create the composite index of `firebase/firestore.indexes.json` (collection `profiles`: `public` ascending, `nameLower` ascending) and the single-field exemptions (`votes.u` and `entries.u` with collection group scope). With the Firebase CLI instead: `npx firebase deploy --only firestore --project <id>` does both.
+5. Project settings › Your apps › Web app (`</>`), no Hosting: copy the `firebaseConfig` values into `src/cloud/config.js`, commit.
+6. Recommended: Google Cloud console › APIs & Services › Credentials › the "Browser key": Application restrictions › Websites › `https://averagedoomfan.github.io/*` (and `http://localhost:*/*` for local tests).
+7. Optional: App Check › reCAPTCHA v3 › register the site, put the site key in `APP_CHECK_SITE_KEY`, then enforce App Check for Firestore and Authentication once it shows verified requests.
+
+Local tests against the emulators: `npx firebase emulators:start --only auth,firestore --project demo-mea`, then in the browser console `localStorage.setItem("mea.firebase.dev", JSON.stringify({ projectId: "demo-mea", host: "127.0.0.1" }))` and reload.
+
 ## Architecture
 
 ```
@@ -195,11 +231,11 @@ Each track stores its raw features, initial and current automatic score, correct
 
 ## Cloud sharing and admin panel (optional, Firebase)
 
-Off by default: with `FIREBASE_CONFIG = null` in `src/cloud/config.js` the app stays 100 % local and shows no cloud feature. Once a Firebase project is configured ([FIREBASE.md](FIREBASE.md)):
+Uses the Firebase project of the online account; admin setup in [FIREBASE.md](FIREBASE.md).
 
-- users sign in with Google and **opt in** (Settings › Share with the developer) to send their duels, reports for analysis and a small profile; new ones are sent automatically a few seconds later; “Delete my cloud data” removes everything;
+- signed-in users **opt in** (Settings › Share with the developer) to send their duels, reports for analysis and a small profile; new ones are sent automatically a few seconds later; “Delete my cloud data” removes everything;
 - accounts with the **admin** role (a document `admins/{uid}` created by hand in the Firebase console) open `admin.html`: overview (model agreement, per algorithm version), users, duels, **disputed tracks** (where answers contradict the model, and in which direction), reports (with the full JSON), JSON files from users who do not use the cloud, and a dataset export for tuning the algorithm;
-- security is enforced server-side by `firestore.rules` (users only touch their own data, admins read everything, nobody can grant themselves the role); tested on the emulator with `npm run test:rules`.
+- security is enforced server-side by `firebase/firestore.rules` (users only touch their own data, admins read everything, nobody can grant themselves the role); tested on the emulator with `npm run test:rules`.
 
 ## Set tab: set generator
 
@@ -255,11 +291,13 @@ The Live tab plays each track of the imported playlist on **your Spotify app** (
 
 A full-screen show for an **analysed track**, opened with **✦ Concert** in the track's details or the ✦ button on its library row (a track with an intensity curve that can be played here: a file imported in this session, or a Spotify capture while logged in with playback rights). It never uses the Live capture: a live capture lags behind the music, while an analysed track already has precise per-window measures.
 
-- **Playback** goes through the library player (the Web Audio engine for a file, your Spotify app for a Spotify capture), from the detail's playhead if the track was playing. **Space** plays / pauses, **← →** move 5 s (**Shift** 15 s), click the strip at the bottom to jump, **F** toggles full screen, **Esc** closes (the track keeps playing, like closing its details). Leaving full screen keeps the show open in the window.
+- **Playback** goes through the library player (the Web Audio engine for a file, your Spotify app for a Spotify capture), from the detail's playhead if the track was playing. **Space** plays / pauses, **← →** move 5 s (**Shift** 15 s), click the strip at the bottom to jump, **F** toggles full screen, **Esc** closes (the track keeps playing, like closing its details). Leaving full screen keeps the show open in the window. **[ ]** (or **- +**, or the − / + buttons at the top) move the visuals 20 ms earlier or later, remembered separately for files and for Spotify (Bluetooth headphones and some Spotify devices play later than they report).
 - **Driven by the stored analysis** at the playback position: the 6 s / 3 s-hop timeline is interpolated smoothly between windows for the window score (as the detail curve shows it) and its stage, the 8 sub-scores, the 5 band energies, the level, the attack rates and the folded tempo. The tempo gives a **beat clock** (kicks, bar accents), its bar grid anchored on the first drop.
 - **Known in advance**: drops (a big rise of the intensity between windows, snapped to the section start) and section changes (Intro, Build-up, Peak, Break, Outro). Before a drop the show **builds tension** (the trails implode, the camera pushes in, colours drain, light rings converge, a countdown); on the drop a refracting shockwave, a flash, a camera kick and a title card. Each section brings a new camera angle and a palette shift. The HUD shows the title and artist, the window score with its stage, the time, what comes next, and the whole track's curve with sections, drops and the playhead.
-- **Audio**: for a file, the engine's output is tapped (an AnalyserNode, zero latency since it is the source) for the real spectrum, waveform and kicks, and the beat clock phase-locks onto the kicks heard. A Spotify track has no audio in the page: the spectrum and waveform are synthesized from the band energies and the beat clock, and the position is checked against the Spotify app every few seconds.
-- **Rendering**: WebGL2 (nebula / tunnel background, feedback trails, spectrum ring, GPU particles, bloom, camera, chromatic aberration), Canvas2D fallback (forced with `?concert2d`). The render scale adapts to keep the frame rate. Flashes never exceed 3 per second; with *reduce motion* the camera stays still and flashes are rarer and softer. The pure logic (timeline sampling, drops, beat clock, synthesized spectrum, onset detector, flash limiter) is in `src/ui/concert-logic.js`, tested in `tests/concert.test.mjs`.
+- **Kicks and snares**: extractor 1.9 stores when each kick and each other attack (snare, clap, a snare on a kick) lands, in 10 ms steps, delta-coded, with a 0-9 strength (a few KB per track, never scored). The show fires them exactly, for files and for Spotify, and sets the beat clock's phase from them (the tempo alone says how often, not when). Tracks analysed before 1.9 fall back on the kicks heard (files) or the beat clock (Spotify): analyse them again for exact kicks.
+- **Effects driven by the measures**: each kick punches the camera, pumps the exposure (less when kicks come faster than ~2.5/s, none with *reduce motion*), fires a shockwave and lights the centre; snares light panels on the sides; lasers sweep from below the stage in time with the beats, with the heat and the part (full in a peak and after a drop, barely in a break), more beams with the density, a new pattern every 8 bars; a fast attack rate (speedcore, blast beats, extratone) makes the rings vibrate. A beat meter under the stage shows the tempo, the attacks per second and a light on each kick.
+- **Audio and sync**: the show runs on a smooth clock that follows what is heard: for a file, the engine position minus the output latency (the engine's output is also tapped for the real spectrum and waveform); for Spotify, the position is checked against the app soon after a start and then every 4 s, keeping the reading with the fastest round trip. A Spotify track has no audio in the page: the spectrum and waveform are synthesized from the band energies and the stored hits.
+- **Rendering**: WebGL2 (nebula / tunnel background, feedback trails, spectrum ring, GPU particles, bloom, camera, chromatic aberration), Canvas2D fallback (forced with `?concert2d`). The render scale adapts to keep the frame rate (and is remembered); the page underneath and the animated background stop rendering while the show runs, and the background shader skips what the tunnel hides. Flashes never exceed 3 per second; with *reduce motion* the camera stays still and flashes are rarer and softer. The pure logic (timeline sampling, drops, beat clock, synthesized spectrum, onset detector, flash limiter) is in `src/ui/concert-logic.js`, tested in `tests/concert.test.mjs` and `tests/concert-hits.test.mjs`.
 
 ## Rhythm tab: map maker
 

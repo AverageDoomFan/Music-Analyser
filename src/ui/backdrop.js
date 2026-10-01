@@ -38,6 +38,7 @@ let mode = "on";
 let heat = CALM, target = CALM;
 let clock = 0;             // animation time (s), advances faster when hot
 let last = 0, lastDraw = 0, raf = 0;
+let concertOn = false;
 
 export function getBackdropMode() { return mode; }
 
@@ -85,6 +86,7 @@ export function initBackdrop() {
   resize();
   window.addEventListener("resize", () => { resize(); if (!raf) drawOnce(); });
   document.addEventListener("visibilitychange", apply);
+  document.addEventListener("concert-state", (e) => { concertOn = !!e.detail?.open; apply(); });
   // modules that should not import this one (the Live gauge) send an event
   document.addEventListener("backdrop-heat", (e) => setBackdropHeat(heatOfScore(e.detail?.score), e.detail?.key ?? "event"));
   reduce.addEventListener?.("change", apply);
@@ -98,7 +100,8 @@ function apply() {
   el.hidden = mode === "off";
   document.documentElement.classList.toggle("has-backdrop", mode !== "off");
   el.classList.toggle("still", mode === "still" || reduce.matches);
-  const animate = mode === "on" && !reduce.matches && !document.hidden;
+  // the concert mode covers the page: no frames spent on a backdrop nobody sees
+  const animate = mode === "on" && !reduce.matches && !document.hidden && !concertOn;
   if (animate && !raf) { last = performance.now(); raf = requestAnimationFrame(frame); }
   if (!animate && raf) { cancelAnimationFrame(raf); raf = 0; }
   if (!animate && mode !== "off") { heat = target; drawOnce(); }

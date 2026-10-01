@@ -22,7 +22,8 @@ import { t, tn, translateDom } from "./i18n/index.js";
 import { initMotion } from "./ui/motion.js";
 import { initBackdrop, setBackdropHeat, heatOfScore } from "./ui/backdrop.js";
 import { player } from "./ui/player.js";
-import { scheduleSync } from "./cloud/sync.js";
+import { initSync } from "./cloud/sync.js";
+import { scheduleSync } from "./cloud/share.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -184,6 +185,8 @@ async function main() {
   }
   notify();
   if (state.ui.tab === "tab-home") showHome();
+  // online account (when a Firebase project is set up): after the library is loaded
+  initSync().catch((err) => console.warn("online account", err));
   // after the library is loaded (matching needs it); also finishes a Spotify login redirect
   initSpotify()
     .catch((err) => console.error(err))

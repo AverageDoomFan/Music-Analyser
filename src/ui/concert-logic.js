@@ -6,6 +6,7 @@
 // (photosensitivity safety) and small smoothing helpers.
 
 import { intensityRgb } from "./live-draw.js";
+import { unpackHits } from "../audio/features.js";
 
 /** Top of the visual scale (white hot). Scores above it still show, the visuals stay at the top. */
 export const GAUGE_TOP = 150;
@@ -187,9 +188,14 @@ const smooth = (a, b, x) => { const u = clamp((x - a) / (b - a)); return u * u *
  *   tension: build-up before a drop (0..1): the feedback turns inwards, the ring tightens
  *   bigAt / bigStrength: the last drop or section change (a slow, refracting shockwave)
  *   cam: {x, y, zoom, roll} camera offset of the final image
+ *   pump / kickRate: envelope of the last kick (0..1) and kicks per second here
+ *   snap / snapRate: same for the other attacks (snares, claps)
+ *   fast: fast-attack drive (0..1)
+ *   laser / laserCount / beats / laserHit: laser amount, beams, beat count (sweeps), kick envelope
  */
 export function visualParams(f, { time, dt, travel, kick: k, bass, loud, idle, flash, drive, palette, reduced = false, kickAt = -100, kickStrength = 0,
-  tension = 0, bigAt = -100, bigStrength = 0, cam = null }) {
+  tension = 0, bigAt = -100, bigStrength = 0, cam = null, pump = 0, kickRate = 0, snap = 0, snapRate = 0, fast = 0,
+  laser = 0, laserCount = 4, beats = 0, laserHit = 0 }) {
   const { heat, hot } = drive;
   const n = clamp(dt * 60, 0.25, 6); // frames of 1/60 s in this one
   const calm = reduced ? 0.35 : 1;
@@ -213,7 +219,7 @@ export function visualParams(f, { time, dt, travel, kick: k, bass, loud, idle, f
   f.decay = Math.pow(Math.min(0.95, 0.78 + 0.08 * heat + 0.08 * idle + 0.08 * ten), n);
   f.fade = 0.004 * n;
   f.tension = ten;
-  f.ringR = 0.26 * (1 + 0.09 * k * (reduced ? 0.3 : 1)) * (1 - 0.2 * ten);
+  f.ringR = 0.26 * (1 + 0.16 * k * (reduced ? 0.3 : 1)) * (1 - 0.2 * ten);
   f.ringH = 0.06 + 0.13 * heat;
   f.bloom = 0.3 + 0.35 * heat + 0.4 * k;
   f.bloomThreshold = 0.75 - 0.25 * heat + 0.2 * hot;
@@ -224,7 +230,7 @@ export function visualParams(f, { time, dt, travel, kick: k, bass, loud, idle, f
   f.flash = flash;
   f.shock ??= [0, 0];
   f.shock[0] = Math.max(0, time - kickAt);
-  f.shock[1] = kickStrength * (reduced ? 0.4 : 1) * (0.5 + 0.5 * heat) * (1 - idle);
+  f.shock[1] = kickStrength * (reduced ? 0.4 : 1) * (0.75 + 0.25 * heat) * (1 - idle);
   f.shock2 ??= [0, 0];
   f.shock2[0] = Math.max(0, time - bigAt);
   f.shock2[1] = bigStrength * (reduced ? 0.4 : 1) * (1 - idle);
@@ -236,9 +242,35 @@ export function visualParams(f, { time, dt, travel, kick: k, bass, loud, idle, f
   f.starBright = 0.2 + 0.5 * heat + 0.3 * hot + 0.6 * ten;
   f.exposure *= 1 - 0.22 * ten;
   f.ca += 0.01 * ten * (reduced ? 0.3 : 1);
+  // kick pump: the whole picture breathes on each kick, less when kicks come fast
+  // (no strobing past ~2.5 a second) and not at all with reduced motion
+  f.pump = reduced ? 0 : 0.2 * pump * Math.min(1, 2.5 / Math.max(1e-3, kickRate)) * (1 - idle);
+  // snare / clap: light panels on the sides of the screen (a small area, never a full flash)
+  f.snap = (reduced ? 0.3 : 1) * snap * Math.min(1, 3 / Math.max(1e-3, snapRate)) * (1 - idle);
+  // fast attacks (speedcore, blast beats, extratone): the rings vibrate
+  f.fast = (reduced ? 0.3 : 1) * fast * (1 - idle);
+  f.laser ??= [0, 0, 0, 0];
+  f.laser[0] = laser * (1 - idle);
+  f.laser[1] = laserCount;
+  f.laser[2] = beats;
+  f.laser[3] = laserHit;
   f.palette = palette;
   f.drive = drive;
   return f;
+}
+
+/**
+ * How much of the laser show a moment gets (0..1): lasers come with the
+ * heat, fully in a peak and after a drop, a little in a build-up (more as it
+ * tightens), barely in a break, an intro or an outro.
+ */
+export function laserAmount(heat, smp) {
+  const base = smooth(0.5, 0.85, heat);
+  const label = smp?.section?.label;
+  const part = label === "Peak" ? 1 : label === "Build-up" ? 0.35 + 0.5 * (smp.tension ?? 0)
+    : label === "Break" || label === "Intro" || label === "Outro" ? 0.2 : 0.75;
+  const afterDrop = smp?.sinceDrop != null && smp.sinceDrop < 16 ? 1.25 : 1;
+  return clamp(base * part * afterDrop);
 }
 
 // ------------------------------------------------------------------ show from a stored analysis
@@ -307,9 +339,12 @@ export function prepareShow(r) {
     .filter((s) => finite(s?.start) && finite(s?.end) && s.end > s.start)
     .map((s) => ({ start: s.start, end: s.end, label: s.label === "Montée" ? "Build-up" : s.label === "Pic" ? "Peak" : s.label || "Section" }))
     .sort((a, b) => a.start - b.start);
+  // when the kicks and the other attacks land (extractor 1.9+), else null: the beat clock stands in
+  const kicks = unpackHits(f.hits, "kick");
+  const snaps = unpackHits(f.hits, "snap");
   const show = {
     id: r.id, duration, times, intensity, subs, bands, level, onsetRate, fastRate, bpm, beatAmt, sections,
-    drops: [], cumBeats: null, beatOffset: 0, bpmSure,
+    drops: [], cumBeats: null, beatOffset: 0, bpmSure, kicks, snaps, phaseFix: null,
     peak: peakI, score: finite(r.finalScore) ? r.finalScore : null,
   };
   show.drops = detectDrops(times, intensity, sections);
@@ -318,11 +353,15 @@ export function prepareShow(r) {
   cum[0] = (times[0] * bpm[0]) / 60;
   for (let i = 1; i < n; i++) cum[i] = cum[i - 1] + ((bpm[i - 1] + bpm[i]) / 2) * (times[i] - times[i - 1]) / 60;
   show.cumBeats = cum;
+  // the beats' phase from the kicks heard at the analysis (the tempo alone says how often, not when)
+  if (kicks && bpmSure) show.phaseFix = kickPhase(show, kicks);
   // a drop lands on a downbeat: anchor the bar grid on the first one (else on the first peak)
   const anchor = show.drops[0]?.time ?? sections.find((s) => s.label === "Peak")?.start ?? null;
   if (anchor != null) {
     const b = beatsAt(show, anchor);
-    show.beatOffset = Math.round(b / 4) * 4 - b;
+    // with the phase known, only whole beats move (the anchor is only known to a beat or two)
+    const on = show.phaseFix ? Math.round(b) : b;
+    show.beatOffset = Math.round(on / 4) * 4 - b + (show.phaseFix ? b - on : 0);
   }
   return show;
 }
@@ -366,6 +405,57 @@ export function detectDrops(times, intensity, sections = [], { minRise = 14, min
   return out;
 }
 
+/**
+ * Beat phase correction per window (beats to add, unwrapped) so the clock's
+ * beats land on the stored kicks: circular mean of the kicks' phase over
+ * ±4 s. Windows whose kicks do not agree (breakbeats, no kicks) take their
+ * neighbours' value. null when no window is clear.
+ */
+export function kickPhase(show, kicks, { span = 4, minKicks = 4, minR = 0.35 } = {}) {
+  const { times } = show;
+  const n = times.length;
+  const raw = new Array(n).fill(null);
+  let lo = 0;
+  for (let i = 0; i < n; i++) {
+    while (lo < kicks.time.length && kicks.time[lo] < times[i] - span) lo++;
+    let c = 0, sn = 0, cnt = 0;
+    for (let j = lo; j < kicks.time.length && kicks.time[j] <= times[i] + span; j++) {
+      if (kicks.amp[j] < 0.35) continue;
+      const ph = beatsAt(show, kicks.time[j]) * 2 * Math.PI;
+      const w = kicks.amp[j];
+      c += Math.cos(ph) * w;
+      sn += Math.sin(ph) * w;
+      cnt += w;
+    }
+    if (cnt < minKicks * 0.5 || Math.hypot(c, sn) / cnt < minR) continue;
+    raw[i] = -Math.atan2(sn, c) / (2 * Math.PI);
+  }
+  const first = raw.findIndex((v) => v != null);
+  if (first < 0) return null;
+  // fill the gaps with the last known value, then unwrap (never a jump over half a beat)
+  const fix = new Float64Array(n);
+  let prev = raw[first];
+  for (let i = 0; i < n; i++) {
+    let v = raw[i] ?? prev;
+    v -= Math.round(v - prev);
+    fix[i] = prev = v;
+  }
+  return fix;
+}
+
+/** Index of the last hit at or before t (-1 if none). */
+export function hitIndex(hits, t) {
+  const a = hits.time;
+  if (!a.length || t < a[0]) return -1;
+  let lo = 0, hi = a.length - 1;
+  if (t >= a[hi]) return hi;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (a[mid] <= t) lo = mid; else hi = mid;
+  }
+  return lo;
+}
+
 /** Index k such that times[k] <= t < times[k + 1] (clamped to the ends). */
 export function windowIndex(times, t) {
   let lo = 0, hi = times.length - 1;
@@ -393,14 +483,14 @@ export function interpAt(arr, times, t, k = windowIndex(times, t)) {
 
 /** Beats elapsed at time t (before the bar-grid offset). */
 export function beatsAt(show, t) {
-  const { times, bpm, cumBeats: cum } = show;
+  const { times, bpm, cumBeats: cum, phaseFix: fix } = show;
   const n = times.length;
-  if (t <= times[0]) return (t * bpm[0]) / 60;
-  if (t >= times[n - 1]) return cum[n - 1] + ((t - times[n - 1]) * bpm[n - 1]) / 60;
+  if (t <= times[0]) return (t * bpm[0]) / 60 + (fix ? fix[0] : 0);
+  if (t >= times[n - 1]) return cum[n - 1] + ((t - times[n - 1]) * bpm[n - 1]) / 60 + (fix ? fix[n - 1] : 0);
   const k = windowIndex(times, t);
   const u = (t - times[k]) / (times[k + 1] - times[k]);
   const b = bpm[k] + (bpm[k + 1] - bpm[k]) * u;
-  return cum[k] + ((bpm[k] + b) / 2) * (t - times[k]) / 60;
+  return cum[k] + ((bpm[k] + b) / 2) * (t - times[k]) / 60 + (fix ? fix[k] + (fix[k + 1] - fix[k]) * u : 0);
 }
 
 /**
@@ -469,7 +559,27 @@ export function sampleShow(show, t, out = {}) {
   }
   out.tension = tension;
   out.progress = clamp(t / show.duration);
+  // the stored hits around t: time since the last one, its strength, how many per second here
+  hitState(show.kicks, t, out, "kick");
+  hitState(show.snaps, t, out, "snap");
   return out;
+}
+
+function hitState(hits, t, out, name) {
+  out[`${name}Known`] = !!hits;
+  if (!hits) {
+    out[`${name}Since`] = null;
+    out[`${name}Amp`] = 0;
+    out[`${name}Rate`] = 0;
+    return;
+  }
+  const i = hitIndex(hits, t);
+  out[`${name}Since`] = i >= 0 ? t - hits.time[i] : null;
+  out[`${name}Amp`] = i >= 0 ? hits.amp[i] : 0;
+  // local rate over the last 2 s (the flash safety and the fast-attack effects use it)
+  let c = 0;
+  for (let j = i; j >= 0 && hits.time[j] > t - 2; j--) c++;
+  out[`${name}Rate`] = c / 2;
 }
 
 /**
@@ -485,7 +595,7 @@ export class ShowDirector {
     this.nudge = 0;
   }
   reset() { this.prev = null; }
-  /** @returns {{type:"beat"|"drop"|"section", time:number, index?:number, downbeat?:boolean, drop?:object, section?:object}[]} */
+  /** @returns {{type:"beat"|"drop"|"section"|"kick"|"snap", time:number, index?:number, downbeat?:boolean, drop?:object, section?:object, amp?:number}[]} */
   advance(t) {
     const ev = this.events;
     ev.length = 0;
@@ -497,6 +607,13 @@ export class ShowDirector {
     const b1 = Math.floor(beatsAt(this.show, t) + off);
     if (b1 > b0) ev.push({ type: "beat", time: t, index: b1, downbeat: ((b1 % 4) + 4) % 4 === 0 });
     for (const d of this.show.drops) if (d.time > p && d.time <= t) ev.push({ type: "drop", time: d.time, drop: d });
+    // stored hits: the strongest kick and attack of the frame (several in one frame look like one)
+    for (const [name, hits] of [["kick", this.show.kicks], ["snap", this.show.snaps]]) {
+      if (!hits) continue;
+      let best = -1;
+      for (let i = hitIndex(hits, t); i >= 0 && hits.time[i] > p; i--) if (best < 0 || hits.amp[i] > hits.amp[best]) best = i;
+      if (best >= 0) ev.push({ type: name, time: hits.time[best], amp: hits.amp[best] });
+    }
     this.show.sections.forEach((s, i) => {
       if (s.start > p && s.start <= t && s.start > 0.5) ev.push({ type: "section", time: s.start, section: s, index: i });
     });
@@ -505,6 +622,17 @@ export class ShowDirector {
 }
 
 const hash = (n) => { const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); };
+
+/**
+ * Decaying envelope (0..1) of the last stored hit, scaled by the beat
+ * strength here; null when the track has no stored hits (the beat clock stands in).
+ */
+export function hitEnv(s, name, rate) {
+  if (!s[`${name}Known`]) return null;
+  const since = s[`${name}Since`];
+  if (since == null) return 0;
+  return (0.35 + 0.65 * (s.beatAmt ?? 0.6)) * (s[`${name}Amp`] ?? 0.6) * Math.exp(-since * rate);
+}
 
 /** Level (0..1) of the analysis bands at a frequency: interpolated in log frequency between band centres. */
 export function bandLevelAt(bands, hz) {
@@ -533,8 +661,8 @@ export function synthSpectrum(out, s, clock, time) {
   const N = out.length;
   const lo = Math.log(30), hi = Math.log(16000);
   const heat = clamp((s.intensity ?? 50) / 100);
-  const kick = s.beatAmt * Math.exp(-clock.phase * 7);
-  const snare = clock.inBar % 2 === 1 ? s.beatAmt * Math.exp(-clock.phase * 9) : 0;
+  const kick = hitEnv(s, "kick", 7) ?? s.beatAmt * Math.exp(-clock.phase * 7);
+  const snare = hitEnv(s, "snap", 9) ?? (clock.inBar % 2 === 1 ? s.beatAmt * Math.exp(-clock.phase * 9) : 0);
   // hats: the regular fast pulse when there is one, else eighth notes
   const hatPhase = s.fastRate > 0 ? (time * s.fastRate) % 1 : (clock.phase * 2) % 1;
   const hat = clamp(s.onsetRate / 6) * Math.exp(-hatPhase * 12) * (0.4 + 0.6 * heat);
@@ -556,7 +684,7 @@ export function synthSpectrum(out, s, clock, time) {
 /** A waveform to go with the synthesized spectrum: low sines pumped by the kick, mids, a little hiss (about -1..1). */
 export function synthWave(out, s, clock, time) {
   const N = out.length;
-  const kick = s.beatAmt * Math.exp(-clock.phase * 6);
+  const kick = hitEnv(s, "kick", 6) ?? s.beatAmt * Math.exp(-clock.phase * 6);
   const a0 = (0.25 + 0.75 * Math.max(s.bands[0], s.bands[1])) * (0.35 + 0.65 * kick);
   const a1 = 0.35 * s.bands[2], a2 = 0.25 * s.bands[3], a3 = 0.2 * s.bands[4];
   const lvl = 0.3 + 0.7 * s.level;
