@@ -11,6 +11,7 @@ import { Follower, followOutcome, heardCoverage, DRAFT_THRESHOLD } from "../live
 import { t, tn } from "../i18n/index.js";
 import { toast } from "./toast.js";
 import { recordListen } from "../stats/log-store.js";
+import { importKnown } from "../cloud/sync.js";
 
 const $ = (id) => document.getElementById(id);
 const KEY = "mea.live.follow";
@@ -86,6 +87,7 @@ export async function startFollowing() {
     throw new Error(t("Log in to Spotify again to allow reading the playback state."));
   }
   await ctx.beginCapture();
+  let lastTrackId = null;
   lv.scanner = new Follower({
     player: { state: () => api.playbackState() },
     analyze: (mono, sr, extra) => analyzePcm(mono, sr, extra),
@@ -99,7 +101,12 @@ export async function startFollowing() {
     scoring: ctl.scoring,
     // the Stats tab's listening log: only the follow mode counts as listening
     onListen: (l) => { recordListen(l).catch((err) => console.warn(err)); },
-    onUpdate: (s) => { lv.status = s; lv.lastUpdate = performance.now(); lv.dirty = true; },
+    onUpdate: (s) => {
+      lv.status = s; lv.lastUpdate = performance.now(); lv.dirty = true;
+      // a track someone already shared is loaded while it plays: no draft, no capture needed
+      const tk = s.current?.track;
+      if (tk?.id && tk.id !== lastTrackId) { lastTrackId = tk.id; importKnown([tk]).catch(() => {}); }
+    },
   });
   $("lv-setup").open = false;
   $("lv-follow").disabled = true;

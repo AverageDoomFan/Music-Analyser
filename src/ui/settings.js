@@ -8,6 +8,9 @@ import { t, tn, getLang, setLang, LANGUAGES } from "../i18n/index.js";
 import { escapeHtml } from "../util/format.js";
 import { toast } from "./toast.js";
 import { getBackdropMode, setBackdropMode } from "./backdrop.js";
+import { cloudConfigured } from "../cloud/firebase.js";
+import { acc, isSignedIn, updateProfile } from "../cloud/account.js";
+import { syncPrefs, setSyncPrefs } from "../cloud/sync.js";
 
 const dialog = () => document.getElementById("settings-dialog");
 let draft = null;
@@ -40,6 +43,22 @@ export function initSettings() {
       toast(genres.lastfmKey ? t("Last.fm key saved: used for tracks MusicBrainz does not know.") : t("Last.fm key removed."));
       return;
     }
+    if (e.target.id === "cloud-public") {
+      try {
+        await updateProfile({ isPublic: e.target.checked });
+        toast(e.target.checked ? t("Your account is public: others can find your page.") : t("Your account is private: only your friends see your page."));
+      } catch (err) {
+        e.target.checked = !e.target.checked;
+        toast(err.message, "error");
+      }
+      return;
+    }
+    if (e.target.id === "cloud-share") return setSyncPrefs({ share: e.target.checked });
+    if (e.target.id === "cloud-community") {
+      await setSyncPrefs({ community: e.target.checked });
+      toast(t("Scores recomputed."));
+      return;
+    }
     if (e.target.name === "aggregation") {
       await ctl.setAggregation(e.target.value);
       toast(t("Scores recomputed from the cached curves."));
@@ -68,6 +87,7 @@ export function initSettings() {
     const action = e.target.closest("[data-action]")?.dataset.action;
     switch (action) {
       case "close": d.close(); break;
+      case "go-account": d.close(); document.getElementById("tab-stats")?.click(); break;
       case "apply-weights":
         await ctl.setWeights(draft);
         toast(t("Weights applied, scores recomputed."));
@@ -147,6 +167,8 @@ function render() {
       </div>
       <p class="muted small">${t("Slow coloured light behind every tab that warms up with the track you play or open. “Still” keeps the colours without movement.")}</p>
 
+      ${cloudHtml()}
+
       <h3>${t("From the curve to the score")}</h3>
       <p class="muted small">${t("Each track is analysed in windows of a few seconds: intensity and every sub-score form a curve. Choose how that curve becomes a score (also available above the library).")}</p>
       <div class="agg-options">${AGGREGATIONS.map((a) => `
@@ -218,4 +240,22 @@ function proposalHtml() {
       <button class="btn" data-action="learn-cancel">${t("Cancel")}</button>
     </div>
   </div>`;
+}
+
+/** Online account: privacy, sharing, community scores (when a Firebase project is set up). */
+function cloudHtml() {
+  if (!cloudConfigured()) return "";
+  const p = syncPrefs();
+  if (!isSignedIn()) {
+    return `<h3>${t("Online account")}</h3>
+      <p class="muted small">${t("Not signed in. Sign in from the Account tab to share analyses, vote on scores, add friends and appear in the leaderboards.")} <button class="linklike" data-action="go-account">${t("Account")}</button></p>`;
+  }
+  return `<h3>${t("Online account")}</h3>
+    <p class="small">${t("Signed in as {name}.", { name: `<b>${escapeHtml(acc.profile.name)}</b>` })}</p>
+    <label class="inline"><input type="checkbox" id="cloud-public" ${acc.profile.public ? "checked" : ""}> ${t("Public account")}</label>
+    <p class="muted small">${t("Public: anyone can find your page (name, library and listening summaries) and your name shows in the leaderboards. Private: only your friends see your page; leaderboards say “private user”.")}</p>
+    <label class="inline"><input type="checkbox" id="cloud-share" ${p.share ? "checked" : ""}> ${t("Share my analyses")}</label>
+    <p class="muted small">${t("Tracks captured from Spotify go to the shared database (measures and title, never audio), so others get them without analysing.")}</p>
+    <label class="inline"><input type="checkbox" id="cloud-community" ${p.community ? "checked" : ""}> ${t("Use community scores")}</label>
+    <p class="muted small">${t("A track with votes takes the mean of everyone's votes instead of its automatic score. Your own correction or manual score always wins.")}</p>`;
 }

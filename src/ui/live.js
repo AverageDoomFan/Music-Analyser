@@ -20,6 +20,7 @@ import { toast } from "./toast.js";
 import { rememberDevice, savedDevice } from "./player.js";
 import { pickDevice } from "../spotify/devices.js";
 import { initFollow, followOn, startFollowing, followSummary, followOverall } from "./live-follow.js";
+import { importKnown } from "../cloud/sync.js";
 import {
   drawGauge, gaugeState, stepGauge, gaugeTarget, drawTimeline, drawCurve, drawRadar, drawHistogram, SpectrumView, Spectrogram, Meters,
   intensityColor, sparkSvg, fmtTime, DIM_COLORS,
@@ -304,6 +305,8 @@ function isDone(track, o, matches) {
   // only the tracks whose stored features come from an older extractor
   if (o.rescanOld) return !featuresOutdated(state.records.get(ctl.capturedId(track)));
   const r = ctl.capturedRecord(track);
+  // loaded from the shared database: done, whatever mode it was captured in
+  if (r?.source?.cloud) return true;
   return !!r && (MODE_RANK[r.source?.mode] ?? 0) >= (MODE_RANK[o.mode] ?? 0);
 }
 
@@ -400,10 +403,10 @@ async function playNow(trackId) {
  * Analyses tracks from outside the playlist (the Games' Spotify hunt) with the
  * Live settings, then resolves with their records.
  */
-export async function analyseTracks(tracks) {
+export async function analyseTracks(tracks, { force = false } = {}) {
   if (lv.status?.running) throw new Error(t("A Live scan is running: stop it first."));
   if (demoOn()) throw new Error(t("Untick the Live tab's “Demo mode” first."));
-  await startScan(null, tracks);
+  await startScan(null, tracks, { force });
   return tracks.map((tk) => state.records.get(ctl.capturedId(tk)) ?? null);
 }
 
@@ -421,7 +424,7 @@ export async function rescanRecord(record) {
   const track = await trackOfRecord(record);
   if (!track.durationMs) throw new Error(t("This track cannot be played through the Spotify API."));
   $("tab-live").click();
-  const [rec] = await analyseTracks([track]);
+  const [rec] = await analyseTracks([track], { force: true });
   return rec;
 }
 
@@ -452,7 +455,7 @@ async function trackOfRecord(r) {
   };
 }
 
-async function startScan(first = null, only = null) {
+async function startScan(first = null, only = null, { force = false } = {}) {
   if (lv.status?.running) return;
   const demo = demoOn();
   if (demo && !lv.demo) await toggleDemo();
@@ -466,7 +469,14 @@ async function startScan(first = null, only = null) {
   lv.playlist = demo ? demoPlaylist() : await ctl.spotifyStore.get("playlist").catch(() => null);
   if (!lv.playlist && !only) throw new Error(t("Import a playlist in the Spotify tab first."));
   const o = options();
-  let todo = only ?? scanList().todo;
+  // tracks someone already analysed with this extractor come from the shared database
+  let fromCloud = 0;
+  if (!demo && !force && !o.rescan && !o.rescanOld) {
+    fromCloud = await importKnown(only ?? scanList().todo);
+    if (fromCloud) toast(tn(fromCloud, "{n} track loaded from the shared database: no need to analyse it.", "{n} tracks loaded from the shared database: no need to analyse them."));
+  }
+  let todo = only ? (fromCloud ? only.filter((tk) => !ctl.capturedRecord(tk)?.source?.cloud) : only) : scanList().todo;
+  if (!todo.length && fromCloud) return;
   lv.custom = new Set(first ? [first.id] : []);
   // a track asked for with ▶ goes first, even if it was already analysed; then
   // the scan goes on from where the previous one was, without the tracks this

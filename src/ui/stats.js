@@ -1,6 +1,8 @@
-// "Stats" tab: my listening (the Live follow mode's log), my library's profile
-// and the duel between friends (two diagnostic exports side by side).
-// The numbers come from the pure modules in src/stats/; this file only draws.
+// "Account" tab (was "Stats"): the account card, my listening (the Live follow
+// mode's log), my library's profile, friends and the duel between friends,
+// the shared database search, the leaderboards and other users' pages.
+// The numbers come from the pure modules in src/stats/; the online parts are
+// in ./account.js and src/cloud/; this file only draws.
 
 import { state, subscribe } from "../app/store.js";
 import * as ctl from "../app/controller.js";
@@ -16,10 +18,14 @@ import {
 import { libraryProfile, BPM_BINS } from "../stats/library.js";
 import { parseDiagnostic, compactProfile, duelStats, pairDetails, DUEL_FEATURES } from "../stats/duel.js";
 import { getListens, onListensChanged, getFriends, saveFriends } from "../stats/log-store.js";
+import {
+  initAccountUi, accountCard, onAccountClick, onAccountSubmit, searchView, boardsView, userView,
+  onlineFriends, friendDuel, friendCodeCard, ac,
+} from "./account.js";
 
 const $ = (id) => document.getElementById(id);
 const VIEW_KEY = "mea.stats.view";
-const VIEWS = ["listening", "library", "duel"];
+const VIEWS = ["listening", "library", "duel", "search", "boards", "user"];
 
 const ui = {
   view: loadView(),
@@ -38,7 +44,7 @@ let mine = null;       // my own profile (cached until the library changes)
 let mineStamp = "";
 
 function loadView() {
-  try { const v = localStorage.getItem(VIEW_KEY); return VIEWS.includes(v) ? v : "listening"; } catch { return "listening"; }
+  try { const v = localStorage.getItem(VIEW_KEY); return VIEWS.includes(v) && v !== "user" ? v : "listening"; } catch { return "listening"; }
 }
 
 // ------------------------------------------------------------------ formatting
@@ -108,6 +114,9 @@ const ICONS = {
   clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-13v4.5l3 2",
   repeat: "M17 2l3 3-3 3M20 5H8a4 4 0 0 0-4 4v1m3 12-3-3 3-3m-3 3h12a4 4 0 0 0 4-4v-1",
   export: "M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5M4 17v2.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V17",
+  search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Zm5-2 5 5",
+  boards: "M8 21h8m-4-4v4M7 4h10v5a5 5 0 0 1-10 0V4Zm0 2H4v1a3 3 0 0 0 3 3m10-4h3v1a3 3 0 0 1-3 3",
+  person: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 9c0-3.9 3.1-7 7-7s7 3.1 7 7",
 };
 const icon = (k, size = 16, cls = "") => `<svg class="st-ico ${cls}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="${ICONS[k]}"/></svg>`;
 
@@ -137,6 +146,14 @@ export function initStats() {
   tip = Object.assign(document.createElement("div"), { className: "st-tip", hidden: true });
   document.body.append(tip);
   root.addEventListener("click", (e) => onClick(e).catch((err) => toast(err.message, "error")));
+  root.addEventListener("submit", (e) => {
+    const form = e.target.closest("form[data-form]");
+    if (!form) return;
+    e.preventDefault();
+    onAccountSubmit(form).catch((err) => toast(err.message, "error"));
+  });
+  initAccountUi(() => { if (visible) scheduleRender(0); });
+  document.addEventListener("account-view", (e) => { ui.view = e.detail; render(); });
   root.addEventListener("change", (e) => {
     if (e.target.id === "st-month") { ui.month = e.target.value; render(); }
     if (e.target.id === "st-friend-file") { importFriend(e.target.files?.[0]); e.target.value = ""; }
@@ -177,9 +194,9 @@ export function showStats() {
   render();
 }
 
-function scheduleRender() {
+function scheduleRender(delay = 350) {
   clearTimeout(renderTimer);
-  renderTimer = setTimeout(render, 350);
+  renderTimer = setTimeout(render, delay);
 }
 
 async function onClick(e) {
@@ -191,6 +208,13 @@ async function onClick(e) {
     try { localStorage.setItem(VIEW_KEY, ui.view); } catch { /* ignore */ }
     return render();
   }
+  if (a === "ac-duel") {
+    ui.friendId = `u:${b.dataset.uid}`;
+    ui.pairKey = null;
+    ui.view = "duel";
+    return render();
+  }
+  if (await onAccountClick(a, b)) return;
   if (a === "month-prev" || a === "month-next") {
     const months = listenMonths(await getListens());
     const i = months.indexOf(ui.month) + (a === "month-prev" ? 1 : -1);
@@ -206,6 +230,10 @@ async function onClick(e) {
   }
   if (a === "pick-file") return $("st-friend-file")?.click();
   if (a === "friend") { ui.friendId = b.dataset.id; ui.pairKey = null; ui.showAll = false; return render(); }
+  if (a === "friend-remove" && b.dataset.id.startsWith("u:")) {
+    e.stopPropagation();
+    return onAccountClick("ac-unfriend", { dataset: { uid: b.dataset.id.slice(2) } });
+  }
   if (a === "friend-remove") {
     e.stopPropagation();
     const list = (await getFriends()).filter((f) => f.id !== b.dataset.id);
@@ -250,25 +278,40 @@ async function render() {
   try {
     if (view === "listening") body = await renderListening();
     else if (view === "library") body = renderLibrary();
+    else if (view === "search") body = searchView();
+    else if (view === "boards") body = boardsView();
+    else if (view === "user") body = userView({ library: (card) => renderLibrary(card, { own: false }), heatmap: heatmapCard, kpis, minutes: fmtMinutes, stage: stageLabel });
     else body = await renderDuel();
   } catch (err) {
     console.error(err);
     body = `<div class="st-card st-empty"><p>${esc(err.message)}</p></div>`;
   }
-  const tabs = [["listening", t("My listening")], ["library", t("My library")], ["duel", t("Friend duel")]];
+  const tabs = [["listening", t("My listening")], ["library", t("My library")], ["duel", t("Friends & duel")], ["search", t("Search")], ["boards", t("Leaderboards")]];
   const fresh = root.dataset.view !== view;
   root.dataset.view = view;
+  // keep what is being typed in the account forms across re-renders
+  const typing = document.activeElement?.closest?.("#stats-root form") ? [...root.querySelectorAll("form input:not([type=checkbox])")].map((i) => [i.name || i.id, i.value]) : null;
+  const focused = document.activeElement?.name || document.activeElement?.id;
   root.innerHTML = `
     <div class="st-head">
       <div>
-        <h2 class="st-title">${t("Stats")}</h2>
-        <p class="st-sub">${t("How hard you listen, what your library sounds like, and how you compare with friends.")}</p>
+        <h2 class="st-title">${t("Account")}</h2>
+        <p class="st-sub">${t("How hard you listen, what your library sounds like, and how you compare with friends and everyone else.")}</p>
       </div>
-      <div class="st-seg segmented" role="group" aria-label="${esc(t("Statistics view"))}">
+      ${accountCard()}
+      <div class="st-seg segmented" role="group" aria-label="${esc(t("Account view"))}">
         ${tabs.map(([k, label]) => `<button type="button" data-st="view" data-view="${k}" aria-pressed="${k === view}">${icon(k)}<span>${label}</span></button>`).join("")}
+        ${view === "user" ? `<button type="button" aria-pressed="true">${icon("person")}<span>${esc(ac.user?.profile?.name ?? "…")}</span></button>` : ""}
       </div>
     </div>
     <div class="st-body st-view-${view}${fresh ? " st-enter" : ""}">${body}</div>`;
+  if (typing) {
+    for (const [k, v] of typing) {
+      const el = root.querySelector(`form [name="${k}"], form #${CSS.escape(k || "x")}`);
+      if (el && !el.value) el.value = v;
+    }
+    root.querySelector(`form [name="${focused}"], form #${CSS.escape(focused || "x")}`)?.focus();
+  }
 }
 
 // ------------------------------------------------------------------ my listening
@@ -406,8 +449,8 @@ function fact(k, label, value, extra) {
   return `<div class="st-fact st-fact-${k}"><span class="ic" aria-hidden="true">${icon(k, 18)}</span><div><span class="lbl">${esc(label)}</span><div class="val">${value}</div></div><div class="ex">${extra}</div></div>`;
 }
 
-function heatmapCard(listens) {
-  const h = heatmapBins(listens);
+function heatmapCard(listensOrBins) {
+  const h = Array.isArray(listensOrBins) ? heatmapBins(listensOrBins) : listensOrBins;
   const days = weekdayNames("short");
   const longDays = weekdayNames("long");
   const maxHour = Math.max(1, ...h.byHour);
@@ -465,8 +508,9 @@ function timelineCard(listens) {
 
 // ------------------------------------------------------------------ my library
 
-function renderLibrary() {
-  const p = libraryProfile(state.records.values(), { genreOf });
+function renderLibrary(card = null, { own = true } = {}) {
+  const p = card ?? libraryProfile(state.records.values(), { genreOf });
+  if (!p.count && !own) return `<div class="st-card st-empty"><p>${t("No library shared yet.")}</p></div>`;
   if (!p.count) {
     return `<div class="st-card st-empty">
       ${emptyArt("library", [30, 50, 64, 80, 96, 70, 40])}
@@ -488,10 +532,10 @@ function renderLibrary() {
       <span class="v">${n || ""}</span><i style="--h:${(n / maxBpm) * 100}%"></i><span class="x">${bpmLabels[i]}</span></div>`).join("");
   const modeTotal = p.modes.major + p.modes.minor;
   const maxGenre = Math.max(1, ...p.genres.map((g) => g.n));
-  const list = (items) => `<ol class="st-rank">${items.map((x, k) => `<li><span class="rank">${k + 1}</span><button type="button" class="st-link nm" data-st="open" data-id="${esc(x.id)}">${esc(x.name)}</button>${pill(x.score)}</li>`).join("")}</ol>`;
+  const list = (items) => `<ol class="st-rank">${items.map((x, k) => `<li><span class="rank">${k + 1}</span>${own && x.id ? `<button type="button" class="st-link nm" data-st="open" data-id="${esc(x.id)}">${esc(x.name)}</button>` : `<span class="nm" title="${esc(x.name)}">${esc(x.name)}</span>`}${pill(x.score)}</li>`).join("")}</ol>`;
   return `
     ${kpis([
-      [t("Counted tracks"), num(p.count), t("drafts and test tracks left out")],
+      [t("Counted tracks"), num(p.count), own ? t("drafts and test tracks left out") : ""],
       [t("Average intensity"), num(p.avg), stageLabel(p.avg), p.avg],
       [t("Median"), num(p.median), stageLabel(p.median), p.median],
       [t("Off the charts"), pct(p.over100), t("tracks above 100")],
@@ -604,10 +648,22 @@ async function importFriend(file) {
 }
 
 async function renderDuel() {
-  const friends = await getFriends();
+  const local = await getFriends();
+  const online = onlineFriends();
+  // a public user opened from the search or a leaderboard (not a friend)
+  const visitor = ui.friendId?.startsWith("u:") && !online.some((f) => f.id === ui.friendId) && ac.user?.uid === ui.friendId.slice(2) && ac.user.profile
+    ? [{ id: ui.friendId, uid: ac.user.uid, name: ac.user.profile.name, online: true, visitor: true }] : [];
+  const friends = [...online, ...visitor, ...local];
   if (!friends.some((f) => f.id === ui.friendId)) ui.friendId = friends.at(-1)?.id ?? null;
-  const friend = friends.find((f) => f.id === ui.friendId);
+  let friend = friends.find((f) => f.id === ui.friendId);
+  let missing = false;
+  if (friend?.online) {
+    const prof = await friendDuel(friend.uid).catch(() => null);
+    if (prof?.tracks?.length) friend = { ...friend, ...prof };
+    else missing = true;
+  }
   const setup = `
+    ${friendCodeCard()}
     <div class="st-grid-2 st-duel-setup">
       <article class="st-card st-share">
         <span class="st-step">1</span>
@@ -631,10 +687,14 @@ async function renderDuel() {
       </article>
     </div>
     ${friends.length ? `<div class="st-friends" role="group" aria-label="${esc(t("Friends"))}">${friends.map((f) => `
-      <span class="st-friend${f.id === ui.friendId ? " on" : ""}">
-        <button type="button" data-st="friend" data-id="${f.id}" aria-pressed="${f.id === ui.friendId}"><span class="av">${esc(initial(f.name))}</span>${esc(f.name)} <small>${f.tracks.length}</small></button>
-        <button type="button" class="x" data-st="friend-remove" data-id="${f.id}" aria-label="${esc(t("Remove {name}", { name: f.name }))}">×</button>
+      <span class="st-friend${f.id === ui.friendId ? " on" : ""}${f.online ? " online" : ""}">
+        <button type="button" data-st="friend" data-id="${esc(f.id)}" aria-pressed="${f.id === ui.friendId}" ${f.online ? `title="${esc(t("Online friend: their profile updates by itself"))}"` : ""}><span class="av">${esc(initial(f.name))}</span>${esc(f.name)}${f.tracks ? ` <small>${f.tracks.length}</small>` : ""}</button>
+        ${f.online && !f.visitor ? `<button type="button" class="x pg" data-st="ac-user" data-uid="${esc(f.uid)}" aria-label="${esc(t("{name}'s page", { name: f.name }))}" title="${esc(t("{name}'s page", { name: f.name }))}">↗</button>` : ""}
+        ${f.visitor ? "" : `<button type="button" class="x" data-st="friend-remove" data-id="${esc(f.id)}" aria-label="${esc(t("Remove {name}", { name: f.name }))}">×</button>`}
       </span>`).join("")}</div>` : ""}`;
+  if (friend && missing) {
+    return `${setup}<div class="st-card st-empty"><p>${t("{name} has not shared a library yet: it appears once they analyse tracks while signed in.", { name: esc(friend.name) })}</p></div>`;
+  }
   if (!friend) {
     return `${setup}
       <div class="st-card st-empty st-duel-empty">
@@ -671,7 +731,7 @@ function duelBody(d, friend, me) {
     </div>`;
   const maxAvg = Math.max(1, d.sides.a.avg ?? 0, d.sides.b.avg ?? 0, 100);
   return `
-    ${d.sameAlgorithm ? "" : `<div class="st-note">⚠ ${t("{name}'s profile comes from another version of the scoring ({b}, you: {a}): part of the gaps can come from that.", { name: friend.name, a: me.algorithm ?? "?", b: friend.algorithm ?? "?" })}</div>`}
+    ${d.sameAlgorithm ? "" : `<div class="st-note">⚠ ${esc(t("{name}'s profile comes from another version of the scoring ({b}, you: {a}): part of the gaps can come from that.", { name: friend.name, a: me.algorithm ?? "?", b: friend.algorithm ?? "?" }))}</div>`}
     <article class="st-card st-versus">
       ${side("a", d.sides.a, t("You"), "you")}
       <div class="st-vs-mid">

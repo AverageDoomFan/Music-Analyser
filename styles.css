@@ -297,7 +297,7 @@ code { font-family: var(--font-mono); font-size: 0.86em; }
 .linklike { background: none; border: 0; padding: 0; color: var(--accent-2); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; font: inherit; }
 
 /* ------------------------------------------------------------------ Form controls */
-input[type="search"], input[type="url"], input[type="number"], input[type="text"], input:not([type]), select, textarea {
+input[type="search"], input[type="url"], input[type="number"], input[type="text"], input[type="email"], input[type="password"], input:not([type]), select, textarea {
   font: inherit; font-size: 0.875rem; color: var(--text);
   background: var(--field); border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
   min-height: 36px; padding: 0 12px; min-width: 0;
@@ -305,7 +305,7 @@ input[type="search"], input[type="url"], input[type="number"], input[type="text"
 }
 textarea { padding: 8px 12px; }
 input[type="number"] { font-variant-numeric: tabular-nums; padding-right: 6px; }
-input[type="search"]::placeholder, input[type="text"]::placeholder { color: var(--muted); }
+input[type="search"]::placeholder, input[type="text"]::placeholder, input[type="email"]::placeholder, input[type="password"]::placeholder { color: var(--muted); }
 select {
   appearance: none; -webkit-appearance: none; cursor: pointer;
   padding-right: 32px; background-image: var(--chev); background-repeat: no-repeat; background-position: right 10px center; background-size: 12px;
