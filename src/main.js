@@ -23,6 +23,7 @@ import { initMotion } from "./ui/motion.js";
 import { initBackdrop, setBackdropHeat, heatOfScore } from "./ui/backdrop.js";
 import { player } from "./ui/player.js";
 import { initSync } from "./cloud/sync.js";
+import { scheduleSync } from "./cloud/share.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -190,6 +191,9 @@ async function main() {
   initSpotify()
     .catch((err) => console.error(err))
     .then(() => ctl.autoFetchGenres());
+  // opt-in cloud sharing: new duels / reports are sent a few seconds later
+  ctl.onJudgement(scheduleSync);
+  scheduleSync();
 }
 
 main();

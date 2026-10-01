@@ -67,6 +67,7 @@ export default {
   "Removing your leaderboard entries…": "Suppression de tes entrées aux classements…",
   "Removing your friendships…": "Suppression de tes amitiés…",
   "Removing your profile…": "Suppression de ton profil…",
+  "Removing what you shared with the developer…": "Suppression de ce que tu as partagé avec le développeur…",
 
   // errors
   "This email address is not valid.": "Cette adresse e-mail n'est pas valide.",

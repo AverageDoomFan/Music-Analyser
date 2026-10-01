@@ -230,5 +230,72 @@ service cloud.firestore {
       allow update: if isMe(uid) && validEntry(data()) && cumulative() && data().v >= resource.data.v;
       allow delete: if isMe(uid);
     }
+
+    // ---------- sharing with the developer (admin panel) ----------
+    //   admins/{uid}               exists = admin. Created by hand in the Firebase
+    //                              console; no client can ever write here.
+    //   users/{uid}                small profile + counters, written by its owner
+    //   users/{uid}/duels/{id}     the owner's duels (> < =)
+    //   users/{uid}/reports/{id}   the owner's reports for analysis
+    // A user reads and writes only their own; an admin reads everything and
+    // writes nothing of other users.
+
+    function isAdmin() { return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)); }
+
+    function validUser(d) {
+      return d.keys().hasOnly(['name', 'email', 'lastSync', 'counts', 'app', 'library'])
+        && optStr(d, 'name', 120) && optStr(d, 'email', 200)
+        && d.lastSync is timestamp
+        && (!('counts' in d) || (d.counts is map && d.counts.size() <= 10))
+        && (!('app' in d) || (d.app is map && d.app.size() <= 10))
+        && (!('library' in d) || (d.library is map && d.library.size() <= 20));
+    }
+    function validDuel(d) {
+      return d.keys().hasOnly(['a', 'b', 'aName', 'bName', 'winner', 'at', 'source', 'scores', 'algorithm'])
+        && isStr(d.a, 0, 200) && isStr(d.b, 0, 200)
+        && optStr(d, 'aName', 300) && optStr(d, 'bName', 300)
+        && d.winner in ['a', 'b', 'tie']
+        && d.at is number
+        && optStr(d, 'source', 20) && optStr(d, 'algorithm', 20)
+        && (!('scores' in d) || (d.scores is list && d.scores.size() == 2));
+    }
+    function validReport(d) {
+      return d.keys().hasOnly(['trackId', 'name', 'at', 'expected', 'finalScore', 'comment', 'algorithm', 'extractor', 'data'])
+        && isStr(d.trackId, 0, 200) && isStr(d.name, 0, 300) && isStr(d.at, 0, 40)
+        && optNum(d, 'expected', -1000000, 1000000) && optNum(d, 'finalScore', -1000000, 1000000)
+        && optStr(d, 'comment', 2000) && optStr(d, 'algorithm', 20) && optStr(d, 'extractor', 20)
+        && isStr(d.data, 0, 950000);
+    }
+
+    match /admins/{uid} {
+      allow get: if isMe(uid);
+      allow list, write: if false;
+    }
+
+    match /users/{uid} {
+      allow get: if isMe(uid) || isAdmin();
+      allow list: if isAdmin();
+      allow create, update: if isMe(uid) && validUser(data());
+      allow delete: if isMe(uid);
+
+      match /duels/{id} {
+        allow read: if isMe(uid) || isAdmin();
+        allow create, update: if isMe(uid) && validDuel(data());
+        allow delete: if isMe(uid);
+      }
+      match /reports/{id} {
+        allow read: if isMe(uid) || isAdmin();
+        allow create, update: if isMe(uid) && validReport(data());
+        allow delete: if isMe(uid);
+      }
+    }
+
+    // admin views across every user (collection group queries)
+    match /{path=**}/duels/{id} {
+      allow read: if isAdmin();
+    }
+    match /{path=**}/reports/{id} {
+      allow read: if isAdmin();
+    }
   }
 }

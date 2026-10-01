@@ -65,3 +65,52 @@ export function firebase() {
   loading.catch(() => { loading = null; });
   return loading;
 }
+
+/** Same as firebase(): the name the admin panel and the developer sharing use. */
+export const loadCloud = firebase;
+
+/** The signed-in Firebase user, or null (waits for the saved session to load). */
+export async function currentUser() {
+  if (!cloudConfigured()) return null;
+  const { auth } = await firebase();
+  await auth.authStateReady();
+  return auth.currentUser;
+}
+
+export async function onUserChange(fn) {
+  if (!cloudConfigured()) return;
+  const { auth, A } = await firebase();
+  A.onAuthStateChanged(auth, fn);
+}
+
+/** Google sign-in for the admin page (the app itself signs in from the Account tab). */
+export async function signIn() {
+  const { auth, A } = await firebase();
+  const provider = new A.GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: "select_account" });
+  return (await A.signInWithPopup(auth, provider)).user;
+}
+
+const adminCache = new Map();
+
+export async function signOut() {
+  const { auth, A } = await firebase();
+  adminCache.clear();
+  await A.signOut(auth);
+}
+
+/**
+ * Whether the signed-in user is an admin: a document admins/{uid} that only the
+ * project owner can create, in the Firebase console. The rules let a user read
+ * only their own; this answer decides what the interface shows, the rules
+ * decide what can be read.
+ */
+export async function isAdmin() {
+  const user = await currentUser();
+  if (!user) return false;
+  if (adminCache.has(user.uid)) return adminCache.get(user.uid);
+  const { db, F } = await firebase();
+  const yes = (await F.getDoc(F.doc(db, "admins", user.uid)).catch(() => null))?.exists() ?? false;
+  adminCache.set(user.uid, yes);
+  return yes;
+}

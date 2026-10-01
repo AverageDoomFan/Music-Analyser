@@ -3,7 +3,13 @@
 import { ALGORITHM_VERSION, FEATURE_VERSION, EXPORT_SCHEMA_VERSION } from "../config.js";
 import { t } from "../i18n/index.js";
 
-export function buildExport(records, settings) {
+/**
+ * Full database export. `extras.duels` and `extras.reports` are the user's
+ * judgements and reports for analysis: they are what a future algorithm is
+ * tuned against, so they travel with the tracks (names added for reading).
+ */
+export function buildExport(records, settings, extras = {}) {
+  const names = new Map(records.map((r) => [r.id, r.name]));
   return {
     app: "music-energy-analyzer",
     schemaVersion: EXPORT_SCHEMA_VERSION,
@@ -17,6 +23,8 @@ export function buildExport(records, settings) {
       if (auto) delete auto.explain;
       return { ...r, auto };
     }),
+    duels: (extras.duels ?? []).map((d) => ({ ...d, aName: names.get(d.a) ?? d.aName ?? null, bName: names.get(d.b) ?? d.bName ?? null })),
+    reports: extras.reports ?? [],
   };
 }
 
@@ -36,7 +44,7 @@ export function parseExport(text) {
   try {
     data = JSON.parse(text);
   } catch {
-    throw new Error("Fichier JSON invalide.");
+    throw new Error(t("Invalid JSON file."));
   }
   if (data?.app !== "music-energy-analyzer" || !Array.isArray(data.tracks)) {
     throw new Error(t("This file is not a Music Energy Analyzer database."));
@@ -45,7 +53,29 @@ export function parseExport(text) {
     throw new Error(t("Export made by a newer version of the app."));
   }
   const tracks = data.tracks.filter((t) => t && typeof t.id === "string" && typeof t.name === "string");
-  return { tracks, settings: data.settings ?? {} };
+  const duels = (Array.isArray(data.duels) ? data.duels : [])
+    .filter((d) => d && typeof d.a === "string" && typeof d.b === "string" && ["a", "b", "tie"].includes(d.winner));
+  const reports = (Array.isArray(data.reports) ? data.reports : []).filter((r) => r && typeof r.id === "string" && r.at);
+  return { tracks, settings: data.settings ?? {}, duels, reports };
+}
+
+const duelKey = (d) => `${d.a}|${d.b}|${d.at ?? ""}|${d.winner}`;
+
+/** Union of two duel lists (same pair, time and answer = same duel), oldest first. */
+export function mergeDuels(existing, incoming) {
+  const out = new Map();
+  for (const d of [...existing, ...incoming]) if (!out.has(duelKey(d))) out.set(duelKey(d), d);
+  return [...out.values()].sort((x, y) => (x.at ?? 0) - (y.at ?? 0));
+}
+
+/** Union of two report lists: one report per track, the most recent wins, oldest first. */
+export function mergeReports(existing, incoming) {
+  const out = new Map();
+  for (const r of [...existing, ...incoming]) {
+    const cur = out.get(r.id);
+    if (!cur || String(r.at) > String(cur.at)) out.set(r.id, r);
+  }
+  return [...out.values()].sort((x, y) => String(x.at).localeCompare(String(y.at)));
 }
 
 /**

@@ -8,15 +8,17 @@ import { t, tn, getLang, setLang, LANGUAGES } from "../i18n/index.js";
 import { escapeHtml } from "../util/format.js";
 import { toast } from "./toast.js";
 import { getBackdropMode, setBackdropMode } from "./backdrop.js";
-import { cloudConfigured } from "../cloud/firebase.js";
+import { cloudConfigured, isAdmin } from "../cloud/firebase.js";
 import { acc, isSignedIn, updateProfile } from "../cloud/account.js";
 import { syncPrefs, setSyncPrefs } from "../cloud/sync.js";
+import { cloudSettings, setShare, syncNow, deleteMyCloudData, status as syncStatus } from "../cloud/share.js";
 
 const dialog = () => document.getElementById("settings-dialog");
 let draft = null;
 let proposal = null;
 let genres = { auto: true, lastfmKey: "" };
 let reports = [];
+let cloud = { admin: false, share: false, error: null };
 
 export function initSettings() {
   document.getElementById("open-settings").addEventListener("click", open);
@@ -31,6 +33,16 @@ export function initSettings() {
   d.addEventListener("change", async (e) => {
     if (e.target.id === "language") return setLang(e.target.value);
     if (e.target.name === "backdrop") return setBackdropMode(e.target.value);
+    if (e.target.id === "dev-share") {
+      cloud.share = e.target.checked;
+      try {
+        const res = await setShare(cloud.share);
+        if (res) toast(t("Shared: {duels} new duels, {reports} new reports.", res));
+      } catch (err) {
+        toast(err.message, "error");
+      }
+      return render();
+    }
     if (e.target.id === "genre-auto") {
       genres.auto = e.target.checked;
       await ctl.setGenreSettings({ auto: genres.auto });
@@ -66,8 +78,8 @@ export function initSettings() {
     }
     if (e.target.id !== "import-json" || !e.target.files[0]) return;
     try {
-      const { count, weights, aggregation } = await ctl.importDatabase(e.target.files[0]);
-      toast(tn(count, "{n} track imported / merged.", "{n} tracks imported / merged."));
+      const { count, weights, aggregation, duels, reports } = await ctl.importDatabase(e.target.files[0]);
+      toast(tn(count, "{n} track imported / merged.", "{n} tracks imported / merged.") + (duels || reports ? " " + t("New: {duels} duels, {reports} reports.", { duels, reports }) : ""));
       if (weights && confirm(t("The file also holds weights. Apply them?"))) {
         await ctl.setWeights({ ...DEFAULT_WEIGHTS, ...weights });
         draft = { ...state.weights };
@@ -113,7 +125,7 @@ export function initSettings() {
       case "learn-cancel": proposal = null; render(); break;
       case "export": {
         const n = await ctl.exportDatabase();
-        toast(tn(n, "{n} track exported.", "{n} tracks exported."));
+        toast(t("Exported: {tracks} tracks, {duels} duels, {reports} reports.", n));
         break;
       }
       case "import": d.querySelector("#import-json").click(); break;
@@ -134,6 +146,26 @@ export function initSettings() {
         reports = [];
         render();
         break;
+      case "cloud-sync":
+        try {
+          const res = await syncNow();
+          toast(t("Shared: {duels} new duels, {reports} new reports.", res));
+        } catch (err) {
+          toast(err.message, "error");
+        }
+        render();
+        break;
+      case "cloud-delete":
+        if (!confirm(t("Delete everything you shared (duels, reports, profile) from the cloud? Your local data stays."))) break;
+        try {
+          await deleteMyCloudData();
+          await refreshCloud();
+          toast(t("Your cloud data is deleted."));
+        } catch (err) {
+          toast(err.message, "error");
+        }
+        render();
+        break;
       case "clear":
         if (!confirm(t("Delete every local analysis, correction and setting of this app in this browser? Your audio files are not touched."))) break;
         await ctl.clearAllData();
@@ -149,8 +181,39 @@ async function open() {
   proposal = null;
   genres = await ctl.genreSettings();
   reports = await ctl.getReports();
+  await refreshCloud();
   render();
   dialog().showModal();
+}
+
+async function refreshCloud() {
+  if (!cloudConfigured()) return;
+  try {
+    cloud.admin = isSignedIn() ? await isAdmin() : false;
+    cloud.share = (await cloudSettings()).share;
+    cloud.error = null;
+  } catch (err) {
+    cloud.error = err.message;
+  }
+}
+
+/** Opt-in sharing of duels and reports with the developer (admin panel). */
+function devShareHtml() {
+  if (!isSignedIn()) return "";
+  const st = syncStatus;
+  return `
+      <h3>${t("Share with the developer")}</h3>
+      <p class="muted small">${t("Optional. Turn sharing on to send your duels, your reports for analysis and a small profile (name, e-mail, counters) to the app's database, where only the admins can read them, to improve the algorithm. Never audio or file paths. You can delete what you shared at any time.")}</p>
+      ${cloud.error ? `<p class="notice">${escapeHtml(cloud.error)}</p>` : ""}
+      <p class="muted small">uid: <code>${escapeHtml(acc.user?.uid ?? "")}</code>${cloud.admin ? ` · <b>${t("admin")}</b>` : ""}</p>
+      <label class="inline"><input type="checkbox" id="dev-share" ${cloud.share ? "checked" : ""}> ${t("Share my duels and reports")}</label>
+      <p class="muted small">${st.syncing ? t("Sharing…") : st.error ? escapeHtml(st.error) : st.lastSync ? t("Last shared at {time}.", { time: new Date(st.lastSync).toLocaleTimeString() }) : ""}</p>
+      <div class="settings-actions">
+        ${cloud.share ? `<button class="btn" data-action="cloud-sync">${t("Share now")}</button>` : ""}
+        ${cloud.admin ? `<a class="btn primary" href="admin.html" target="_blank" rel="noopener">${t("Open the admin panel")} ↗</a>` : ""}
+        <button class="btn danger" data-action="cloud-delete">${t("Delete my cloud data")}</button>
+      </div>
+`;
 }
 
 function render() {
@@ -166,8 +229,6 @@ function render() {
         <label><input type="radio" name="backdrop" value="${k}" ${getBackdropMode() === k ? "checked" : ""}><span>${label}</span></label>`).join("")}
       </div>
       <p class="muted small">${t("Slow coloured light behind every tab that warms up with the track you play or open. “Still” keeps the colours without movement.")}</p>
-
-      ${cloudHtml()}
 
       <h3>${t("From the curve to the score")}</h3>
       <p class="muted small">${t("Each track is analysed in windows of a few seconds: intensity and every sub-score form a curve. Choose how that curve becomes a score (also available above the library).")}</p>
@@ -205,7 +266,7 @@ function render() {
         <button class="btn" data-action="import">${t("Import a JSON")}</button>
         <input type="file" id="import-json" accept="application/json,.json" hidden>
       </div>
-      <p class="muted small">${t("Holds fingerprints, names, features, scores, corrections and the algorithm version — never the audio.")}</p>
+      <p class="muted small">${t("Holds fingerprints, names, features, scores, corrections, your duels (> < =, with the scores at the time of each answer) and your reports for analysis, plus the algorithm version — never the audio. Importing merges everything without duplicates.")}</p>
 
       <h3>${t("Reports for analysis")}</h3>
       <p class="muted small">${t("From a track's details, “Report for analysis” saves everything the model knows about it (every measure and its curve, sub-scores, how they are built) with your comment and expected score. Export them and send the file to get the model fixed on those tracks. No audio, no file path.")}</p>
@@ -215,6 +276,8 @@ function render() {
         ${reports.length ? `<button class="btn" data-action="reports-clear">${t("Delete the reports")}</button>` : ""}
       </div>
 
+${cloudHtml()}
+${devShareHtml()}
       <h3>${t("Diagnostic export")}</h3>
       <p class="muted small">${t("A compact file to improve the model on your real library: for every track, its name, genres, scores, sub-scores, the measures they are made of, and your corrections, lyrics ratings and duels. No audio, no file path.")}</p>
       <div class="settings-actions"><button class="btn" data-action="diagnostic">${t("Export the diagnostic")}</button>

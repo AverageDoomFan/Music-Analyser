@@ -255,6 +255,16 @@ export async function deleteAccount({ password = "", onProgress = () => {} } = {
     batch.delete(F.doc(db, "profiles", f.id, "friends", uid));
     await batch.commit();
   }
+  onProgress(t("Removing what you shared with the developer…"));
+  for (const sub of ["duels", "reports"]) {
+    const docs = (await F.getDocs(F.collection(db, "users", uid, sub))).docs;
+    for (let i = 0; i < docs.length; i += 400) {
+      const b = F.writeBatch(db);
+      for (const d of docs.slice(i, i + 400)) b.delete(d.ref);
+      await b.commit();
+    }
+  }
+  await F.deleteDoc(F.doc(db, "users", uid));
   onProgress(t("Removing your profile…"));
   const batch = F.writeBatch(db);
   if (acc.code) batch.delete(F.doc(db, "codes", acc.code));

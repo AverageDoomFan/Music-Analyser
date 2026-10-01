@@ -466,7 +466,7 @@ async function answerDuel(answer) {
   if (model === answer) { g.stats.agree++; g.stats.agreeStreak++; } else g.stats.agreeStreak = 0;
   saveStats();
   g.shownAt = performance.now();
-  if (g.saveDuels) await ctl.addComparison(d.a, d.b, answer);
+  if (g.saveDuels) await ctl.addComparison(d.a, d.b, answer, "game");
   render();
 }
 

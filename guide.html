@@ -269,7 +269,7 @@
         <h2>Data, backup and reports</h2>
         <ul>
           <li>Measures, scores, corrections, genres and ratings are stored in this browser (IndexedDB). A file imported again is recognised by its fingerprint and not analysed again.</li>
-          <li>Settings › <b>Export the database (JSON)</b>: a full backup, without audio. Importing merges without losing your corrections.</li>
+          <li>Settings › <b>Export the database (JSON)</b>: a full backup, without audio. It also holds your <b>duels</b> (&gt; &lt; =, from the Duels button and the Games tab, each with the scores and algorithm version at the time of the answer) and your <b>reports for analysis</b>, so they can be used to tune a later version of the algorithm. Importing merges everything without duplicates and without losing your corrections.</li>
           <li><b>⚑ Report for analysis</b> (in a track's details): saves everything the model knows about the track (every measure and its curve, sub-scores and how they are built) with your comment and the score you expect. Settings › Reports for analysis exports them in one file to send, to get the model fixed on those tracks.</li>
           <li>Settings › <b>Export the diagnostic</b>: a compact file for the whole library (scores, measures, genres, corrections, duels; no audio or paths).</li>
           <li>When the algorithm changes version, scores are recomputed from the cached measures, without reading the audio. When the measures themselves change, the details advise a re-analysis.</li>
@@ -283,6 +283,7 @@
         <details class="faq"><summary>Spotify 403 or 404</summary><p>Error 403: account not added in <i>User Management</i>, no Premium, or missing playback control rights (log in again). Error 404: no active Spotify device; open the Spotify app on the PC and play a track once.</p></details>
         <details class="faq"><summary>No genres</summary><p>Genres are looked up on MusicBrainz automatically; the line under the library filters shows the progress. Obscure tracks may be missing there: add a Last.fm key in Settings, or label a few tracks, the others get suggestions.</p></details>
         <details class="faq"><summary>The key or BPM looks wrong</summary><p>The reliability is shown next to it. A BPM at half or double is a common ambiguity (the alternative octave is shown). An unreliable key points to ambiguous or very noisy harmony.</p></details>
+        <details class="faq"><summary>Sharing with the developer</summary><p>Optional (Settings › Share with the developer, when the cloud is set up): sign in with Google and turn sharing on to send your duels, reports and a small profile. Only the admins can read them. “Delete my cloud data” removes everything you shared.</p></details>
         <details class="faq"><summary>Starting over</summary><p>Settings › “Delete local data”, after a JSON export if you want to keep your corrections.</p></details>
       </section>
     </main>
@@ -523,7 +524,7 @@
         <h2>Données, sauvegarde et signalements</h2>
         <ul>
           <li>Les mesures, scores, corrections, genres et notes sont stockés dans ce navigateur (IndexedDB). Un fichier réimporté est reconnu par son empreinte et n'est pas réanalysé.</li>
-          <li>Paramètres › <b>Exporter la base (JSON)</b> : une sauvegarde complète, sans audio. L'import fusionne sans perdre tes corrections.</li>
+          <li>Paramètres › <b>Exporter la base (JSON)</b> : une sauvegarde complète, sans audio. Elle contient aussi tes <b>duels</b> (&gt; &lt; =, du bouton Duels et de l'onglet Jeux, chacun avec les scores et la version de l'algorithme au moment de la réponse) et tes <b>signalements pour analyse</b>, pour pouvoir régler une future version de l'algorithme. L'import fusionne tout sans doublons et sans perdre tes corrections.</li>
           <li><b>⚑ Signaler pour analyse</b> (dans la fiche d'un morceau) : enregistre tout ce que le modèle sait du morceau (chaque mesure et sa courbe, les sous-scores et leur construction) avec ton commentaire et le score attendu. Paramètres › Signalements pour analyse les exporte en un fichier à envoyer, pour faire corriger le modèle sur ces morceaux.</li>
           <li>Paramètres › <b>Exporter le diagnostic</b> : un fichier compact pour toute la bibliothèque (scores, mesures, genres, corrections, duels ; ni audio ni chemins).</li>
           <li>Quand l'algorithme change de version, les scores sont recalculés depuis les mesures en cache, sans relire l'audio. Quand les mesures elles-mêmes changent, la fiche conseille une réanalyse.</li>
@@ -537,6 +538,7 @@
         <details class="faq"><summary>Direct : « Aucun son capté »</summary><p>Vérifie que Spotify joue bien sur ce PC, que tu as coché « Partager l'audio du système » (écran entier) ou choisi l'entrée « CABLE Output », et que rien d'autre ne joue. Pour vérifier la chaîne sans Spotify, utilise le mode démo.</p></details>
         <details class="faq"><summary>Spotify 403 ou 404</summary><p>Erreur 403 : compte non ajouté dans <i>User Management</i>, pas de Premium, ou droits de contrôle de lecture manquants (reconnecte-toi). Erreur 404 : aucun appareil Spotify actif ; ouvre l'application Spotify sur le PC et lance un titre une fois.</p></details>
         <details class="faq"><summary>La tonalité ou le BPM semble faux</summary><p>La fiabilité est indiquée à côté. Un BPM à la moitié ou au double est une ambiguïté fréquente (l'octave alternative est affichée). Une tonalité peu fiable signale une harmonie ambiguë ou très bruitée.</p></details>
+        <details class="faq"><summary>Partager avec le développeur</summary><p>Facultatif (Paramètres › Partager avec le développeur, quand le cloud est configuré) : connecte-toi avec Google et active le partage pour envoyer tes duels, tes signalements et un petit profil. Seuls les admins peuvent les lire. « Supprimer mes données cloud » efface tout ce que tu as partagé.</p></details>
         <details class="faq"><summary>Repartir de zéro</summary><p>Paramètres › « Effacer les données locales », après un export JSON si tu veux garder tes corrections.</p></details>
       </section>
     </main>
