@@ -283,6 +283,11 @@ export async function getComparisons() {
   return (await db.getSetting(DUELS_KEY).catch(() => null)) ?? [];
 }
 
+// Listeners told when a duel or a report is saved (cloud sync, when enabled).
+const judgementListeners = new Set();
+export function onJudgement(fn) { judgementListeners.add(fn); }
+const judged = (kind) => { for (const fn of judgementListeners) fn(kind); };
+
 // Kept for tuning future algorithms: generous caps, and each duel remembers
 // what the model said at the time of the answer.
 const MAX_DUELS = 5000;
@@ -297,6 +302,7 @@ export async function addComparison(a, b, winner, source = "duels") {
   };
   list.push({ a, b, winner, at: Date.now(), source, scores: [score(a), score(b)], algorithm: ALGORITHM_VERSION });
   await db.setSetting(DUELS_KEY, list.slice(-MAX_DUELS));
+  judged("duel");
   return list.length;
 }
 
@@ -761,6 +767,7 @@ export async function reportTrack(id, { comment = "", expected = null } = {}) {
   const list = (await getReports()).filter((x) => x.id !== id);
   list.push(report);
   await db.setSetting(REPORTS_KEY, list.slice(-MAX_REPORTS));
+  judged("report");
   return list.length;
 }
 

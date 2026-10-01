@@ -193,6 +193,14 @@ Each track stores its raw features, initial and current automatic score, correct
 - **Database export** (Settings › Export the database): besides the tracks, it holds every duel (> < =, from the Duels button and the Games tab — up to 5000, each with the source, both scores and the algorithm version at the time of the answer, plus the track names) and the reports for analysis (up to 300, one per track). Import merges them without duplicates (export schema 2; schema 1 files still import). They are the ground truth for tuning later algorithm versions.
 - **Diagnostic export** (Settings): one compact JSON for the whole library (scores, sub-scores, the measures behind each dimension, genres, corrections, lyrics ratings, duels), used to recalibrate the model.
 
+## Cloud sharing and admin panel (optional, Firebase)
+
+Off by default: with `FIREBASE_CONFIG = null` in `src/cloud/config.js` the app stays 100 % local and shows no cloud feature. Once a Firebase project is configured ([FIREBASE.md](FIREBASE.md)):
+
+- users sign in with Google and **opt in** (Settings › Share with the developer) to send their duels, reports for analysis and a small profile; new ones are sent automatically a few seconds later; “Delete my cloud data” removes everything;
+- accounts with the **admin** role (a document `admins/{uid}` created by hand in the Firebase console) open `admin.html`: overview (model agreement, per algorithm version), users, duels, **disputed tracks** (where answers contradict the model, and in which direction), reports (with the full JSON), JSON files from users who do not use the cloud, and a dataset export for tuning the algorithm;
+- security is enforced server-side by `firestore.rules` (users only touch their own data, admins read everything, nobody can grant themselves the role); tested on the emulator with `npm run test:rules`.
+
 ## Set tab: set generator
 
 - **Target curve**: presets (warm-up → peak → cool-down, steady climb, waves, plateau, intervals, wind-down) or a free curve.

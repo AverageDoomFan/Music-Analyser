@@ -8,12 +8,15 @@ import { t, tn, getLang, setLang, LANGUAGES } from "../i18n/index.js";
 import { escapeHtml } from "../util/format.js";
 import { toast } from "./toast.js";
 import { getBackdropMode, setBackdropMode } from "./backdrop.js";
+import { cloudConfigured, currentUser, isAdmin, signIn, signOut } from "../cloud/firebase.js";
+import { cloudSettings, setShare, syncNow, deleteMyCloudData, status as syncStatus } from "../cloud/sync.js";
 
 const dialog = () => document.getElementById("settings-dialog");
 let draft = null;
 let proposal = null;
 let genres = { auto: true, lastfmKey: "" };
 let reports = [];
+let cloud = { user: null, admin: false, share: false, error: null };
 
 export function initSettings() {
   document.getElementById("open-settings").addEventListener("click", open);
@@ -28,6 +31,16 @@ export function initSettings() {
   d.addEventListener("change", async (e) => {
     if (e.target.id === "language") return setLang(e.target.value);
     if (e.target.name === "backdrop") return setBackdropMode(e.target.value);
+    if (e.target.id === "cloud-share") {
+      cloud.share = e.target.checked;
+      try {
+        const res = await setShare(cloud.share);
+        if (res) toast(t("Shared: {duels} new duels, {reports} new reports.", res));
+      } catch (err) {
+        toast(err.message, "error");
+      }
+      return render();
+    }
     if (e.target.id === "genre-auto") {
       genres.auto = e.target.checked;
       await ctl.setGenreSettings({ auto: genres.auto });
@@ -114,6 +127,41 @@ export function initSettings() {
         reports = [];
         render();
         break;
+      case "cloud-signin":
+        try {
+          await signIn();
+          await refreshCloud();
+          toast(t("Signed in as {name}.", { name: cloud.user?.displayName || cloud.user?.email || "?" }));
+        } catch (err) {
+          toast(err.message, "error");
+        }
+        render();
+        break;
+      case "cloud-signout":
+        await signOut();
+        await refreshCloud();
+        render();
+        break;
+      case "cloud-sync":
+        try {
+          const res = await syncNow();
+          toast(t("Shared: {duels} new duels, {reports} new reports.", res));
+        } catch (err) {
+          toast(err.message, "error");
+        }
+        render();
+        break;
+      case "cloud-delete":
+        if (!confirm(t("Delete everything you shared (duels, reports, profile) from the cloud? Your local data stays."))) break;
+        try {
+          await deleteMyCloudData();
+          await refreshCloud();
+          toast(t("Your cloud data is deleted."));
+        } catch (err) {
+          toast(err.message, "error");
+        }
+        render();
+        break;
       case "clear":
         if (!confirm(t("Delete every local analysis, correction and setting of this app in this browser? Your audio files are not touched."))) break;
         await ctl.clearAllData();
@@ -129,8 +177,43 @@ async function open() {
   proposal = null;
   genres = await ctl.genreSettings();
   reports = await ctl.getReports();
+  await refreshCloud();
   render();
   dialog().showModal();
+}
+
+async function refreshCloud() {
+  if (!cloudConfigured()) return;
+  try {
+    cloud.user = await currentUser();
+    cloud.admin = cloud.user ? await isAdmin() : false;
+    cloud.share = (await cloudSettings()).share;
+    cloud.error = null;
+  } catch (err) {
+    cloud.error = err.message;
+  }
+}
+
+function cloudHtml() {
+  if (!cloudConfigured()) return "";
+  const u = cloud.user;
+  const st = syncStatus;
+  return `
+      <h3>${t("Share with the developer")}</h3>
+      <p class="muted small">${t("Optional. Sign in with Google and turn sharing on to send your duels, your reports for analysis and a small profile (name, e-mail, counters) to the app's database, where only the admins can read them, to improve the algorithm. Never audio or file paths. You can delete what you shared at any time.")}</p>
+      ${cloud.error ? `<p class="notice">${escapeHtml(cloud.error)}</p>` : ""}
+      ${u ? `
+        <p class="small">${t("Signed in as {name}.", { name: `<b>${escapeHtml(u.displayName || u.email || "?")}</b>` })} <span class="muted">uid: <code>${escapeHtml(u.uid)}</code></span>${cloud.admin ? ` · <b>${t("admin")}</b>` : ""}</p>
+        <label class="inline"><input type="checkbox" id="cloud-share" ${cloud.share ? "checked" : ""}> ${t("Share my duels and reports")}</label>
+        <p class="muted small">${st.syncing ? t("Sharing…") : st.error ? escapeHtml(st.error) : st.lastSync ? t("Last shared at {time}.", { time: new Date(st.lastSync).toLocaleTimeString() }) : ""}</p>
+        <div class="settings-actions">
+          ${cloud.share ? `<button class="btn" data-action="cloud-sync">${t("Share now")}</button>` : ""}
+          ${cloud.admin ? `<a class="btn primary" href="admin.html" target="_blank" rel="noopener">${t("Open the admin panel")} ↗</a>` : ""}
+          <button class="btn" data-action="cloud-signout">${t("Sign out")}</button>
+          <button class="btn danger" data-action="cloud-delete">${t("Delete my cloud data")}</button>
+        </div>`
+      : `<div class="settings-actions"><button class="btn" data-action="cloud-signin">${t("Sign in with Google")}</button></div>`}
+`;
 }
 
 function render() {
@@ -193,6 +276,7 @@ function render() {
         ${reports.length ? `<button class="btn" data-action="reports-clear">${t("Delete the reports")}</button>` : ""}
       </div>
 
+${cloudHtml()}
       <h3>${t("Diagnostic export")}</h3>
       <p class="muted small">${t("A compact file to improve the model on your real library: for every track, its name, genres, scores, sub-scores, the measures they are made of, and your corrections, lyrics ratings and duels. No audio, no file path.")}</p>
       <div class="settings-actions"><button class="btn" data-action="diagnostic">${t("Export the diagnostic")}</button>

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Admin · Music Energy Analyzer</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M2 26h4V16H2zm6 0h4V10H8zm6 0h4V6h-4zm6 0h4V12h-4zm6 0h4V2h-4z' fill='%233987e5'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="admin.css">
+  <script type="module" src="src/admin/admin.js"></script>
+</head>
+<body>
+  <div class="adm-head">
+    <div>
+      <h1>Admin panel</h1>
+      <p class="muted small">Duels, reports and users shared with the app's database. Readable by admins only.</p>
+    </div>
+    <div class="adm-account" id="adm-account"></div>
+  </div>
+  <main class="adm-main">
+    <div id="adm-gate"></div>
+    <div id="adm-app" hidden>
+      <div class="adm-toolbar">
+        <div class="tabs" role="tablist" id="adm-tabs">
+          <button role="tab" data-view="overview" aria-selected="true">Overview</button>
+          <button role="tab" data-view="users" aria-selected="false">Users</button>
+          <button role="tab" data-view="duels" aria-selected="false">Duels</button>
+          <button role="tab" data-view="disputed" aria-selected="false">Disputed tracks</button>
+          <button role="tab" data-view="reports" aria-selected="false">Reports</button>
+        </div>
+        <span class="spacer"></span>
+        <select id="adm-user" aria-label="User"></select>
+        <input type="search" id="adm-search" placeholder="Search a track…" aria-label="Search a track">
+        <button class="btn small" id="adm-reload" type="button">Reload</button>
+        <label class="btn small">Add JSON files<input type="file" id="adm-files" accept="application/json,.json" multiple hidden></label>
+        <button class="btn small primary" id="adm-export" type="button">Export the dataset</button>
+      </div>
+      <p class="muted small" id="adm-sources"></p>
+      <section id="adm-view"></section>
+    </div>
+  </main>
+</body>
+</html>

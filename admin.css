@@ -1,0 +1,29 @@
+/* Admin panel (admin.html), on top of styles.css. */
+body { background: var(--bg); }
+.adm-head { max-width: 1280px; margin: 0 auto; padding: 22px 16px 10px; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.adm-head h1 { margin: 0 0 4px; }
+.adm-account { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 0.9rem; }
+.adm-main { max-width: 1280px; margin: 0 auto; padding: 0 16px 48px; }
+.adm-gate { max-width: 640px; }
+.adm-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0; }
+.adm-toolbar .spacer { flex: 1; }
+.adm-toolbar input[type=search] { min-width: 180px; }
+.adm-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin: 12px 0; }
+.adm-tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+.adm-tile span { display: block; color: var(--muted); font-size: 0.8rem; }
+.adm-tile b { font-size: 1.7rem; font-variant-numeric: tabular-nums; }
+.adm-tile small { display: block; color: var(--muted); }
+.adm-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.adm-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+.adm-table th, .adm-table td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.adm-table th { color: var(--muted); font-weight: 600; font-size: 0.78rem; position: sticky; top: 0; background: var(--surface); }
+.adm-table td.num, .adm-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.adm-table tr:last-child td { border-bottom: 0; }
+.adm-ok { color: var(--good, #22c55e); font-weight: 600; }
+.adm-ko { color: var(--bad, #ef4444); font-weight: 600; }
+.adm-up { color: var(--good, #22c55e); }
+.adm-down { color: var(--bad, #ef4444); }
+.adm-bar { display: inline-block; height: 8px; border-radius: 4px; background: var(--accent); vertical-align: middle; }
+.adm-comment { color: var(--text-2); max-width: 420px; white-space: pre-wrap; }
+.adm-more { color: var(--muted); font-size: 0.8rem; margin-top: 6px; }
+@media (max-width: 720px) { .adm-toolbar .spacer { display: none; } }
