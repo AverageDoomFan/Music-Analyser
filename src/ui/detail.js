@@ -16,6 +16,7 @@ import { player } from "./player.js";
 import { openInRhythm } from "./rhythm.js";
 import { t } from "../i18n/index.js";
 import { rescanRecord } from "./live.js";
+import { openConcert } from "./concert.js";
 
 const dialog = () => document.getElementById("detail-dialog");
 let currentId = null;
@@ -40,9 +41,16 @@ export function initDetail() {
       case "mismatch": openCorrection(id); break;
       case "play": player.toggle(id); break;
       case "rhythm": d.close(); openInRhythm(id); break;
+      case "concert": {
+        // from the playhead when the track is playing or was stopped somewhere
+        const from = player.isPlaying(id) || player.position(id) ? player.position(id) : null;
+        d.close();
+        openConcert(id, { from, onClose: () => openDetail(id) });
+        break;
+      }
       case "manual-save": {
         const v = Number(d.querySelector("#manual-score").value);
-        if (!Number.isFinite(v) || v < 0 || v > SCORE_MAX) return toast(t("Score between 0 and {max}.", { max: SCORE_MAX }), "error");
+        if (!Number.isFinite(v) || v < 0) return toast(t("The score must be 0 or more."), "error");
         await ctl.setManual(id, v);
         toast(t("Manual score: {n}", { n: Math.round(v) }));
         break;
@@ -122,6 +130,7 @@ export function openDetail(id) {
   seriesKey = "intensity";
   if (currentId !== id) reportOpen = false;
   currentId = id;
+  dialog().dataset.id = id; // read by the backdrop's heat (main.js)
   render(true);
   if (!dialog().open) dialog().showModal();
 }
@@ -179,7 +188,7 @@ function render(force = false) {
         ${correctionBlock(r)}
         <h3>${t("Manual score")}</h3>
         <div class="manual-edit">
-          <input type="number" id="manual-score" min="0" max="${SCORE_MAX}" step="1" value="${manualValue ?? (r.manual ? r.manual.score : Math.round(final))}" aria-label="${t("Manual score")}">
+          <input type="number" id="manual-score" min="0" step="1" value="${manualValue ?? (r.manual ? r.manual.score : Math.round(final))}" aria-label="${t("Manual score")}">
           <button class="btn small" data-action="manual-save">${t("Apply")}</button>
           ${r.manual ? `<button class="btn small" data-action="manual-clear">${t("Remove the manual score")}</button>` : ""}
           <span class="muted small">${t("Overrides the automatic score and the correction.")}</span>
@@ -194,6 +203,7 @@ function render(force = false) {
       <button class="btn danger" data-action="delete">${t("Delete")}</button>
       <span class="spacer"></span>
       ${canPlay ? `<button class="btn" data-action="play">${player.isPlaying(r.id) ? t("Pause") : t("Play")}</button>` : ""}
+      ${auto?.curves && canPlay ? `<button class="btn cc-open-btn" data-action="concert" title="${t("Full-screen show driven by this track's analysis")}"><span class="cc-spark" aria-hidden="true">✦</span> ${t("Concert")}</button>` : ""}
       ${state.files.has(r.id) || r.rhythm ? `<button class="btn" data-action="rhythm" title="${t("Split into notes for a rhythm game map")}">${t("Rhythm")}</button>` : ""}
       ${r.features ? `<button class="btn" data-action="recompute" title="${t("Recomputes from the cached features, without reading the audio")}">${t("Recompute")}</button>` : ""}
       <button class="btn" data-action="reanalyze" title="${r.source?.kind === "spotify" ? t("Plays and analyses this track again in the Live tab") : t("Reads and analyses the audio file again")}">${t("Re-analyse the audio")}</button>
@@ -467,7 +477,7 @@ function reportBlock(r) {
     <h3>⚑ ${t("Report for analysis")}</h3>
     <p class="muted small">${t("Saves every measure of this track (and its curves), the sub-scores and how they are built, with your comment. Export the reports from Settings and send the file. No audio, no file path.")}</p>
     <div class="report-grid">
-      <label>${t("Expected score")}<input type="number" id="report-expected" min="0" max="${SCORE_MAX}" step="1" placeholder="${Math.round(r.finalScore)}"></label>
+      <label>${t("Expected score")}<input type="number" id="report-expected" min="0" step="1" placeholder="${Math.round(r.finalScore)}"></label>
       <label class="wide">${t("What is wrong?")}<textarea id="report-comment" rows="3" placeholder="${escapeHtml(t("e.g. calm piano, 2–3 notes: should be much lower"))}"></textarea></label>
     </div>
     <div class="settings-actions">

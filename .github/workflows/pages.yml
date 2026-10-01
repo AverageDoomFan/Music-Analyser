@@ -27,7 +27,7 @@ jobs:
           node-version: 22
       - run: npm test
       - name: Collect static site
-        run: mkdir _site && cp -r index.html guide.html styles.css src .nojekyll _site/
+        run: mkdir _site && cp -r index.html guide.html *.css src .nojekyll _site/
       - name: Version module URLs (cache busting)
         run: node scripts/stamp-version.mjs _site "${GITHUB_SHA::8}"
       - uses: actions/configure-pages@v5

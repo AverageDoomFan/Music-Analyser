@@ -261,11 +261,12 @@ function drawTimeline(container, { times, values, min, max, format = (v) => v.to
   });
 }
 
-/** Tiny inline curve (library rows), 0..100 scale (values above 100 are clipped). */
+/** Tiny inline curve (library rows), 0..100 scale, taller when a value goes beyond. */
 export function sparkline(values, { width = 72, height = 22 } = {}) {
   const v = values.filter(Number.isFinite);
   if (v.length < 2) return "";
   const n = values.length;
-  const pts = values.map((val, i) => `${((i / (n - 1)) * (width - 2) + 1).toFixed(1)},${(height - 1 - (Math.max(0, Math.min(100, val)) / 100) * (height - 2)).toFixed(1)}`);
+  const top = Math.max(100, ...v);
+  const pts = values.map((val, i) => `${((i / (n - 1)) * (width - 2) + 1).toFixed(1)},${(height - 1 - (Math.max(0, Number.isFinite(val) ? val : 0) / top) * (height - 2)).toFixed(1)}`);
   return `<svg class="spark" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" aria-hidden="true"><polyline points="${pts.join(" ")}"/></svg>`;
 }

@@ -18,7 +18,7 @@
 //   draft: boolean          // Live "follow" capture heard < 60 %: kept out of stats and games until validated
 // }
 
-import { ALGORITHM_VERSION, FEATURE_VERSION, DEFAULT_WEIGHTS, DEFAULT_AGGREGATION, SCORE_MAX } from "../config.js";
+import { ALGORITHM_VERSION, FEATURE_VERSION, DEFAULT_WEIGHTS, DEFAULT_AGGREGATION } from "../config.js";
 import { scoreFeatures } from "../scoring/index.js";
 import { applyCorrection } from "../scoring/correction.js";
 import { lyricsEffect } from "../scoring/describe.js";
@@ -111,7 +111,7 @@ export function clearCorrection(record) {
 }
 
 export function setManualScore(record, value) {
-  record.manual = value == null ? null : { score: Math.max(0, Math.min(SCORE_MAX, Math.round(value))), createdAt: Date.now() };
+  record.manual = value == null ? null : { score: Math.max(0, Math.round(value)), createdAt: Date.now() };
   record.finalScore = computeFinal(record);
   record.updatedAt = Date.now();
   pushHistory(record, value == null ? "manual score removed" : "manual score", record.finalScore);
@@ -124,7 +124,7 @@ export function computeFinal(record) {
   const base = record.correction ? record.correction.score : record.auto ? record.auto.score : null;
   if (base == null) return null;
   const d = lyricsEffect(record.lyrics).intensity;
-  return d ? Math.round(Math.max(0, Math.min(SCORE_MAX, base + d)) * 10) / 10 : base;
+  return d ? Math.round(Math.max(0, base + d) * 10) / 10 : base;
 }
 
 /** Mood axis: model valence shifted by the lyrics rating. */

@@ -32,7 +32,7 @@ test("features are finite and plausible", () => {
 test("scores and sub-scores stay in range and carry the algorithm version", () => {
   for (const r of Object.values(results)) {
     assert.equal(r.algorithmVersion, ALGORITHM_VERSION);
-    assert.ok(r.score >= 0 && r.score <= SCORE_MAX);
+    assert.ok(r.score >= 0 && Number.isFinite(r.score));
     for (const v of Object.values(r.subscores)) assert.ok(v >= 0 && v <= 100);
     for (const v of Object.values(r.confidences)) assert.ok(v >= 0 && v <= 1);
   }
@@ -174,6 +174,9 @@ test("fast regular attacks add points along a rising curve, to intense windows o
   const calm = { energy: 20, tempo: 30, density: 30, brightness: 30, harshness: 10, pressure: 15, complexity: 20, noise: 0 };
   const base = computeIntensity(loud);
   assert.ok(computeIntensity({ ...loud, attackSpeed: 100 }) >= base + 50);
-  assert.ok(computeIntensity({ ...loud, attackSpeed: 100 }) <= SCORE_MAX);
+  const max = Object.fromEntries(Object.keys(loud).map((k) => [k, 100]));
+  assert.ok(computeIntensity({ ...max, attackSpeed: 100 }) > SCORE_MAX, "no ceiling on the score");
+  assert.equal(stageFor(SCORE_MAX + 1).label, "???");
+  assert.notEqual(stageFor(SCORE_MAX).label, "???");
   assert.equal(computeIntensity({ ...calm, attackSpeed: 100 }), computeIntensity(calm));
 });

@@ -174,7 +174,7 @@ async function onClick(e) {
     case "set-score": {
       const input = $(`gm-score-${id}`);
       const v = Number(input?.value);
-      if (!Number.isFinite(v) || v < 0 || v > SCORE_MAX) return toast(t("Score between 0 and {max}.", { max: SCORE_MAX }), "error");
+      if (!Number.isFinite(v) || v < 0) return toast(t("The score must be 0 or more."), "error");
       await ctl.setManual(id, v);
       toast(t("Score set to {n}.", { n: Math.round(v) }));
       render();
@@ -686,7 +686,7 @@ function trackCard(r, { hide = false, label = "" } = {}) {
 function scoreEditor(r) {
   const manual = r.manual?.score;
   return `<div class="gm-edit">
-    <input type="number" id="gm-score-${escapeHtml(r.id)}" min="0" max="${SCORE_MAX}" step="1" value="${Math.round(r.finalScore)}" aria-label="${escapeHtml(t("New score"))}">
+    <input type="number" id="gm-score-${escapeHtml(r.id)}" min="0" step="1" value="${Math.round(r.finalScore)}" aria-label="${escapeHtml(t("New score"))}">
     <button class="btn small" data-gm="set-score" data-id="${escapeHtml(r.id)}">${t("Set score")}</button>
     ${manual != null ? `<button class="btn small" data-gm="clear-score" data-id="${escapeHtml(r.id)}">${t("Back to automatic")}</button>` : ""}
     <button class="btn small ghost" data-gm="detail" data-id="${escapeHtml(r.id)}">${t("Details")}</button>

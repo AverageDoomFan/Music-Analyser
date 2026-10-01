@@ -75,3 +75,14 @@ test("histogram labels never overlap, whatever the width", () => {
   }
   assert.ok(seen.has("line") && seen.has("rotate"));
 });
+
+test("past the top of the dial the gauge breaks loose, and recovers", () => {
+  const st = gaugeState();
+  run(st, SCORE_MAX + 20, 120, { level: 1 });
+  assert.equal(st.broken, true);
+  assert.equal(st.readout, SCORE_MAX + 20);
+  assert.ok(st.pos > SCORE_MAX + 3, `spins past the stop (${st.pos})`);
+  run(st, 80, 300, { level: 0 });
+  assert.equal(st.broken, false);
+  assert.ok(Math.abs(st.pos - 80) < 3, `back on the dial (${st.pos})`);
+});

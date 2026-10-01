@@ -1,62 +1,74 @@
-// Concert mode: a full-screen, audio-reactive visualiser for the Live tab.
-// It taps the Live capture (its own AnalyserNode, chained after the Live
-// tab's analyser, which passes the audio through unchanged) for per-frame FFT
-// and waveform, and reads the live intensity (the gauge's smoothed needle),
-// the stage, the sub-scores and the current track from the Live tab.
-// WebGL2 (concert-gl.js), Canvas2D fallback (concert-2d.js).
+// Concert mode: a full-screen show for an analysed track, played through the
+// library player. The stored analysis drives it at the playback position:
+// per-window intensity and sub-scores (the detail curve), band energies,
+// attack rates, the folded tempo (a beat clock), the sections and the drops,
+// known in advance (the show builds tension before a drop and releases it on
+// the beat). A local file plays on the Web Audio engine: its output is tapped
+// for the real spectrum, waveform and kicks (no latency, it is the source).
+// A Spotify track has no audio in the page: the spectrum and the waveform are
+// synthesized from the band energies and the beat clock.
+// WebGL2 (concert-gl.js), Canvas2D fallback (concert-2d.js, or ?concert2d).
 
-import { stageFor, DIMENSIONS, SCORE_MAX } from "../config.js";
+import { stageFor, DIMENSIONS } from "../config.js";
 import { t } from "../i18n/index.js";
-import { DIM_COLORS } from "./live-draw.js";
-import { OnsetDetector, FlashLimiter, concertPalette, concertDrive, visualParams, levelIntensity, approach, clamp } from "./concert-logic.js";
+import { state } from "../app/store.js";
+import { engine } from "../audio/engine.js";
+import * as api from "../spotify/api.js";
+import { player } from "./player.js";
+import { DIM_COLORS, intensityRgb } from "./live-draw.js";
+import {
+  OnsetDetector, FlashLimiter, concertPalette, concertDrive, visualParams, approach, clamp, GAUGE_TOP,
+  prepareShow, sampleShow, beatClock, ShowDirector, synthSpectrum, synthWave, hueRotate, sectionHue, clockText,
+} from "./concert-logic.js";
 import { createGLRenderer, DATA_WIDTH, BURST_SLOTS } from "./concert-gl.js";
 import { create2DRenderer } from "./concert-2d.js";
 
 const FFT = 2048;
 const MAX_DPR = 1.5;
 const MAX_PIXELS = 2.2e6; // ~1080p: hiDPI and 4K screens render a little softer, not slower
-const IDLE_UI_MS = 2000;
-const SILENCE_S = 2.5;
+const IDLE_UI_MS = 2500;
+const SEEK_STEP = 5;
+const SYNC_EVERY_MS = 5000;
 const reducedMq = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? { matches: false };
+const SECTION_COLORS = { Intro: "#60a5fa", "Build-up": "#fbbf24", Peak: "#ef4444", Break: "#a78bfa", Section: "#94a3b8", Outro: "#34d399" };
 
-let hooks = null;          // { state(): {...}, setActive(on) }
 let el = null;             // overlay element and its parts
 let renderer = null;
 let raf = 0;
 let open = false;
+let S = null;              // the running show: { id, record, show, kind, director, ... }
 
-// audio tap
-let tapFor = null, tap = null, detector = null;
-let freq = null, time = null;
+// audio tap (local files)
+let tap = null, detector = null, freq = null, time = null, bandMap = null;
 
 // visual state (reused every frame)
 const spectrum = new Float32Array(DATA_WIDTH);
 const wave = new Float32Array(DATA_WIDTH);
-let bandMap = null;
+const synthSpec = new Float32Array(DATA_WIDTH);
+const synthWav = new Float32Array(DATA_WIDTH);
+const SMP = {};
+const CLK = {};
 const V = {
-  t0: 0, last: 0, time: 0, travel: 0, intensity: 8, shown: null, kick: 0, onset: 0, flash: 0,
-  idle: 1, silentFor: 99, bass: 0, loud: 0, mid: 0, high: 0, wavePeak: 0.1, scale: 1,
-  frameMs: 16.7, cpu: 0, kickAt: -100, kickStrength: 0, colorAt: 0, cssBase: "", cssAccent: "", slowFor: 0, fastFor: 0, frames: 0, fpsFrom: 0, fps: 0,
-  kickSlot: 0, onsetSlot: 0, lastOnsetBurst: 0, trackId: undefined, stageLabel: "", num: "", subs: {},
-  hot: false, pointerAt: 0, uiHidden: false,
+  t0: 0, last: 0, time: 0, travel: 0, intensity: 0, shown: null, kick: 0, onset: 0, flash: 0,
+  idle: 1, bass: 0, loud: 0, wavePeak: 0.1, scale: 1,
+  frameMs: 16.7, cpu: 0, kickAt: -100, kickStrength: 0, bigAt: -100, bigStrength: 0,
+  colorAt: 0, cssBase: "", cssAccent: "", slowFor: 0, fastFor: 0, frames: 0, fpsFrom: 0, fps: 0,
+  kickSlot: 0, onsetSlot: 0, lastOnsetBurst: 0, lastKickHeard: -100, stageLabel: "", num: "", subs: {},
+  hot: false, broken: false, pointerAt: 0, uiHidden: false,
+  hue: 0, hueTarget: 0, travelBoost: 0, camZoomKick: 0, rollKick: 0, camPunch: 0,
+  camBase: { x: 0, y: 0, zoom: 1.02, roll: 0 }, camTarget: { x: 0, y: 0, zoom: 1.02, roll: 0 },
+  cw: 0, ch: 0, stripW: 0, timeText: "", nextText: "", phaseText: "", playingShown: null, bannerAt: 0,
 };
+const cam = { x: 0, y: 0, zoom: 1, roll: 0 };
 const bursts = Array.from({ length: BURST_SLOTS }, () => ({ x: 0, y: 0, t: -100, s: 0, r: 1, g: 1, b: 1, kind: 0 }));
 const limiter = new FlashLimiter({ reduced: reducedMq.matches });
+const PAL = { base: [0, 0, 0], accent: [0, 0, 0], shadow: [0, 0, 0], hot: 0, heat: 0 };
 const frame = {
   time: 0, travel: 0, heat: 0, hot: 0, kick: 0, bass: 0, loud: 0, idle: 1, tunnel: 0,
   zoom: 1, rot: 0, decay: 0.85, ringR: 0.26, ringH: 0.2, bloom: 1, bloomThreshold: 0.5, ca: 0, exposure: 1.2,
-  grain: 0.03, glitch: 0, flash: 0, starBright: 0.3, shake: [0, 0],
-  palette: null, drive: null, spectrum, wave, bursts,
+  grain: 0.03, glitch: 0, flash: 0, starBright: 0.3, shake: [0, 0], tension: 0,
+  palette: PAL, drive: null, spectrum, wave, bursts,
 };
-
-/**
- * @param {{state: () => {capture:object|null, status:object|null, current:object|null, readout:number|null},
- *   setActive: (on:boolean) => void}} h  hooks into the Live tab
- */
-export function initConcert(h) {
-  hooks = h;
-  document.getElementById("lv-concert")?.addEventListener("click", () => openConcert());
-}
 
 export const concertOpen = () => open;
 
@@ -71,24 +83,29 @@ function build() {
   root.setAttribute("role", "dialog");
   root.setAttribute("aria-modal", "true");
   root.setAttribute("aria-label", t("Concert mode"));
+  // the essentials inline: the overlay covers the page even if its stylesheet fails to load
+  root.style.cssText = "position:fixed;inset:0;width:100%;height:100%;z-index:10000;background:#000;color:#f5f7fb;overflow:hidden;margin:0;";
   const subs = DIMENSIONS.map((d) => `<div class="cc-sub" data-k="${d.key}" style="--c:${DIM_COLORS[d.key]}"><div class="cc-sub-bar"><i></i></div><span>${d.label}</span></div>`).join("");
+  const abs = "position:absolute;inset:0;width:100%;height:100%;";
   root.innerHTML = `
-    <canvas class="cc-canvas" aria-hidden="true"></canvas>
-    <div class="cc-hud">
+    <canvas class="cc-canvas" aria-hidden="true" style="${abs}display:block"></canvas>
+    <div class="cc-hud" style="${abs}">
       <div class="cc-top">
         <div class="cc-status"><span class="cc-dot"></span><span class="cc-phase"></span></div>
         <div class="cc-actions">
-          <button type="button" class="cc-btn cc-fs" title="${t("Full screen (F)")}" aria-label="${t("Full screen (F)")}">⛶</button>
-          <button type="button" class="cc-btn cc-close" title="${t("Close (Esc)")}" aria-label="${t("Close concert mode")}">✕</button>
+          <button type="button" class="cc-btn cc-play" data-cc="play"></button>
+          <button type="button" class="cc-btn cc-fs" data-cc="fs" title="${t("Full screen (F)")}" aria-label="${t("Full screen (F)")}">⛶</button>
+          <button type="button" class="cc-btn cc-close" data-cc="close" title="${t("Close (Esc)")}" aria-label="${t("Close concert mode")}">✕</button>
         </div>
       </div>
       <div class="cc-center">
         <div class="cc-num-wrap"><div class="cc-num" aria-live="off">—</div></div>
         <div class="cc-stage"></div>
+        <div class="cc-next"></div>
       </div>
       <div class="cc-bottom">
         <div class="cc-track">
-          <div class="cc-cover"><span>♪</span></div>
+          <div class="cc-cover" style="width:clamp(56px,11vh,128px);height:clamp(56px,11vh,128px);overflow:hidden;flex:none"><span>♪</span></div>
           <div class="cc-meta">
             <div class="cc-kicker">${t("Now playing")}</div>
             <div class="cc-title"></div>
@@ -97,34 +114,61 @@ function build() {
         </div>
         <div class="cc-subs" aria-hidden="true">${subs}</div>
       </div>
+      <div class="cc-strip-row">
+        <span class="cc-time cc-elapsed">0:00</span>
+        <div class="cc-strip" role="slider" tabindex="0" aria-label="${t("Position in the track")}" aria-valuemin="0">
+          <canvas class="cc-strip-canvas" aria-hidden="true"></canvas>
+          <div class="cc-strip-fill"></div>
+          <div class="cc-strip-head"></div>
+        </div>
+        <span class="cc-time cc-total">0:00</span>
+      </div>
     </div>
+    <div class="cc-banner" aria-hidden="true"><span></span></div>
     <div class="cc-idle" aria-live="polite">
-      <div class="cc-idle-title">${t("Waiting for sound")}</div>
-      <p class="cc-idle-text">${t("Start a scan, the follow mode or the demo in the Live tab: the show starts with the first note.")}</p>
+      <div class="cc-idle-title"></div>
+      <p class="cc-idle-text"></p>
     </div>`;
   document.body.appendChild(root);
   const q = (s) => root.querySelector(s);
   el = {
-    root, canvas: q(".cc-canvas"), num: q(".cc-num"), numWrap: q(".cc-num-wrap"), stage: q(".cc-stage"), phase: q(".cc-phase"),
-    title: q(".cc-title"), artist: q(".cc-artist"), cover: q(".cc-cover"), track: q(".cc-track"), idle: q(".cc-idle"),
+    root, canvas: q(".cc-canvas"), num: q(".cc-num"), numWrap: q(".cc-num-wrap"), stage: q(".cc-stage"), next: q(".cc-next"),
+    phase: q(".cc-phase"), play: q(".cc-play"), title: q(".cc-title"), artist: q(".cc-artist"), cover: q(".cc-cover"), track: q(".cc-track"),
+    idle: q(".cc-idle"), idleTitle: q(".cc-idle-title"), idleText: q(".cc-idle-text"), banner: q(".cc-banner"), bannerText: q(".cc-banner span"),
+    strip: q(".cc-strip"), stripCanvas: q(".cc-strip-canvas"), stripFill: q(".cc-strip-fill"), stripHead: q(".cc-strip-head"),
+    elapsed: q(".cc-elapsed"), total: q(".cc-total"),
     subs: Object.fromEntries([...root.querySelectorAll(".cc-sub")].map((s) => [s.dataset.k, s.querySelector("i")])),
   };
-  q(".cc-close").addEventListener("click", () => closeConcert());
-  q(".cc-fs").addEventListener("click", () => toggleFullscreen());
+  root.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-cc]");
+    if (!b) return;
+    if (b.dataset.cc === "close") closeConcert();
+    else if (b.dataset.cc === "fs") toggleFullscreen();
+    else if (b.dataset.cc === "play") togglePlay();
+  });
+  el.strip.addEventListener("pointerdown", (e) => {
+    const box = el.strip.getBoundingClientRect();
+    if (S && box.width > 0) seekTo(clamp((e.clientX - box.left) / box.width) * S.show.duration);
+  });
   root.addEventListener("pointermove", wake);
   root.addEventListener("pointerdown", wake);
-  root.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { e.preventDefault(); closeConcert(); }
-    else if (e.key === "f" || e.key === "F") { e.preventDefault(); toggleFullscreen(); }
-    else wake();
-  });
   document.addEventListener("fullscreenchange", () => {
-    // leaving full screen (Esc handled by the browser) closes the show
-    if (open && root.dataset.fs === "1" && document.fullscreenElement !== root) closeConcert();
+    // leaving full screen keeps the show open in the window
     root.dataset.fs = document.fullscreenElement === root ? "1" : "0";
+    el.root.querySelector(".cc-fs").setAttribute("aria-pressed", String(root.dataset.fs === "1"));
+    measureNow();
   });
+  new ResizeObserver(() => measureNow()).observe(root);
+  new ResizeObserver(() => { V.stripW = el.strip.clientWidth; drawStrip(); }).observe(el.strip);
   reducedMq.addEventListener?.("change", () => limiter.set({ reduced: reducedMq.matches }));
   makeRenderer();
+}
+
+/** Overlay size in CSS pixels (read on resize only, never per frame). */
+function measureNow() {
+  if (!el) return;
+  V.cw = el.root.clientWidth || window.innerWidth;
+  V.ch = el.root.clientHeight || window.innerHeight;
 }
 
 function makeRenderer() {
@@ -134,6 +178,7 @@ function makeRenderer() {
     const c = document.createElement("canvas");
     c.className = "cc-canvas";
     c.setAttribute("aria-hidden", "true");
+    c.style.cssText = el.canvas.style.cssText;
     el.canvas.replaceWith(c);
     el.canvas = c;
     renderer = create2DRenderer(c);
@@ -156,56 +201,205 @@ async function toggleFullscreen() {
   } catch { /* not allowed: the overlay still covers the window */ }
 }
 
-export function openConcert() {
-  if (open) return;
+function onKey(e) {
+  if (!open) return;
+  const k = e.key;
+  let used = true;
+  if (k === "Escape") closeConcert();
+  else if (k === " " || k === "Spacebar" || k === "k" || k === "K") togglePlay();
+  else if (k === "ArrowRight") seekBy(e.shiftKey ? 15 : SEEK_STEP);
+  else if (k === "ArrowLeft") seekBy(-(e.shiftKey ? 15 : SEEK_STEP));
+  else if (k === "Home") seekTo(0);
+  else if (k === "f" || k === "F") toggleFullscreen();
+  else if (k === "Tab") { used = false; wake(); }
+  else used = false;
+  if (used) {
+    e.preventDefault();
+    e.stopPropagation();
+    wake();
+  }
+}
+
+/**
+ * Opens the show for an analysed track and starts it playing.
+ * @param {string} id  record id
+ * @param {{from?:number|null, onClose?:() => void}} [opts]  start time (s); called after closing
+ */
+export function openConcert(id, { from = null, onClose = null } = {}) {
+  const record = state.records.get(id);
+  const show = prepareShow(record);
+  if (!show || !player.canPlay(id)) return false;
+  if (open) closeConcert({ silent: true });
   if (!el) build();
+  S = {
+    id, record, show, kind: player.kind(id), director: new ShowDirector(show), onClose,
+    pausedAt: 0, wanted: true, starting: true, seekPos: null, seekTimer: 0, failed: false,
+    spCorr: 0, spCorrTarget: 0, syncAt: 0, syncing: false, nudge: 0, wasPlaying: false,
+  };
+  const start = Number.isFinite(from) && from > 0 && from < show.duration - 1 ? from : player.isPlaying(id) ? player.position(id) ?? 0 : 0;
+  S.pausedAt = start;
   open = true;
   el.root.hidden = false;
+  el.root.dataset.kind = S.kind;
+  el.root.classList.remove("broken", "hot");
   el.root.focus({ preventScroll: true });
   document.documentElement.classList.add("concert-on");
-  hooks?.setActive(true);
+  document.addEventListener("keydown", onKey, true);
+  measureNow();
   V.last = performance.now();
   if (!V.t0) V.t0 = V.last; // one clock for the page: bursts and the flash limiter keep their times
   V.fpsFrom = V.last;
   V.frames = 0;
-  V.trackId = undefined;
   V.shown = null;
   V.num = "";
+  V.stageLabel = "";
+  V.intensity = show.intensity[0] ?? 0;
+  V.timeText = V.nextText = V.phaseText = "";
+  V.playingShown = null;
+  setTrack(record);
+  drawStrip();
+  const sec = sampleShow(show, start, SMP);
+  V.hue = V.hueTarget = sec.section ? sectionHue(sec.section.label, sec.sectionIndex) : 0;
+  if (S.kind === "file") attachTap();
   wake();
-  if (el.root.requestFullscreen) el.root.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
+  if (el.root.requestFullscreen && !document.fullscreenElement) el.root.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
   requestAnimationFrame(() => el.root.classList.add("in"));
   raf = requestAnimationFrame(tick);
+  startPlayback(start);
+  return true;
 }
 
-export function closeConcert() {
+export function closeConcert({ silent = false } = {}) {
   if (!open) return;
   open = false;
   cancelAnimationFrame(raf);
-  untap();
-  el.root.classList.remove("in", "hot", "ui-idle");
+  clearTimeout(S?.seekTimer);
+  detachTap();
+  document.removeEventListener("keydown", onKey, true);
+  el.root.classList.remove("in", "hot", "ui-idle", "broken", "paused", "tense");
   el.root.hidden = true;
   document.documentElement.classList.remove("concert-on");
-  hooks?.setActive(false);
   if (document.fullscreenElement === el.root) document.exitFullscreen().catch(() => {});
-  document.getElementById("lv-concert")?.focus({ preventScroll: true });
+  const cb = S?.onClose;
+  S = null;
+  if (!silent) cb?.();
 }
 
-// ------------------------------------------------------------------ audio
+// ------------------------------------------------------------------ playback
 
-function retap(capture) {
-  if (capture === tapFor) return;
-  untap();
-  tapFor = capture;
-  const src = capture?.analyser;
-  if (!src) return;
+async function startPlayback(at) {
+  if (!S) return;
+  const s = S;
+  s.starting = true;
+  s.wanted = true;
+  s.director.reset();
+  const ok = await player.playAt(s.id, at).catch(() => false);
+  if (s !== S) return;
+  s.starting = false;
+  if (!ok) {
+    s.failed = true;
+    s.wanted = false;
+    s.pausedAt = at;
+    return;
+  }
+  s.failed = false;
+  s.spCorr = s.spCorrTarget = 0;
+  s.syncAt = performance.now() + 1500; // Spotify: first check once it has really started
+}
+
+function togglePlay() {
+  if (!S || S.starting) return;
+  if (S.wanted && player.isPlaying(S.id)) {
+    S.pausedAt = currentPosition();
+    S.wanted = false;
+    player.stop();
+    S.director.reset();
+  } else {
+    startPlayback(S.pausedAt >= S.show.duration - 0.5 ? 0 : S.pausedAt);
+  }
+}
+
+function seekBy(d) {
+  if (S) seekTo((S.seekPos ?? currentPosition()) + d);
+}
+
+/** Seeks now on screen, the player follows a moment later (repeated keys make one Spotify call). */
+function seekTo(pos) {
+  if (!S) return;
+  pos = clamp(pos, 0, Math.max(0, S.show.duration - 0.5));
+  S.seekPos = pos;
+  S.director.reset();
+  clearTimeout(S.seekTimer);
+  const s = S;
+  s.seekTimer = setTimeout(async () => {
+    if (s !== S) return;
+    if (s.wanted) await startPlayback(pos);
+    else s.pausedAt = pos;
+    if (s === S && s.seekPos === pos) s.seekPos = null;
+  }, S.kind === "spotify" ? 250 : 60);
+}
+
+/** Playback position (s) as shown: the player's, corrected for Spotify, frozen when paused. */
+function currentPosition() {
+  if (!S) return 0;
+  if (S.seekPos != null) return S.seekPos;
+  const playing = player.isPlaying(S.id);
+  if (playing) {
+    S.wasPlaying = true;
+    return Math.max(0, (player.position(S.id) ?? 0) + (S.kind === "spotify" ? S.spCorr : 0));
+  }
+  if (S.wasPlaying && S.wanted && !S.starting) {
+    // it stopped by itself (end of the track, or stopped elsewhere)
+    S.wasPlaying = false;
+    S.wanted = false;
+    const p = player.position(S.id) ?? 0;
+    S.pausedAt = p > 0.5 ? p : S.show.duration;
+  }
+  return S.pausedAt;
+}
+
+/** Spotify: the position is extrapolated locally; check it against the app now and then. */
+async function syncSpotify() {
+  const s = S;
+  s.syncing = true;
   try {
-    const ctx = src.context;
+    const t0 = performance.now();
+    const st = await api.playbackState();
+    const rtt = (performance.now() - t0) / 1000;
+    if (s !== S || !st) return;
+    const uri = s.record.source?.uri ?? "";
+    if (st.itemId && !uri.endsWith(st.itemId)) return; // another track: leave it alone
+    if (!st.isPlaying) {
+      if (s.wanted && player.isPlaying(s.id)) {
+        s.pausedAt = st.progressMs / 1000;
+        s.wanted = false;
+        player.stop();
+      }
+      return;
+    }
+    const real = st.progressMs / 1000 + rtt / 2;
+    const local = player.position(s.id) ?? real;
+    const err = real - local;
+    if (Math.abs(err - s.spCorr) > 3) s.spCorr = err; // a jump (seek in the app): follow at once
+    s.spCorrTarget = err;
+  } catch { /* offline, rate limit: keep the local clock */ } finally {
+    s.syncing = false;
+    s.syncAt = performance.now() + SYNC_EVERY_MS;
+  }
+}
+
+// ------------------------------------------------------------------ audio (local files)
+
+function attachTap() {
+  detachTap();
+  try {
+    const ctx = engine.context;
     tap = ctx.createAnalyser();
     tap.fftSize = FFT;
     tap.smoothingTimeConstant = 0.15;
     tap.minDecibels = -100;
     tap.maxDecibels = -10;
-    src.connect(tap); // an AnalyserNode passes its input through
+    engine.addTap(tap);
     freq = new Float32Array(tap.frequencyBinCount);
     time = new Float32Array(FFT);
     detector = new OnsetDetector({ sampleRate: ctx.sampleRate, fftSize: FFT });
@@ -216,10 +410,9 @@ function retap(capture) {
   }
 }
 
-function untap() {
-  try { if (tap) tapFor?.analyser?.disconnect(tap); } catch { /* context closed */ }
+function detachTap() {
+  if (tap) engine.removeTap(tap);
   tap = null;
-  tapFor = null;
   detector = null;
 }
 
@@ -238,12 +431,6 @@ function logBands(sr) {
 }
 
 function readAudio(dt, now) {
-  if (!tap || !detector) {
-    spectrum.fill(0);
-    for (let i = 0; i < DATA_WIDTH; i++) wave[i] *= 0.9;
-    V.bass = V.loud = V.mid = V.high = 0;
-    return null;
-  }
   tap.getFloatFrequencyData(freq);
   tap.getFloatTimeDomainData(time);
   // silent bins are -Infinity: keep every number finite (a NaN would spread through the feedback)
@@ -254,7 +441,6 @@ function readAudio(dt, now) {
     const a = bandMap[i * 3], b = bandMap[i * 3 + 1];
     let m = -200;
     if (b - a < 1.5) {
-      // interpolate between the two nearest FFT bins
       const k = Math.floor(a), f = a - k;
       m = freq[k] + (freq[Math.min(freq.length - 1, k + 1)] - freq[k]) * f;
     } else {
@@ -271,85 +457,208 @@ function readAudio(dt, now) {
   for (let i = 0; i < DATA_WIDTH; i++) wave[i] = wave[i] * 0.35 + time[i * step] * gain * 0.65;
   V.bass = approach(V.bass, o.bass, dt, o.bass > V.bass ? 30 : 6);
   V.loud = approach(V.loud, o.loud, dt, o.loud > V.loud ? 20 : 4);
-  V.mid = o.mid;
-  V.high = o.high;
   return o;
+}
+
+/** Spotify: spectrum and waveform from the analysis and the beat clock, smoothed like the real ones. */
+function synthAudio(dt, smp, clk, playing) {
+  const tt = V.time;
+  synthSpectrum(synthSpec, smp, clk, tt);
+  synthWave(synthWav, smp, clk, tt);
+  const on = playing ? 1 : 0;
+  const rel = Math.exp(-dt * 7);
+  for (let i = 0; i < DATA_WIDTH; i++) {
+    const v = synthSpec[i] * on;
+    spectrum[i] = v > spectrum[i] ? v : spectrum[i] * rel + v * (1 - rel);
+    wave[i] = wave[i] * 0.35 + synthWav[i] * on * 0.65;
+  }
+  const kick = smp.beatAmt * Math.exp(-clk.phase * 7) * on;
+  const bass = clamp((0.35 + 0.65 * Math.max(smp.bands[0], smp.bands[1])) * (0.4 + 0.6 * smp.level) * 0.7 + kick * 0.4) * on;
+  const loud = clamp((0.25 + 0.75 * smp.level) * (0.35 + 0.65 * clamp(smp.intensity / 100))) * on;
+  V.bass = approach(V.bass, bass, dt, bass > V.bass ? 30 : 6);
+  V.loud = approach(V.loud, loud, dt, loud > V.loud ? 20 : 4);
 }
 
 // ------------------------------------------------------------------ frame
 
 function tick(now) {
-  if (!open) return;
+  if (!open || !S) return;
   raf = requestAnimationFrame(tick);
   const dt = Math.min(0.1, Math.max(0.001, (now - V.last) / 1000));
   V.last = now;
   measure(now, dt);
   const reduced = reducedMq.matches;
-  const st = hooks?.state() ?? {};
-  retap(st.capture ?? null);
-  const o = readAudio(dt, now);
-
-  // silence / idle
-  const sounding = !!o && o.loud > 0.03;
-  V.silentFor = sounding ? 0 : V.silentFor + dt;
-  const idle = !st.capture || V.silentFor > SILENCE_S;
-  V.idle = approach(V.idle, idle ? 1 : 0, dt, idle ? 1.5 : 4);
-
-  // intensity: the gauge's needle, else a guess from the level, calm when idle
-  const cur = st.current ?? null;
-  const reading = st.readout ?? cur?.final?.score ?? null;
-  const target = idle ? 8 + 4 * Math.sin(now / 2400) : reading ?? levelIntensity(V.loud);
-  V.intensity = approach(V.intensity, target, dt, 2.5);
-  const I = V.intensity;
-  const sub = cur?.live?.current?.subscores ?? null;
-  const drive = concertDrive(I, sub);
-  const pal = concertPalette(I);
-  const heat = drive.heat, hot = drive.hot;
   V.time = (now - V.t0) / 1000;
 
-  // hits
-  if (o && !idle) {
-    if (o.kick) {
-      const s = clamp(o.kickStrength * (0.6 + heat * 0.8));
-      V.kick = Math.max(V.kick, s);
-      V.kickAt = V.time;
-      V.kickStrength = s;
-      burst(V.kickSlot, 0, 0, s, pal.accent, 1);
-      V.kickSlot = (V.kickSlot + 1) % 4;
-      const want = heat > 0.55 ? o.kickStrength * (heat - 0.45) * 1.8 + hot * 0.45 : 0;
-      const fl = limiter.request(V.time, want * (reduced ? 0.4 : 1));
-      if (fl > V.flash) V.flash = fl;
-    }
-    if (o.onset && V.time - V.lastOnsetBurst > 0.14) {
-      V.lastOnsetBurst = V.time;
-      V.onset = Math.max(V.onset, o.strength);
-      const a = Math.random() * Math.PI * 2, r = 0.45 + Math.random() * 0.5;
-      const aspect = el.canvas.width / Math.max(1, el.canvas.height);
-      const c = Math.random() < 0.5 ? pal.base : pal.accent;
-      burst(4 + V.onsetSlot, Math.cos(a) * r * aspect * 0.8, Math.sin(a) * r, clamp(o.strength * (0.3 + heat)), c, 0);
-      V.onsetSlot = (V.onsetSlot + 1) % 4;
+  const pos = currentPosition();
+  const playing = S.wanted && !S.starting && S.seekPos == null && player.isPlaying(S.id);
+  if (S.kind === "spotify") {
+    S.spCorr = approach(S.spCorr, S.spCorrTarget, dt, 1.5);
+    if (playing && !S.syncing && now > S.syncAt) syncSpotify();
+  }
+  const smp = sampleShow(S.show, pos, SMP);
+  const clk = beatClock(S.show, pos, S.nudge, CLK);
+  S.director.nudge = S.nudge;
+  const events = playing ? S.director.advance(pos) : (S.director.reset(), NO_EVENTS);
+
+  // paused: a calmer, dimmer show
+  V.idle = approach(V.idle, playing ? 0 : 0.65, dt, playing ? 3 : 1.5);
+
+  // intensity from the analysis (the jump at a drop is already in the sample)
+  V.intensity = approach(V.intensity, smp.intensity, dt, 7);
+  const I = V.intensity;
+  const Iv = Math.min(I, GAUGE_TOP);
+  const drive = concertDrive(Iv, smp.subs);
+  palette(Iv, dt);
+  const heat = drive.heat, hot = drive.hot;
+
+  // audio
+  let o = null;
+  if (S.kind === "file" && tap && detector) o = readAudio(dt, now);
+  else synthAudio(dt, smp, clk, playing);
+
+  // hits: kicks heard (local) or on the beat clock (Spotify, or a local track whose kicks the detector misses)
+  const heard = !!o && playing;
+  if (heard && o.kick) {
+    kick(o.kickStrength, heat, hot, reduced);
+    V.lastKickHeard = V.time;
+    // phase-lock the beat clock on the kicks heard (the bar grid only matters for accents)
+    if (smp.beatAmt > 0.3) {
+      let e = clk.phase > 0.5 ? clk.phase - 1 : clk.phase;
+      if (Math.abs(e) < 0.2) S.nudge -= e * 0.08;
     }
   }
+  if (heard && o.onset && V.time - V.lastOnsetBurst > 0.14) onset(o.strength, heat);
+  for (const ev of events) {
+    if (ev.type === "beat") {
+      const s = smp.beatAmt * (ev.downbeat ? 1 : 0.72);
+      if (!heard || V.time - V.lastKickHeard > 2) { if (s > 0.12) kick(s, heat, hot, reduced); }
+      if (ev.downbeat) V.camPunch = Math.max(V.camPunch, smp.beatAmt);
+    }
+  }
+  const dropNow = events.some((e) => e.type === "drop");
+  for (const ev of events) {
+    if (ev.type === "drop") drop(ev.drop, reduced);
+    else if (ev.type === "section") section(ev.section, ev.index, dropNow, reduced);
+  }
+  // Spotify: attacks at the stored rate, as sparks
+  if (!heard && playing && Math.random() < Math.min(8, smp.onsetRate) * dt * 0.35) onset(0.3 + 0.5 * heat, heat);
+
   V.kick *= Math.exp(-dt * 6);
   V.onset *= Math.exp(-dt * 8);
   V.flash *= Math.exp(-dt * 10);
+  V.travelBoost *= Math.exp(-dt * 1.6);
+  V.bigStrength *= V.time - V.bigAt > 2.5 ? 0 : 1;
 
   // motion
   const k = V.kick;
-  V.travel += dt * drive.speed * (1 + k * 0.9) * (reduced ? 0.5 : 1) * (1 - V.idle * 0.7);
-  visualParams(frame, { kickAt: V.kickAt, kickStrength: V.kickStrength, time: V.time, dt, travel: V.travel, kick: k, bass: V.bass, loud: V.loud, idle: V.idle, flash: V.flash, drive, palette: pal, reduced });
+  const tension = reduced ? smp.tension * 0.4 : smp.tension;
+  V.travel += dt * (drive.speed * (1 + k * 0.9) + V.travelBoost + tension * 2.2) * (reduced ? 0.5 : 1) * (1 - V.idle * 0.7);
+  camera(dt, heat, tension, reduced);
+  visualParams(frame, {
+    kickAt: V.kickAt, kickStrength: V.kickStrength, time: V.time, dt, travel: V.travel, kick: k, bass: V.bass, loud: V.loud,
+    idle: V.idle, flash: V.flash, drive, palette: PAL, reduced, tension: playing ? tension : 0,
+    bigAt: V.bigAt, bigStrength: V.bigStrength, cam,
+  });
 
   // size, with an adaptive render scale (keeps 60 fps on smaller GPUs)
-  const cw = window.innerWidth, ch = window.innerHeight; // the overlay is fixed, inset 0 (no layout read)
+  const cw = V.cw || window.innerWidth, ch = V.ch || window.innerHeight;
   let dpr = Math.min(MAX_DPR, window.devicePixelRatio || 1);
   dpr *= Math.min(1, Math.sqrt(MAX_PIXELS / Math.max(1, cw * ch * dpr * dpr))) * V.scale;
   renderer?.resize(cw * dpr, ch * dpr);
   renderer?.render(frame);
 
-  hud(st, cur, reading, k, pal, dt, idle);
-  // main-thread cost of the frame (GPU work excluded), for diagnostics
+  hud(pos, smp, I, k, dt, playing, tension);
   V.cpu += (performance.now() - now - V.cpu) * 0.05;
   if (V.frames === 0) el.root.dataset.cpu = V.cpu.toFixed(2);
+}
+const NO_EVENTS = [];
+
+/** Heat-ramp palette, turned by the section's hue (smoothly). */
+function palette(I, dt) {
+  V.hue = approach(V.hue, V.hueTarget, dt, 1.2);
+  const p = concertPalette(I);
+  hueRotate(p.base, V.hue, PAL.base);
+  hueRotate(p.accent, V.hue * 0.6, PAL.accent);
+  hueRotate(p.shadow, V.hue, PAL.shadow);
+  PAL.hot = p.hot;
+  PAL.heat = p.heat;
+}
+
+function kick(strength, heat, hot, reduced) {
+  const s = clamp(strength * (0.6 + heat * 0.8));
+  V.kick = Math.max(V.kick, s);
+  V.kickAt = V.time;
+  V.kickStrength = s;
+  burst(V.kickSlot, 0, 0, s, PAL.accent, 1);
+  V.kickSlot = (V.kickSlot + 1) % 4;
+  const want = heat > 0.55 ? strength * (heat - 0.45) * 1.8 + hot * 0.45 : 0;
+  const fl = limiter.request(V.time, want * (reduced ? 0.4 : 1));
+  if (fl > V.flash) V.flash = fl;
+}
+
+function onset(strength, heat) {
+  V.lastOnsetBurst = V.time;
+  V.onset = Math.max(V.onset, strength);
+  const a = Math.random() * Math.PI * 2, r = 0.45 + Math.random() * 0.5;
+  const aspect = (V.cw || 16) / Math.max(1, V.ch || 9);
+  const c = Math.random() < 0.5 ? PAL.base : PAL.accent;
+  burst(4 + V.onsetSlot, Math.cos(a) * r * aspect * 0.8, Math.sin(a) * r, clamp(strength * (0.3 + heat)), c, 0);
+  V.onsetSlot = (V.onsetSlot + 1) % 4;
+}
+
+/** The drop: everything at once, on the beat it was waited for. */
+function drop(d, reduced) {
+  V.bigAt = V.time;
+  V.bigStrength = clamp(0.75 + d.rise / 80);
+  const fl = limiter.request(V.time, reduced ? 0.3 : 0.95);
+  if (fl > V.flash) V.flash = fl;
+  for (let i = 0; i < BURST_SLOTS; i++) {
+    const a = (i / BURST_SLOTS) * Math.PI * 2 + Math.random() * 0.4;
+    const r = i < 4 ? 0 : 0.35;
+    burst(i, Math.cos(a) * r, Math.sin(a) * r, 1, i % 2 ? PAL.accent : [1, 1, 1], i < 4 ? 1 : 0);
+  }
+  V.kick = 1;
+  V.kickAt = V.time;
+  V.kickStrength = 1;
+  if (!reduced) {
+    V.travelBoost = 3.5;
+    V.camZoomKick = 0.16;
+    V.rollKick = (Math.random() < 0.5 ? -1 : 1) * 0.05;
+  }
+  banner(t("Drop"), true);
+}
+
+/** A new part of the track: a new camera angle, a new light, a shockwave. */
+function section(s, index, withDrop, reduced) {
+  V.hueTarget = sectionHue(s.label, index);
+  const rnd = () => Math.random() - 0.5;
+  V.camTarget = reduced ? { x: 0, y: 0, zoom: 1.02, roll: 0 } : {
+    x: rnd() * 0.03, y: rnd() * 0.02,
+    zoom: s.label === "Break" || s.label === "Outro" ? 1.1 : s.label === "Peak" ? 1.02 : 1.05,
+    roll: rnd() * 0.07,
+  };
+  if (withDrop) return;
+  if (V.time - V.bigAt > 1) { V.bigAt = V.time; V.bigStrength = 0.5; }
+  banner(t(s.label), false);
+}
+
+function camera(dt, heat, tension, reduced) {
+  const T = V.camTarget, B = V.camBase;
+  for (const key of ["x", "y", "zoom", "roll"]) B[key] = approach(B[key], T[key], dt, 0.8);
+  V.camZoomKick *= Math.exp(-dt * 2.2);
+  V.rollKick *= Math.exp(-dt * 1.1);
+  V.camPunch *= Math.exp(-dt * 5);
+  const drift = reduced ? 0 : 0.004 + 0.008 * heat;
+  const tt = V.time;
+  cam.x = B.x + Math.sin(tt * 0.13) * drift;
+  cam.y = B.y + Math.sin(tt * 0.11 + 1.7) * drift * 0.7;
+  cam.roll = reduced ? 0 : clamp(B.roll + V.rollKick + Math.sin(tt * 0.07) * 0.012 * heat + Math.sin(tt * 9) * 0.004 * tension, -0.06, 0.06);
+  // tension pushes the camera in; the drop kicks it out
+  let z = B.zoom + V.camZoomKick * (reduced ? 0.3 : 1) + 0.012 * V.camPunch + 0.09 * tension;
+  const asp = (V.cw || 16) / Math.max(1, V.ch || 9);
+  const need = Math.cos(cam.roll) + Math.max(asp, 1 / asp) * Math.abs(Math.sin(cam.roll)) + 2.2 * Math.max(Math.abs(cam.x), Math.abs(cam.y)) + 0.01;
+  cam.zoom = Math.max(need, z);
 }
 
 function burst(slot, x, y, s, c, kind) {
@@ -375,86 +684,204 @@ function measure(now, dt) {
 
 // ------------------------------------------------------------------ HUD
 
-function hud(st, cur, reading, k, pal, dt, idle) {
+function setTrack(r) {
+  const title = r.tags?.title || String(r.name ?? "").replace(/\.[a-z0-9]{2,5}$/i, "");
+  el.title.textContent = title || t("No track");
+  const chip = r.finalScore != null
+    ? `${t("Track score")} ${Math.round(r.finalScore)} · ${r.finalScore > GAUGE_TOP ? "???" : stageFor(r.finalScore).label}`
+    : "";
+  el.artist.textContent = [r.tags?.artist, r.tags?.album, chip].filter(Boolean).join(" · ");
+  const img = r.source?.image ?? null;
+  el.cover.innerHTML = "";
+  if (img) {
+    const im = new Image();
+    im.alt = "";
+    im.referrerPolicy = "no-referrer";
+    im.style.cssText = "width:100%;height:100%;object-fit:cover;display:block";
+    im.src = img;
+    el.cover.appendChild(im);
+  } else {
+    el.cover.innerHTML = "<span>♪</span>";
+  }
+  el.total.textContent = clockText(S.show.duration);
+  el.strip.setAttribute("aria-valuemax", String(Math.round(S.show.duration)));
+  el.track.classList.remove("swap");
+  void el.track.offsetWidth;
+  el.track.classList.add("swap");
+}
+
+/** The whole track under the playhead: intensity curve, sections, drops. Drawn on resize only. */
+function drawStrip() {
+  if (!el || !S) return;
+  const c = el.stripCanvas;
+  const w = el.strip.clientWidth, h = el.strip.clientHeight;
+  if (!w || !h) return;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  c.width = Math.round(w * dpr);
+  c.height = Math.round(h * dpr);
+  const g = c.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const { show } = S;
+  const D = show.duration;
+  const x = (tt) => (tt / D) * w;
+  // sections: a thin coloured rail at the bottom
+  for (const s of show.sections) {
+    g.fillStyle = SECTION_COLORS[s.label] ?? SECTION_COLORS.Section;
+    g.globalAlpha = 0.85;
+    g.fillRect(x(s.start), h - 3, Math.max(1, x(s.end) - x(s.start) - 1), 3);
+  }
+  g.globalAlpha = 1;
+  // intensity curve, filled with the heat ramp (the gauge tops out: above it, noise)
+  const top = Math.max(100, Math.min(GAUGE_TOP, show.peak));
+  const y = (v) => (h - 5) - (Math.min(v, top) / top) * (h - 8);
+  const grad = g.createLinearGradient(0, h, 0, 0);
+  for (const s of [0, 0.25, 0.5, 0.75, 1]) {
+    const rgb = intensityRgb(s * top);
+    grad.addColorStop(s, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.75)`);
+  }
+  const { times, intensity } = show;
+  g.beginPath();
+  g.moveTo(0, h - 5);
+  g.lineTo(0, y(intensity[0]));
+  for (let i = 0; i < times.length; i++) g.lineTo(x(times[i]), y(intensity[i]));
+  g.lineTo(w, y(intensity.at(-1)));
+  g.lineTo(w, h - 5);
+  g.closePath();
+  g.fillStyle = grad;
+  g.globalAlpha = 0.55;
+  g.fill();
+  g.globalAlpha = 1;
+  g.beginPath();
+  for (let i = 0; i < times.length; i++) g[i ? "lineTo" : "moveTo"](x(times[i]), y(intensity[i]));
+  g.strokeStyle = "rgba(255,255,255,0.85)";
+  g.lineWidth = 1.5;
+  g.stroke();
+  // off the gauge: a broken, glitched band
+  for (let i = 0; i < times.length; i++) {
+    if (intensity[i] <= GAUGE_TOP) continue;
+    const x0 = x(times[i] - 1.5), x1 = x(times[i] + 1.5);
+    for (let yy = 0; yy < h - 5; yy += 3) {
+      g.fillStyle = (Math.floor(yy / 3) + i) % 2 ? "rgba(255,40,90,0.85)" : "rgba(40,220,255,0.85)";
+      const jitter = ((i * 7 + yy * 13) % 5) - 2;
+      g.fillRect(x0 + jitter, yy, Math.max(1, x1 - x0), 1.5);
+    }
+  }
+  // drops
+  for (const d of show.drops) {
+    g.fillStyle = "#fff";
+    g.beginPath();
+    const dx = x(d.time);
+    g.moveTo(dx - 4, 0);
+    g.lineTo(dx + 4, 0);
+    g.lineTo(dx, 6);
+    g.closePath();
+    g.fill();
+  }
+}
+
+function banner(text, big) {
+  if (!el) return;
+  el.bannerText.textContent = text;
+  el.banner.classList.remove("show", "big");
+  void el.banner.offsetWidth;
+  el.banner.classList.add("show");
+  el.banner.classList.toggle("big", big);
+}
+
+function hud(pos, smp, I, k, dt, playing, tension) {
   const r = el.root;
-  if (!V.uiHidden && performance.now() - V.pointerAt > IDLE_UI_MS) {
+  const paused = !playing && !S.starting;
+  if (!V.uiHidden && playing && performance.now() - V.pointerAt > IDLE_UI_MS) {
     V.uiHidden = true;
     r.classList.add("ui-idle");
-  }
-  r.classList.toggle("idle", idle);
-  const hotNow = reading != null && reading > 100;
+  } else if (V.uiHidden && !playing) wake();
+  r.classList.toggle("paused", paused);
+  r.classList.toggle("tense", tension > 0.35 && playing);
+  const hotNow = I > 100 && I <= GAUGE_TOP;
   if (hotNow !== V.hot) { V.hot = hotNow; r.classList.toggle("hot", hotNow); }
+  const broken = I > GAUGE_TOP;
+  if (broken !== V.broken) { V.broken = broken; r.classList.toggle("broken", broken); }
 
-  // colours of the typography follow the heat ramp (10 times a second: a
+  // colours of the typography follow the palette (10 times a second: a
   // custom property change restyles the whole overlay)
   const now = performance.now();
   if (now - V.colorAt > 100) {
     V.colorAt = now;
     const rgb = (c) => `${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)}`;
-    const b = rgb(pal.base), a = rgb(pal.accent);
+    const b = rgb(PAL.base), a = rgb(PAL.accent);
     if (b !== V.cssBase) { V.cssBase = b; r.style.setProperty("--cc-base", b); }
     if (a !== V.cssAccent) { V.cssAccent = a; r.style.setProperty("--cc-accent", a); }
   }
-  el.numWrap.style.transform = reducedMq.matches ? "" : `scale(${(1 + k * 0.09).toFixed(4)})`;
+  el.numWrap.style.transform = reducedMq.matches ? "" : `scale(${(1 + k * 0.09 + tension * 0.06).toFixed(4)})`;
 
-  // the number counts smoothly towards the reading
-  if (reading != null) {
-    V.shown = V.shown == null ? reading : approach(V.shown, reading, dt, 5);
-    const n = String(Math.round(Math.max(0, Math.min(SCORE_MAX, V.shown))));
-    if (n !== V.num) { V.num = n; el.num.textContent = n; }
-    const label = stageFor(V.shown).label;
-    if (label !== V.stageLabel) {
-      V.stageLabel = label;
-      el.stage.textContent = label;
-      el.stage.classList.remove("swap");
-      void el.stage.offsetWidth;
-      el.stage.classList.add("swap");
-    }
-  } else if (V.num !== "—") {
-    V.shown = null;
-    V.num = "—";
-    el.num.textContent = "—";
-    V.stageLabel = t("Listening");
-    el.stage.textContent = V.stageLabel;
+  // the number counts smoothly towards the window score (the real one, whatever its size)
+  V.shown = V.shown == null ? I : approach(V.shown, I, dt, 8);
+  const n = String(Math.max(0, Math.round(V.shown)));
+  if (n !== V.num) { V.num = n; el.num.textContent = n; }
+  const label = V.shown > GAUGE_TOP ? "???" : stageFor(V.shown).label;
+  // a new stage shows once it holds for a moment (no flicker on a boundary)
+  if (label !== V.pendingLabel) { V.pendingLabel = label; V.pendingAt = now; }
+  if (label !== V.stageLabel && (now - V.pendingAt > 250 || !V.stageLabel)) {
+    V.stageLabel = label;
+    el.stage.textContent = label;
+    el.stage.classList.remove("swap");
+    void el.stage.offsetWidth;
+    el.stage.classList.add("swap");
   }
 
-  // phase line
-  const s = st.status;
-  const phase = !st.capture ? t("No audio captured") : s?.paused ? t("Paused") : s?.running ? s.phase || "…" : st.capture.label ?? "";
-  if (el.phase.textContent !== phase) el.phase.textContent = phase;
-  r.classList.toggle("live", !!st.capture && !s?.paused);
-
-  // track
-  const tk = cur?.track ?? null;
-  const id = tk?.id ?? null;
-  if (id !== V.trackId) {
-    V.trackId = id;
-    el.title.textContent = tk?.name ?? t("No track");
-    el.artist.textContent = tk ? [tk.artists?.join(", "), tk.album].filter(Boolean).join(" · ") : st.capture ? t("Free listening: no scan running") : "";
-    const img = tk?.imageLarge || tk?.image;
-    el.cover.innerHTML = "";
-    if (img) {
-      const im = new Image();
-      im.alt = "";
-      im.referrerPolicy = "no-referrer";
-      im.src = img;
-      el.cover.appendChild(im);
-      r.style.setProperty("--cc-cover", `url("${img.replace(/["\\]/g, "")}")`);
-    } else {
-      el.cover.innerHTML = "<span>♪</span>";
-      r.style.setProperty("--cc-cover", "none");
-    }
-    el.track.classList.remove("swap");
-    void el.track.offsetWidth;
-    el.track.classList.add("swap");
+  // what comes next: a countdown to the drop, else the next section
+  let next = "";
+  let soon = false;
+  if (smp.nextDropIn != null && smp.nextDropIn <= 8) {
+    next = t("Drop in {n}", { n: Math.max(1, Math.ceil(smp.nextDropIn)) });
+    soon = true;
+  } else if (smp.nextSection && smp.nextSectionIn != null) {
+    next = t("Next: {label} in {time}", { label: t(smp.nextSection.label), time: clockText(Math.ceil(smp.nextSectionIn)) });
+  } else if (smp.section) {
+    next = t(smp.section.label);
   }
+  if (next !== V.nextText) {
+    V.nextText = next;
+    el.next.textContent = next;
+    el.next.classList.toggle("soon", soon);
+  }
+
+  // phase line and play button
+  const phase = S.starting ? t("Starting playback…")
+    : S.failed ? t("Playback unavailable")
+    : playing ? (S.kind === "spotify" ? t("Playing on Spotify") : t("Playing"))
+    : t("Paused");
+  if (phase !== V.phaseText) { V.phaseText = phase; el.phase.textContent = phase; }
+  r.classList.toggle("live", playing);
+  if (V.playingShown !== playing) {
+    V.playingShown = playing;
+    el.play.textContent = playing ? "❚❚" : "▶";
+    const tip = playing ? t("Pause (Space)") : t("Play (Space)");
+    el.play.title = tip;
+    el.play.setAttribute("aria-label", tip);
+    el.idleTitle.textContent = S.failed ? t("Playback unavailable") : t("Paused");
+    el.idleText.textContent = S.failed
+      ? (S.kind === "spotify" ? t("Open Spotify (the app or open.spotify.com), then press Space.") : t("Press Space to try again."))
+      : t("Space: play · ← →: move 5 s · F: full screen · Esc: close");
+  }
+
+  // time and progress
+  const tt = clockText(pos);
+  if (tt !== V.timeText) {
+    V.timeText = tt;
+    el.elapsed.textContent = tt;
+    el.strip.setAttribute("aria-valuenow", String(Math.round(pos)));
+    el.strip.setAttribute("aria-valuetext", `${tt} / ${clockText(S.show.duration)}`);
+  }
+  const p = smp.progress;
+  el.stripFill.style.transform = `scaleX(${p.toFixed(4)})`;
+  el.stripHead.style.transform = `translateX(${(p * V.stripW).toFixed(1)}px)`;
 
   // sub-scores
-  const sub = cur?.live?.current?.subscores ?? null;
   for (const d of DIMENSIONS) {
-    const target = idle || !sub ? 0 : clamp((sub[d.key] ?? 0) / 100);
+    const target = clamp((smp.subs[d.key] ?? 0) / 100) * (paused ? 0.5 : 1);
     const v = (V.subs[d.key] = approach(V.subs[d.key] ?? 0, target, dt, 4));
     el.subs[d.key].style.transform = `scaleY(${v.toFixed(3)})`;
   }
 }
-

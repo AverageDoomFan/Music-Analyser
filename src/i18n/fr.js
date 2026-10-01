@@ -388,7 +388,7 @@ export default {
   "Scores from calmest to most intense": "Progression des scores, du plus calme au plus intense",
   "Spotify genres": "Genres Spotify",
   "Suggestion (close tracks)": "Suggestion (morceaux proches)",
-  "Score between 0 and {max}.": "Score entre 0 et {max}.",
+  "The score must be 0 or more.": "Le score doit être positif ou nul.",
   "Manual score: {n}": "Score manuel : {n}",
   "Genre: {g}": "Genre : {g}",
   "Correction removed.": "Correction retirée.",
@@ -1217,4 +1217,9 @@ export default {
   "Try with nothing (test bench)": "Essayer sans rien (banc d'essai)",
   "Local audio analysis": "Analyse audio locale",
   "MP3, WAV, OGG, FLAC, M4A… or a whole folder": "MP3, WAV, OGG, FLAC, M4A… ou un dossier entier",
+  "Background": "Arrière-plan",
+  "Animated": "Animé",
+  "Still": "Fixe",
+  "Off": "Désactivé",
+  "Slow coloured light behind every tab that warms up with the track you play or open. “Still” keeps the colours without movement.": "Une lumière colorée et lente derrière chaque onglet, qui se réchauffe avec le morceau que tu écoutes ou que tu ouvres. « Fixe » garde les couleurs sans mouvement.",
 };

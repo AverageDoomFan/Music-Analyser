@@ -20,6 +20,8 @@ import { initGames, showGames } from "./ui/games.js";
 import { initStats, showStats } from "./ui/stats.js";
 import { t, tn, translateDom } from "./i18n/index.js";
 import { initMotion } from "./ui/motion.js";
+import { initBackdrop, setBackdropHeat, heatOfScore } from "./ui/backdrop.js";
+import { player } from "./ui/player.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -124,12 +126,27 @@ function renderQueue() {
   $("queue-bar").style.width = `${Math.min(100, ((q.done + partial) / q.total) * 100)}%`;
 }
 
+/** The backdrop warms up with the track that plays, or the one whose detail is open. */
+function initBackdropHeat() {
+  const heatOf = (id) => heatOfScore(state.records.get(id)?.finalScore);
+  player.onChange(() => {
+    const id = player.current;
+    setBackdropHeat(id && player.isPlaying(id) ? heatOf(id) : null, "play");
+  });
+  const detail = $("detail-dialog");
+  new MutationObserver(() => {
+    setBackdropHeat(detail.open && detail.dataset.id ? heatOf(detail.dataset.id) : null, "detail");
+  }).observe(detail, { attributes: true, attributeFilter: ["open", "data-id"] });
+}
+
 async function main() {
   translateDom();
   $("version-info").textContent = `· ${t("algorithm")} v${ALGORITHM_VERSION}`;
   initImport();
   initTabs();
   initMotion();
+  initBackdrop();
+  initBackdropHeat();
   initLibrary({ openDetail });
   initDetail();
   initCorrection();

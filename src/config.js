@@ -8,7 +8,7 @@ import { t } from "./i18n/index.js";
  * Bump it whenever the scoring changes: stored tracks whose version differs are
  * re-scored automatically from their cached features, without re-decoding audio.
  */
-export const ALGORITHM_VERSION = "2.4";
+export const ALGORITHM_VERSION = "2.4.1";
 
 /**
  * Version of the feature extractor (audio -> raw features).
@@ -146,8 +146,8 @@ export const CALIBRATION = [
   [1.0, 125],    // 2.2: no ceiling at 100, what goes beyond is "Off the charts"
 ];
 
-/** Highest possible score. Scores above 100 are "Off the charts". The calibration ends at
- * 125; only the attack-rate points (and manual scores) go further. */
+/** Top of the dial (gauges, guess games). Scores above 100 are "Off the charts". The
+ * calibration ends at 125; the attack-rate points and manual scores go further, unbounded. */
 export const SCORE_MAX = 150;
 
 /**
@@ -191,7 +191,10 @@ export const STAGES = [
   { min: 100, label: t("Off the charts") },
 ];
 
+const BEYOND = { min: SCORE_MAX, label: "???" };
+
 export function stageFor(score) {
+  if (score > SCORE_MAX) return BEYOND;
   let stage = STAGES[0];
   for (const s of STAGES) if (score >= s.min) stage = s;
   return stage;

@@ -36,7 +36,7 @@ export const BG_FS = `${HEAD}
 in vec2 v_uv;
 out vec4 o;
 uniform vec2 u_res;
-uniform float u_time, u_travel, u_heat, u_hot, u_turb, u_kick, u_bass, u_tunnel, u_idle, u_sparkle;
+uniform float u_time, u_travel, u_heat, u_hot, u_turb, u_kick, u_bass, u_tunnel, u_idle, u_sparkle, u_tension;
 uniform vec3 u_base, u_accent, u_shadow;
 ${NOISE}
 void main() {
@@ -64,7 +64,14 @@ void main() {
   tun += u_accent * (streak + rings * (.12 + .7 * u_kick)) * fog * fog;
   tun += mix(u_accent, vec3(1.), .5) * .5 / (1. + rad * rad * 160.) * (.4 + u_bass);
 
-  vec3 col = mix(neb, tun, u_tunnel);
+  vec3 col = mix(neb, tun, max(u_tunnel, u_tension * .8));
+  // build-up: rings of light converging on the centre, faster and faster
+  if (u_tension > 0.) {
+    float conv = fract(z * .35 + u_time * (.4 + 2.6 * u_tension * u_tension));
+    float riser = pow(conv, 22.) * fog * u_tension;
+    float spokes = pow(abs(sin(ang * 3.14159 * 24. + u_time * .5)), 30.) * u_tension * u_tension * fog;
+    col += mix(u_accent, vec3(1.), .4) * (riser * 1.1 + spokes * .35);
+  }
   // light at the centre, breathing with the bass
   col += u_accent * .10 * (u_bass + u_kick) / (1. + rad * 6.);
   // white hot past 100
@@ -84,8 +91,9 @@ in vec2 v_uv;
 out vec4 o;
 uniform sampler2D u_prev, u_data;
 uniform vec2 u_res;
-uniform float u_time, u_zoom, u_rot, u_decay, u_fade, u_turb, u_heat, u_hot, u_kick, u_loud, u_ringR, u_ringH, u_idle;
-uniform vec2 u_shock; // age (s), strength of the last kick
+uniform float u_time, u_zoom, u_rot, u_decay, u_fade, u_turb, u_heat, u_hot, u_kick, u_loud, u_ringR, u_ringH, u_idle, u_tension;
+uniform vec2 u_shock;  // age (s), strength of the last kick
+uniform vec2 u_shock2; // age (s), strength of the last drop / section change
 uniform vec3 u_base, u_accent;
 ${NOISE}
 void main() {
@@ -94,6 +102,14 @@ void main() {
   float s = sin(u_rot), k = cos(u_rot);
   vec2 cw = mat2(k, -s, s, k) * c * u_zoom;
   cw += (vec2(vnoise(c * 2.5 + u_time * .35), vnoise(c * 2.5 + 7.1 - u_time * .3)) - .5) * .006 * u_turb;
+  // the big shockwave refracts what it crosses
+  float big = 0.;
+  float bigR = u_ringR + u_shock2.x * (.9 + .6 * u_heat);
+  if (u_shock2.y > 0. && u_shock2.x < 2.5) {
+    float bd = length(c) - bigR;
+    big = exp(-bd * bd * 900.) * u_shock2.y * exp(-u_shock2.x * 1.4);
+    cw *= 1. - big * .06;
+  }
   vec2 puv = cw / vec2(asp, 1.) + .5;
   vec3 prev = texture(u_prev, puv).rgb;
   if (isnan(prev.r + prev.g + prev.b)) prev = vec3(0.); // never let a bad value live on in the feedback
@@ -129,6 +145,20 @@ void main() {
     float sd = abs(rad - sr) / px;
     float sw = (smoothstep(3., 0., sd) + .35 * exp(-sd * .08)) * u_shock.y * exp(-u_shock.x * 3.2);
     col += mix(u_accent, vec3(1.), .5 + .5 * u_hot) * sw * 1.4;
+  }
+  if (big > 0.) {
+    // thick ring with a chromatic fringe
+    float bd = (rad - bigR) / px;
+    float fr = u_shock2.y * exp(-u_shock2.x * 1.4);
+    col += vec3(1., .35, .6) * smoothstep(9., 0., abs(bd + 5.)) * fr * .9;
+    col += vec3(.35, .8, 1.) * smoothstep(9., 0., abs(bd - 5.)) * fr * .9;
+    col += vec3(1.) * smoothstep(4., 0., abs(bd)) * fr * 1.3;
+  }
+  // tension: the ring charges up (a bright inner rim that trembles)
+  if (u_tension > 0.) {
+    float rimR = u_ringR * (.78 + .02 * sin(u_time * 40.) * u_tension);
+    float rd = abs(rad - rimR) / px;
+    col += mix(u_accent, vec3(1.), .6) * smoothstep(3., 0., rd) * u_tension * 1.2;
   }
 
   // max, not sum: trails never pile up into a white-out, whatever the frame rate
@@ -250,14 +280,20 @@ in vec2 v_uv;
 out vec4 o;
 uniform sampler2D u_bg, u_trail, u_b1, u_b2;
 uniform vec2 u_res, u_shake;
-uniform float u_time, u_ca, u_bloom, u_exposure, u_hot, u_flash, u_grain, u_glitch, u_idle;
+uniform vec4 u_cam; // x, y offset; zoom; roll (radians)
+uniform float u_time, u_ca, u_bloom, u_exposure, u_hot, u_flash, u_grain, u_glitch, u_idle, u_tension;
 uniform vec3 u_accent;
 float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 vec3 scene(vec2 uv) {
   return texture(u_bg, uv).rgb + texture(u_trail, uv).rgb + u_bloom * (texture(u_b1, uv).rgb * .55 + texture(u_b2, uv).rgb * .8);
 }
 void main() {
-  vec2 uv = v_uv + u_shake;
+  // camera: roll and zoom around the centre (aspect-correct), then shake and offset
+  float asp = u_res.x / u_res.y;
+  vec2 cp = (v_uv - .5) * vec2(asp, 1.);
+  float cs = cos(u_cam.w), sn = sin(u_cam.w);
+  cp = mat2(cs, -sn, sn, cs) * cp / u_cam.z;
+  vec2 uv = cp / vec2(asp, 1.) + .5 + u_shake + u_cam.xy;
   // glitch: horizontal slices jump sideways, a few frames at a time
   if (u_glitch > 0.) {
     float tick = floor(u_time * 14.);
@@ -280,8 +316,12 @@ void main() {
   col = mix(col, vec3(l) * vec3(1.08, 1., .92) + l * l * .6, u_hot * .5);
   // flash: an exposure pump plus a little light (bright parts flare, the darks stay dark)
   col = col * (1. + u_flash * .9) + u_flash * mix(u_accent, vec3(1.), .7) * .18;
-  float vig = smoothstep(1.25, .35, length((v_uv - .5) * vec2(u_res.x / u_res.y, 1.) * 1.05));
-  col *= mix(.35, 1., vig);
+  // tension: colours drain towards the edges, the vignette closes in
+  float lt = dot(col, vec3(.3, .55, .15));
+  float edgeD = length((v_uv - .5) * vec2(asp, 1.));
+  col = mix(col, vec3(lt), u_tension * .55 * smoothstep(.1, .6, edgeD));
+  float vig = smoothstep(1.25 - .45 * u_tension, .35 - .2 * u_tension, edgeD * 1.05);
+  col *= mix(.35 - .25 * u_tension, 1., vig);
   col += (hash12(v_uv * u_res + fract(u_time * 7.3) * 91.) - .5) * u_grain;
   // scanlines past 100
   col *= 1. - u_hot * .12 * step(.5, fract(v_uv.y * u_res.y * .5));

@@ -33,6 +33,24 @@ export const engine = {
   _startOffset: 0,
   _cursor: null,
   _scheduledUntil: 0,
+  _taps: new Set(),
+
+  /** The shared AudioContext (created on first use). */
+  get context() { return audioCtx(); },
+
+  /**
+   * Listens to the music output (after the volume, before the speakers): an
+   * AnalyserNode of this engine's context stays connected across play / stop
+   * / seek until removeTap. Zero latency: it is the source.
+   */
+  addTap(node) {
+    this._taps.add(node);
+    try { this._nodes?.music.connect(node); } catch { /* another context */ }
+  },
+  removeTap(node) {
+    this._taps.delete(node);
+    try { this._nodes?.music.disconnect(node); } catch { /* not connected */ }
+  },
 
   /** Decodes a file once per session (by id). */
   async load(id, file) {
@@ -67,6 +85,7 @@ export const engine = {
     const cues = c.createGain();
     cues.gain.value = this.cueVolume;
     music.connect(c.destination);
+    for (const tap of this._taps) music.connect(tap);
     cues.connect(c.destination);
 
     const src = c.createBufferSource();
