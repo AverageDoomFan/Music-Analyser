@@ -16,12 +16,12 @@
 // account page says the online features are not set up.
 
 export const FIREBASE_CONFIG = {
-  apiKey: "",
-  authDomain: "",
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: "",
+  apiKey: "AIzaSyDWMMIDl8FTTdJ1gRRk7gTEXJVM1uT76jM",
+  authDomain: "music-analyser-385a1.firebaseapp.com",
+  projectId: "music-analyser-385a1",
+  storageBucket: "music-analyser-385a1.firebasestorage.app",
+  messagingSenderId: "945881913184",
+  appId: "1:945881913184:web:306e27f68b1d1cdd2ef005",
 };
 
 /** reCAPTCHA v3 site key for App Check (empty: App Check off). */
