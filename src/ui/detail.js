@@ -5,7 +5,7 @@ import { moodLabel, lyricsEffect, dynamicsScore } from "../scoring/describe.js";
 import { aggregate } from "../scoring/aggregate.js";
 import { renderTimeline } from "./charts.js";
 import { state, subscribe } from "../app/store.js";
-import { statusOf, needsReanalysis } from "../core/track.js";
+import { statusOf, needsReanalysis, communityScore } from "../core/track.js";
 import * as ctl from "../app/controller.js";
 import { formatDuration, formatSize, formatScore, formatDate, escapeHtml } from "../util/format.js";
 import { questionById } from "../scoring/correction.js";
@@ -14,9 +14,13 @@ import { toast } from "./toast.js";
 import { intensityColor } from "./live-draw.js";
 import { player } from "./player.js";
 import { openInRhythm } from "./rhythm.js";
-import { t } from "../i18n/index.js";
+import { t, tn } from "../i18n/index.js";
 import { rescanRecord } from "./live.js";
 import { openConcert } from "./concert.js";
+import { cloudConfigured } from "../cloud/firebase.js";
+import { isSignedIn } from "../cloud/account.js";
+import { sidOf } from "../cloud/tracks.js";
+import { desiredVote, refreshCommunity } from "../cloud/sync.js";
 
 const dialog = () => document.getElementById("detail-dialog");
 let currentId = null;
@@ -107,6 +111,9 @@ export function initDetail() {
         render(true);
         break;
       }
+      case "vote": await ctl.validateScore(id, true); toast(t("Vote saved: this score counts in the community score.")); break;
+      case "unvote": await ctl.validateScore(id, false); break;
+      case "go-account": d.close(); document.getElementById("tab-stats")?.click(); break;
       case "validate-draft": await ctl.validateDraft(id); toast(t("Draft validated: the track now counts in stats and games.")); break;
       case "delete":
         if (confirm(t("Delete “{name}” and its corrections from the local database?", { name: r.name }))) {
@@ -127,6 +134,8 @@ export function initDetail() {
 
 export function openDetail(id) {
   if (!state.records.has(id)) return;
+  // fresh community score for the track looked at
+  if (isSignedIn() && sidOf(state.records.get(id))) refreshCommunity({ ids: [id] }).catch(() => {});
   seriesKey = "intensity";
   if (currentId !== id) reportOpen = false;
   currentId = id;
@@ -168,6 +177,7 @@ function render(force = false) {
       ${needsReanalysis(r) ? `<div class="notice">${t("Features extracted by an older version of the analysis ({v}). The score stays valid; analyse the track again to use the new measures.", { v: escapeHtml(r.featureVersion) })}</div>` : ""}
       ${reportOpen && auto ? reportBlock(r) : ""}
       ${auto ? scoreBlock(r, final) : `<p class="muted">${t("Not analysed yet.")}</p>`}
+      ${auto ? communityBlock(r) : ""}
       ${auto ? musicBlock(r, canPlay) : ""}
       ${auto ? genreBlock(r) : ""}
       ${auto ? lyricsBlock(r) : ""}
@@ -390,7 +400,7 @@ function scoreBlock(r, final) {
   return `
     <div class="score-head" style="--sc:${intensityColor(final)}">
       <span class="big-score">${formatScore(final)}</span>
-      <span><strong>${stageFor(final).label}</strong><br><span class="muted small">${statusOf(r) === "corrected" ? t("automatic: {n}", { n: formatScore(auto) }) : t("automatic score")} · ${t("{agg} of the curve", { agg: escapeHtml(AGGREGATIONS.find((a) => a.key === r.auto.aggregation)?.label ?? "") })} · ${t("algorithm")} v${escapeHtml(r.auto.algorithmVersion)}</span></span>
+      <span><strong>${stageFor(final).label}</strong><br><span class="muted small">${statusOf(r) === "corrected" ? t("automatic: {n}", { n: formatScore(auto) }) : communityScore(r) != null ? t("community score · automatic: {n}", { n: formatScore(auto) }) : t("automatic score")} · ${t("{agg} of the curve", { agg: escapeHtml(AGGREGATIONS.find((a) => a.key === r.auto.aggregation)?.label ?? "") })} · ${t("algorithm")} v${escapeHtml(r.auto.algorithmVersion)}</span></span>
     </div>
     <div class="intensity" aria-hidden="true">
       <div class="intensity-scale">
@@ -485,5 +495,29 @@ function reportBlock(r) {
       <button class="btn" data-action="report-download">${t("Save and download")}</button>
       <button class="btn ghost" data-action="report">${t("Cancel")}</button>
     </div>
+  </div>`;
+}
+
+/**
+ * Shared database line: community score (mean of the votes), my vote, and
+ * "I agree with this score" (a vote without changing anything).
+ */
+function communityBlock(r) {
+  if (!cloudConfigured() || !sidOf(r) || r.draft) return "";
+  if (!isSignedIn()) {
+    return `<div class="community-line muted small">${t("Sign in to share this analysis and vote on its score.")} <button class="linklike" data-action="go-account">${t("Account")}</button></div>`;
+  }
+  const c = r.cloud?.community;
+  const mine = desiredVote(r);
+  const why = r.manual ? t("your manual score") : r.correction ? t("your correction") : r.cloud?.validated != null ? t("you agreed with it") : null;
+  const pill = (v) => `<span class="score-pill" style="background:${intensityColor(v)}">${Math.round(v)}</span>`;
+  return `<div class="community-line">
+    <span class="community-ico" aria-hidden="true">◎</span>
+    <span>${c?.n ? `${t("Community score")} ${pill(c.mean)} <span class="muted small">${tn(c.n, "{n} vote", "{n} votes")}</span>` : `<span class="muted">${t("No vote yet on this track.")}</span>`}</span>
+    <span class="muted small">${mine != null ? t("Your vote: {v} ({why})", { v: mine, why }) : r.cloud?.shared ? t("Shared track: everyone who adds it gets it without analysing.") : ""}</span>
+    <span class="spacer"></span>
+    ${r.manual || r.correction ? "" : r.cloud?.validated != null
+      ? `<button class="btn small" data-action="unvote">${t("Withdraw my vote")}</button>`
+      : `<button class="btn small" data-action="vote" title="${escapeHtml(t("Counts as a vote for the score shown, without changing it."))}">${t("I agree with this score")}</button>`}
   </div>`;
 }

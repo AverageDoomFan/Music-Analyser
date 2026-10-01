@@ -16,6 +16,8 @@
 //   extGenres: null | { source: "musicbrainz" | "lastfm" | "spotify" (older), genres, weights, mbid, at },
 //   finalScore, valence, history: [{ at, kind, score, algorithmVersion }]
 //   draft: boolean          // Live "follow" capture heard < 60 %: kept out of stats and games until validated
+//   cloud: null | { shared: extractor code of the shared entry, community: null | { mean, n } (votes of every user),
+//                   vote: my vote as stored online, validated: score I agreed with (a vote), at }
 // }
 
 import { ALGORITHM_VERSION, FEATURE_VERSION, DEFAULT_WEIGHTS, DEFAULT_AGGREGATION } from "../config.js";
@@ -117,10 +119,23 @@ export function setManualScore(record, value) {
   pushHistory(record, value == null ? "manual score removed" : "manual score", record.finalScore);
 }
 
-/** Manual score wins; otherwise correction (or automatic) score shifted by the lyrics rating. */
+let useCommunity = true;
+/** Whether the community score (mean of everyone's votes) replaces the automatic one. */
+export const setUseCommunity = (on) => { useCommunity = !!on; };
+
+/** The community score that applies to a record (null when none or turned off). */
+export const communityScore = (record) => (useCommunity && record?.cloud?.community?.n > 0 && Number.isFinite(record.cloud.community.mean) ? record.cloud.community.mean : null);
+
+/**
+ * Manual score wins; then the correction; then the community score (the votes
+ * already include each voter's own adjustments); otherwise the automatic score.
+ * The correction and automatic scores are shifted by the lyrics rating.
+ */
 export function computeFinal(record) {
   record.valence = computeValence(record);
   if (record.manual) return record.manual.score;
+  const community = record.correction ? null : communityScore(record);
+  if (community != null && record.auto) return community;
   const base = record.correction ? record.correction.score : record.auto ? record.auto.score : null;
   if (base == null) return null;
   const d = lyricsEffect(record.lyrics).intensity;

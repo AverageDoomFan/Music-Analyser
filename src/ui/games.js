@@ -25,6 +25,7 @@ import { dateKey, shiftDay, dailyQuery, pickDaily, dailyPoints, verdictOf, daily
 import { dialValueAt } from "../games/dial.js";
 import { intensityColor, drawGauge, gaugeState, stepGauge } from "./live-draw.js";
 import { toast } from "./toast.js";
+import { postGames } from "../cloud/sync.js";
 
 const $ = (id) => document.getElementById(id);
 const STATS_KEY = "mea.games.stats";
@@ -67,6 +68,17 @@ function loadStats() {
 }
 function saveStats() {
   try { localStorage.setItem(STATS_KEY, JSON.stringify(g.stats)); } catch { /* ignore */ }
+  postBoards();
+}
+
+/** The leaderboards (when signed in) get the totals, a little after the last change. */
+let boardTimer = 0;
+function postBoards() {
+  clearTimeout(boardTimer);
+  boardTimer = setTimeout(() => {
+    const results = loadDaily().results;
+    postGames({ stats: g.stats, dailyResults: results, bestDailyStreak: bestStreak(results), today: dateKey() });
+  }, 3000);
 }
 function loadDaily() {
   try {
@@ -581,6 +593,7 @@ function revealDaily() {
   };
   store.results[d.key] = d.result;
   saveDaily(store);
+  postBoards();
   d.phase = "done";
   g.shownAt = performance.now();
   render();

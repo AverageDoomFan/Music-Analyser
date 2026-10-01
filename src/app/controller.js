@@ -10,7 +10,7 @@ import { analyzeAudio } from "../audio/analyzer.js";
 import { readTags } from "../util/tags.js";
 import {
   createRecord, applyFeatures, rescore, commitCorrection, clearCorrection, setManualScore,
-  setLyricsRating, setVocals, isDraft,
+  setLyricsRating, setVocals, isDraft, computeFinal,
 } from "../core/track.js";
 import { lookupTrackGenres } from "../util/musicbrainz.js";
 import { lastfmGenres } from "../util/lastfm.js";
@@ -24,6 +24,14 @@ import { buildProgression as buildOrder, buildGroupedProgression as buildGrouped
 import { t } from "../i18n/index.js";
 
 const PIPELINE_CONCURRENCY = 2;
+
+/**
+ * Events for the online account (src/cloud/sync.js), detail = { id }:
+ *   "analysed"   a Spotify track was captured and analysed here (to share it)
+ *   "user-score" the user changed a track's score (correction, manual score, lyrics: a vote)
+ */
+export const events = new EventTarget();
+const emit = (type, id) => events.dispatchEvent(new CustomEvent(type, { detail: { id } }));
 let running = 0;
 const pending = [];
 let jobSeq = 0;
@@ -230,18 +238,21 @@ export async function saveCorrection(id, answers) {
   const r = state.records.get(id);
   commitCorrection(r, answers, scoring());
   await save(r);
+  emit("user-score", id);
 }
 
 export async function removeCorrection(id) {
   const r = state.records.get(id);
   clearCorrection(r);
   await save(r);
+  emit("user-score", id);
 }
 
 export async function setManual(id, value) {
   const r = state.records.get(id);
   setManualScore(r, value);
   await save(r);
+  emit("user-score", id);
 }
 
 // ---------- lyrics & vocals ----------
@@ -252,6 +263,7 @@ export async function setLyrics(id, rating) {
   if (!r) return;
   setLyricsRating(r, rating);
   await save(r);
+  emit("user-score", id);
 }
 
 export async function setVocalState(id, value) {
@@ -584,10 +596,13 @@ export async function saveRhythm(id, rhythm) {
 }
 
 export async function deleteTrack(id) {
+  const r = state.records.get(id);
   state.records.delete(id);
   state.files.delete(id);
   await db.deleteTrack(id);
   notify();
+  // a removed track takes my vote with it
+  if (r?.cloud?.vote != null) events.dispatchEvent(new CustomEvent("removed", { detail: { id, record: r } }));
 }
 
 async function save(r) {
@@ -883,7 +898,71 @@ export async function saveCaptured(track, features, info) {
   applyFeatures(record, features, scoring());
   await save(record);
   scheduleGenreFetch();
+  if (!record.draft && !track.demo) emit("analysed", id);
   return record;
+}
+
+/**
+ * Adds (or refreshes) a Spotify track from the shared database: the measures
+ * were analysed by someone else, the score is computed here with my settings.
+ * `track`: Spotify track (scanner shape) or null; `meta`: the shared entry.
+ */
+export async function saveShared(track, features, meta) {
+  const id = `spotify:${meta.id}`;
+  const artists = track?.artists?.length ? track.artists : String(meta.a ?? "").split(", ").filter(Boolean);
+  const title = track?.name ?? meta.t;
+  const name = `${artists.join(", ") || "?"} - ${title}`;
+  const record = state.records.get(id) ?? createRecord({ id, hashAlgorithm: "spotify-id", name, size: null, type: "spotify", lastModified: null });
+  record.name = name;
+  record.source = {
+    kind: "spotify", trackId: meta.id, uri: track?.uri ?? `spotify:track:${meta.id}`, url: track?.url ?? `https://open.spotify.com/track/${meta.id}`,
+    image: track?.image ?? null, mode: meta.mode ?? null, coverage: meta.cov ?? null,
+    capturedAt: meta.at?.toMillis?.() ?? Date.now(), cloud: true,
+  };
+  if (track?.artistIds?.length) record.source.artistIds = track.artistIds;
+  record.draft = false;
+  record.tags = { title, artist: artists.join(", "), album: track?.album ?? "", isrc: track?.isrc ?? meta.isrc ?? null, source: "spotify" };
+  record.cloud = { ...(record.cloud ?? {}), shared: meta.fv, community: meta.vc ? { mean: meta.mean, n: meta.vc } : null, at: Date.now() };
+  state.records.set(id, record);
+  applyFeatures(record, features, scoring());
+  await save(record);
+  scheduleGenreFetch();
+  return record;
+}
+
+/** Stores the community score of a shared track (and what is known of my vote). */
+export async function setCloudInfo(id, info) {
+  const r = state.records.get(id);
+  if (!r) return;
+  const prev = r.finalScore;
+  r.cloud = { ...(r.cloud ?? {}), ...info, at: Date.now() };
+  r.finalScore = computeFinal(r);
+  if (r.finalScore !== prev) {
+    r.updatedAt = Date.now();
+    r.history = [...(r.history ?? []), { at: Date.now(), kind: "community", score: r.finalScore, algorithmVersion: ALGORITHM_VERSION }].slice(-30);
+  }
+  await save(r);
+}
+
+/** "I agree with this score": a vote for the current score (null: withdraw it). */
+export async function validateScore(id, on = true) {
+  const r = state.records.get(id);
+  if (!r) return;
+  r.cloud = { ...(r.cloud ?? {}), validated: on && r.finalScore != null ? Math.round(r.finalScore) : null };
+  await save(r);
+  emit("user-score", id);
+}
+
+/** Recomputes every final score (the "use community scores" setting changed). */
+export async function refreshFinals() {
+  const changed = [];
+  for (const r of state.records.values()) {
+    const prev = r.finalScore;
+    r.finalScore = computeFinal(r);
+    if (r.finalScore !== prev) changed.push(r);
+  }
+  if (changed.length) await db.putTracks(changed);
+  notify();
 }
 
 /** Captured record of a track, if it is analysed with the current extractor (drafts included when asked). */

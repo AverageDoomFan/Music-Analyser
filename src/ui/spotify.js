@@ -10,6 +10,7 @@ import * as api from "../spotify/api.js";
 import { matchPlaylist, candidatesFor } from "../spotify/match.js";
 import { formatDuration, formatScore, escapeHtml } from "../util/format.js";
 import { toast } from "./toast.js";
+import { importKnown } from "../cloud/sync.js";
 import { playlistPoints, playlistStats, drawMap, compareHtml } from "./playlist-insights.js";
 import { t, tn } from "../i18n/index.js";
 
@@ -157,6 +158,10 @@ async function importPlaylist() {
     sp.order = null;
     rematch();
     ctl.scheduleGenreFetch();
+    // tracks already in the shared database join the library right away
+    importKnown(tracks).then((n) => {
+      if (n) toast(tn(n, "{n} track loaded from the shared database: no need to analyse it.", "{n} tracks loaded from the shared database: no need to analyse them."));
+    }).catch(() => {});
   } catch (err) {
     $("sp-import-status").textContent = "";
     toast(err.message, "error");

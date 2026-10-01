@@ -1,0 +1,65 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "profiles",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "public", "order": "ASCENDING" },
+        { "fieldPath": "nameLower", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "votes",
+      "fieldPath": "u",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    },
+    {
+      "collectionGroup": "entries",
+      "fieldPath": "u",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    },
+    {
+      "collectionGroup": "features",
+      "fieldPath": "z",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "libraries",
+      "fieldPath": "ids",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "libraries",
+      "fieldPath": "duel",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "private",
+      "fieldPath": "log",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "profiles",
+      "fieldPath": "lib",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "profiles",
+      "fieldPath": "lis",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "tracks",
+      "fieldPath": "sub",
+      "indexes": []
+    }
+  ]
+}

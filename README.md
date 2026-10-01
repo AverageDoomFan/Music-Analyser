@@ -50,6 +50,42 @@ Tests (Node ≥ 20): `npm test` — feature extraction and score ordering on syn
 - **Option A**: Settings → Pages → Source “GitHub Actions”. The `.github/workflows/pages.yml` workflow runs the tests then deploys on every push to `main`. It also adds `?v=<commit>` to every module URL (`scripts/stamp-version.mjs`): after a deployment, the browser cannot mix a new page with modules left in cache.
 - **Option B**: Settings → Pages → “Deploy from a branch”, `main` branch, `/ (root)` folder. The site is served as is, without tests or versioning: after an update, a hard reload (Ctrl+Shift+R) may be needed.
 
+## Online account (Firebase)
+
+Optional. Without a Firebase project the app stays fully local, as before. With one, the **Account** tab (it replaces Stats and keeps its listening, library and duel views) adds:
+
+- **Sign-in** with email + password or Google; a profile name, **public or private** (chosen at sign-up, changed in the Account card or in Settings).
+- **Shared track database**: every Spotify track captured while signed in is stored once, keyed by its Spotify id (title, artist, automatic score with default weights, and the packed measures: a few KB per track). A playlist import, a Live scan, the follow mode and the games load tracks already in the database instead of analysing them. A track is replaced only by a newer extractor version, or by a capture that heard clearly more of it.
+- **Votes**: a correction or a manual score on a shared track is a vote; "I agree with this score" in the track details votes for the current score; a track added without touching its score is not a vote. A track with votes takes the mean of the votes (setting "Use community scores"); your own correction or manual score always wins on your side.
+- **Search** the database (tracks, then "Add to library" with no analysis) and public users.
+- **Friends** by friend code (8 characters, regenerable). Friends see each other's page even when private, and the duel uses their online profile (no file to swap; the file import still works).
+- **Public leaderboards** for every game (today's daily track, daily total, guess the score, which is harder, find this score). Private accounts show as "private user".
+- **Account pages**: library and listening summaries, readable by anyone when public, by friends when private.
+- Your listening log is backed up privately and merged into another browser on sign-in. "Delete my account" removes everything (shared analyses stay, they hold no personal data).
+
+### What protects the data
+
+The Firebase web config in `src/cloud/config.js` is public by design. Safety comes from `firebase/firestore.rules`: every write is checked field by field (own documents only, vote counters that move by exactly the vote written in the same batch, friendships that need the other person's code, leaderboards that only go up, sizes capped). The rules are tested on the emulator:
+
+```
+npm i --no-save firebase@12 @firebase/rules-unit-testing firebase-tools
+npx firebase emulators:exec --only firestore --project demo-mea "node --test firebase/rules.test.mjs"
+```
+
+Stored data stays small: no audio, lyrics or cover art; votes are integers; library and listening data are gzipped. A client could still upload made-up measures for a track or claim a game score it did not earn: without a server (Cloud Functions, paid plan) that cannot be fully prevented, only bounded by the rules.
+
+### Setup (once, in the Firebase console)
+
+1. console.firebase.google.com › Add project (Analytics not needed). Plan Spark (free) is enough.
+2. Build › Authentication › Get started › Sign-in method: enable **Email/Password** and **Google**. Settings › Authorized domains: add `averagedoomfan.github.io` (keep `localhost`).
+3. Build › Firestore Database › Create database (production mode, a region near you).
+4. Firestore › Rules: paste `firebase/firestore.rules`, Publish. Indexes: create the composite index of `firebase/firestore.indexes.json` (collection `profiles`: `public` ascending, `nameLower` ascending) and the single-field exemptions (`votes.u` and `entries.u` with collection group scope). With the Firebase CLI instead: `npx firebase deploy --only firestore --project <id>` does both.
+5. Project settings › Your apps › Web app (`</>`), no Hosting: copy the `firebaseConfig` values into `src/cloud/config.js`, commit.
+6. Recommended: Google Cloud console › APIs & Services › Credentials › the "Browser key": Application restrictions › Websites › `https://averagedoomfan.github.io/*` (and `http://localhost:*/*` for local tests).
+7. Optional: App Check › reCAPTCHA v3 › register the site, put the site key in `APP_CHECK_SITE_KEY`, then enforce App Check for Firestore and Authentication once it shows verified requests.
+
+Local tests against the emulators: `npx firebase emulators:start --only auth,firestore --project demo-mea`, then in the browser console `localStorage.setItem("mea.firebase.dev", JSON.stringify({ projectId: "demo-mea", host: "127.0.0.1" }))` and reload.
+
 ## Architecture
 
 ```

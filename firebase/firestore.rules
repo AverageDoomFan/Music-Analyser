@@ -1,0 +1,234 @@
+rules_version = '2';
+
+// Security rules of the Music Energy Analyzer database.
+//
+// The web app is public (GitHub Pages) and so is its Firebase config: these
+// rules are what protects the data. Every write is checked here, field by
+// field. Nothing a browser sends is trusted beyond what is checked below.
+//
+// Collections
+//   profiles/{uid}                 public card: name, public flag, stats summary
+//   profiles/{uid}/friends/{fid}   one doc per friend (written on both sides)
+//   private/{uid}                  owner only: friend code, listening log backup
+//   codes/{code}                   friend code -> uid (get only, never listed)
+//   libraries/{uid}                Spotify ids of the library + duel profile
+//   tracks/{spotifyId}             shared analysis: metadata, automatic score, vote counters
+//   tracks/{spotifyId}/votes/{uid} one vote per user (integer score)
+//   features/{spotifyId}           packed measures (gzip), to rescore without the audio
+//   boards/{board}/entries/{uid}   best value per user and game (public leaderboards)
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- helpers ----------
+
+    function signedIn() { return request.auth != null; }
+    function isMe(uid) { return signedIn() && request.auth.uid == uid; }
+    function doc(path) { return /databases/$(database)/documents/$(path); }
+    function isFriendOf(uid) {
+      return signedIn() && exists(/databases/$(database)/documents/profiles/$(uid)/friends/$(request.auth.uid));
+    }
+    function isPublic(uid) {
+      return get(/databases/$(database)/documents/profiles/$(uid)).data.public == true;
+    }
+    function data() { return request.resource.data; }
+    function changed() { return data().diff(resource.data).affectedKeys(); }
+    function isInt(x, lo, hi) { return x is int && x >= lo && x <= hi; }
+    function isNum(x, lo, hi) { return (x is int || x is float) && x >= lo && x <= hi; }
+    function isStr(x, lo, hi) { return x is string && x.size() >= lo && x.size() <= hi; }
+    function optNum(m, k, lo, hi) { return !(k in m) || m[k] == null || isNum(m[k], lo, hi); }
+    function optStr(m, k, hi) { return !(k in m) || m[k] == null || isStr(m[k], 0, hi); }
+
+    // ---------- profiles ----------
+
+    function validProfile(d) {
+      return d.keys().hasOnly(['name', 'nameLower', 'public', 'createdAt', 'updatedAt', 'lib', 'lis'])
+        && isStr(d.name, 2, 30)
+        && d.nameLower == d.name.lower()
+        && d.public is bool
+        && d.createdAt is timestamp
+        && d.updatedAt == request.time
+        && (!('lib' in d) || d.lib == null || d.lib is map)
+        && (!('lis' in d) || d.lis == null || d.lis is map);
+    }
+
+    match /profiles/{uid} {
+      allow get: if resource.data.public == true || isMe(uid) || isFriendOf(uid);
+      // user search: only public profiles can be listed (the query must say public == true)
+      allow list: if resource.data.public == true;
+      allow create: if isMe(uid) && validProfile(data()) && data().createdAt == request.time;
+      allow update: if isMe(uid) && validProfile(data()) && data().createdAt == resource.data.createdAt;
+      allow delete: if isMe(uid);
+
+      // Friendship = one doc on each side, written together by the person who
+      // typed the friend code. `via` is that code: it must belong to the other
+      // person, which proves they handed it out.
+      match /friends/{fid} {
+        function validFriend(d) {
+          return d.keys().hasOnly(['at', 'via']) && d.at == request.time && isStr(d.via, 8, 8);
+        }
+        function codeOwner(code) { return get(/databases/$(database)/documents/codes/$(code)).data.uid; }
+        allow read: if isMe(uid) || isMe(fid);
+        allow create: if signedIn() && uid != fid && validFriend(data())
+          && ((isMe(uid) && codeOwner(data().via) == fid)
+              || (isMe(fid) && codeOwner(data().via) == uid));
+        // either friend can end the friendship (both docs)
+        allow delete: if isMe(uid) || isMe(fid);
+      }
+    }
+
+    // ---------- private data (owner only) ----------
+
+    match /private/{uid} {
+      allow read, delete: if isMe(uid);
+      allow create, update: if isMe(uid)
+        && data().keys().hasOnly(['code', 'log', 'logCount', 'logAt'])
+        && (!('code' in data()) || data().code == null || isStr(data().code, 8, 8))
+        && (!('log' in data()) || data().log == null || (data().log is bytes && data().log.size() <= 900000))
+        && optNum(data(), 'logCount', 0, 1000000)
+        && (!('logAt' in data()) || data().logAt == request.time);
+    }
+
+    match /codes/{code} {
+      // a code can be checked when you know it; the list of codes is never readable
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn() && code.matches('^[A-HJ-NP-Z2-9]{8}$')
+        && data().keys().hasOnly(['uid', 'at']) && data().uid == request.auth.uid && data().at == request.time;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+      allow update: if false;
+    }
+
+    // ---------- libraries ----------
+
+    match /libraries/{uid} {
+      allow read: if isMe(uid) || isFriendOf(uid) || isPublic(uid);
+      allow create, update: if isMe(uid)
+        && data().keys().hasOnly(['ids', 'n', 'at', 'duel'])
+        && data().ids is list && data().ids.size() <= 20000
+        && isInt(data().n, 0, 100000)
+        && data().at == request.time
+        && (!('duel' in data()) || data().duel == null || (data().duel is bytes && data().duel.size() <= 900000));
+      allow delete: if isMe(uid);
+    }
+
+    // ---------- shared tracks ----------
+
+    // Spotify track ids: 22 base-62 characters.
+    function validSid(sid) { return sid.matches('^[0-9A-Za-z]{22}$'); }
+
+    function validTrackMeta(d) {
+      return d.keys().hasOnly(['t', 'a', 'kw', 'd', 'isrc', 'v', 'fv', 'alg', 's', 'sub', 'bpm', 'key', 'cov', 'mode', 'by', 'at', 'vs', 'vc'])
+        && isStr(d.t, 1, 200) && isStr(d.a, 0, 300)
+        && d.kw is list && d.kw.size() <= 24
+        && isNum(d.d, 0, 36000)
+        && optStr(d, 'isrc', 15)
+        && isStr(d.v, 1, 10) && isInt(d.fv, 1, 999999) && isStr(d.alg, 1, 10)
+        && isNum(d.s, 0, 1000)
+        && d.sub is map && d.sub.size() <= 16
+        && optNum(d, 'bpm', 0, 2000)
+        && optStr(d, 'key', 12)
+        && isNum(d.cov, 0, 1)
+        && optStr(d, 'mode', 20)
+        && d.by == request.auth.uid
+        && d.at == request.time;
+    }
+
+    function featuresWritten(sid, fv) {
+      return getAfter(/databases/$(database)/documents/features/$(sid)).data.fv == fv
+        && getAfter(/databases/$(database)/documents/features/$(sid)).data.at == request.time;
+    }
+
+    match /tracks/{sid} {
+      allow read: if signedIn();
+
+      // first analysis: counters start at zero, the packed measures come in the same batch
+      allow create: if signedIn() && validSid(sid) && validTrackMeta(data())
+        && data().vs == 0 && data().vc == 0
+        && featuresWritten(sid, data().fv);
+
+      // a new analysis: only from a newer extractor, or the same one having heard more
+      // of the track. The vote counters are left as they are.
+      allow update: if signedIn() && validTrackMeta(data())
+        && data().vs == resource.data.vs && data().vc == resource.data.vc
+        && (data().fv > resource.data.fv || (data().fv == resource.data.fv && data().cov > resource.data.cov + 0.05))
+        && featuresWritten(sid, data().fv);
+
+      // a vote: only the counters change, by exactly the vote written in the same batch
+      allow update: if signedIn() && changed().hasOnly(['vs', 'vc']) && voteMatches(sid);
+
+      allow delete: if false;
+
+      function voteMatches(sid) {
+        let path = /databases/$(database)/documents/tracks/$(sid)/votes/$(request.auth.uid);
+        let had = exists(path);
+        let has = existsAfter(path);
+        let before = had ? get(path).data.s : 0;
+        let after = has ? getAfter(path).data.s : 0;
+        return (had || has)
+          && data().vc == resource.data.vc + (has ? 1 : 0) - (had ? 1 : 0)
+          && data().vs == resource.data.vs + after - before;
+      }
+
+      match /votes/{uid} {
+        function trackBefore() { return get(/databases/$(database)/documents/tracks/$(sid)).data; }
+        function trackAfter() { return getAfter(/databases/$(database)/documents/tracks/$(sid)).data; }
+        function validVote(d) {
+          return d.keys().hasOnly(['s', 'u', 'at']) && isInt(d.s, 0, 1000) && d.u == uid && d.at == request.time;
+        }
+        allow get: if isMe(uid);
+        allow create: if isMe(uid) && validVote(data())
+          && trackAfter().vc == trackBefore().vc + 1
+          && trackAfter().vs == trackBefore().vs + data().s;
+        allow update: if isMe(uid) && validVote(data())
+          && trackAfter().vc == trackBefore().vc
+          && trackAfter().vs == trackBefore().vs + data().s - resource.data.s;
+        allow delete: if isMe(uid)
+          && trackAfter().vc == trackBefore().vc - 1
+          && trackAfter().vs == trackBefore().vs - resource.data.s;
+      }
+    }
+
+    // every vote of one user (account deletion): collection group query on `u`
+    match /{path=**}/votes/{uid} {
+      allow list: if signedIn() && resource.data.u == request.auth.uid;
+    }
+
+    match /features/{sid} {
+      allow read: if signedIn();
+      // written together with tracks/{sid}, whose rule checks the version
+      allow create, update: if signedIn() && validSid(sid)
+        && data().keys().hasOnly(['v', 'fv', 'z', 'by', 'at'])
+        && isStr(data().v, 1, 10) && isInt(data().fv, 1, 999999)
+        && data().z is bytes && data().z.size() <= 200000
+        && data().by == request.auth.uid
+        && data().at == request.time
+        && getAfter(/databases/$(database)/documents/tracks/$(sid)).data.fv == data().fv
+        && getAfter(/databases/$(database)/documents/tracks/$(sid)).data.at == request.time;
+      allow delete: if false;
+    }
+
+    // ---------- leaderboards ----------
+
+    // every entry of one user (account deletion): collection group query on `u`
+    match /{path=**}/entries/{uid} {
+      allow list: if signedIn() && resource.data.u == request.auth.uid;
+    }
+
+    // Cumulative boards (daily, trivia, compare, hunt) only go up; a day board
+    // ("day-YYYY-MM-DD", the daily track of that date) takes one answer.
+    match /boards/{board}/entries/{uid} {
+      function cumulative() { return board in ['daily', 'trivia', 'compare', 'hunt']; }
+      function dayBoard() { return board.matches('^day-[0-9]{4}-[0-9]{2}-[0-9]{2}$'); }
+      function validEntry(d) {
+        return d.keys().hasOnly(['v', 'x', 'u', 'at']) && isNum(d.v, 0, 10000000)
+          && optNum(d, 'x', 0, 10000000) && d.u == uid && d.at == request.time;
+      }
+      allow read: if true;
+      allow create: if isMe(uid) && validEntry(data())
+        && (cumulative() || (dayBoard() && data().v <= 100));
+      allow update: if isMe(uid) && validEntry(data()) && cumulative() && data().v >= resource.data.v;
+      allow delete: if isMe(uid);
+    }
+  }
+}
