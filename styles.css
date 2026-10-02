@@ -604,6 +604,13 @@ table.library { width: 100%; border-collapse: collapse; }
 }
 .minibar { width: 60px; height: 4px; background: var(--track); border-radius: 4px; overflow: hidden; }
 .minibar > i { display: block; height: 100%; background: var(--sc, var(--series)); border-radius: 4px; box-shadow: 0 0 8px var(--sc, transparent); max-width: 100%; }
+/* score change since the last algorithm update (src/ui/trend.js) */
+.trend { display: inline-flex; align-items: center; justify-content: flex-start; gap: 1px; min-width: 4ch; font-size: 0.72rem; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1; }
+.trend[title] { cursor: help; }
+.trend.up { color: var(--good); }
+.trend.down { color: var(--bad); }
+.trend.flat i { display: block; width: 10px; height: 2px; border-radius: 2px; background: var(--muted); opacity: 0.7; }
+.lv-score { display: inline-flex; align-items: center; gap: 6px; }
 .score-val { color: var(--sc, var(--text)); font-family: var(--font-display); font-weight: 600; font-variant-numeric: tabular-nums; }
 .status { font-size: 0.8rem; white-space: nowrap; display: inline-flex; gap: 5px; align-items: center; }
 .status.analyzed { color: var(--good); }
