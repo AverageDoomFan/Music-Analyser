@@ -6,12 +6,15 @@
 //           drop lasts longer than that, so at least one probe lands in it),
 //           then the remaining budget is spent listening longer around the
 //           most intense probes
+// review    only the drops a previous scan found (its probes, or the stored
+//           intensity curve), without probing again
 
 import { t } from "../i18n/index.js";
 
 export const SCAN_MODES = [
   { key: "adaptive", label: t("Adaptive"), hint: t("Short probes over the whole track, then longer listening around the most intense passages (drops, choruses).") },
   { key: "fixed", label: t("Fixed excerpts"), hint: t("N excerpts of L seconds, evenly spread.") },
+  { key: "review", label: t("Fast review"), hint: t("Listens only to the drops found by a previous scan, without the short probes. A track never scanned gets the adaptive scan.") },
   { key: "full", label: t("Whole track"), hint: t("Full real-time listening: the analysis is identical to a file's.") },
 ];
 
@@ -27,7 +30,7 @@ export const SCAN_DEFAULTS = Object.freeze({
 });
 
 /** Coverage rank: a track analysed in a better mode is never rescanned in a lesser one. */
-export const MODE_RANK = { fixed: 1, adaptive: 2, follow: 2, full: 3 };
+export const MODE_RANK = { fixed: 1, adaptive: 2, review: 2, follow: 2, full: 3 };
 
 const clampPos = (pos, len, duration) => Math.max(0, Math.min(Math.max(0, duration - len - 0.5), pos));
 
@@ -93,6 +96,7 @@ export function estimateTrackSeconds(duration, opts = SCAN_DEFAULTS) {
   const o = { ...SCAN_DEFAULTS, ...opts };
   if (o.mode === "full") return duration + o.overhead;
   if (o.mode === "fixed") return fixedPlan(duration, o).reduce((a, s) => a + s.len + o.overhead, 0);
+  if (o.mode === "review") return Math.min(duration + o.overhead, focusBudget(probePlan(duration, o), o));
   const probes = probePlan(duration, o).reduce((a, s) => a + s.len + o.overhead, 0);
   return Math.min(duration + o.overhead, Math.max(probes + o.focusLength + o.overhead, o.budget));
 }
@@ -108,4 +112,26 @@ export function coveredSeconds(segments) {
     end = Math.max(end, b);
   }
   return total;
+}
+
+/**
+ * Fast review: the drops a previous scan found, from its scored probes (the
+ * same focused excerpts the adaptive scan chose) or else from the stored
+ * intensity curve. Same listening budget as the adaptive scan's focused part.
+ * @param {object|null} record the track's previous capture
+ * @returns {{pos:number,len:number,kind:"focus"}[]} empty when nothing is known
+ */
+export function reviewPlan(record, duration, opts = SCAN_DEFAULTS) {
+  const o = { ...SCAN_DEFAULTS, ...opts };
+  let peaks = (record?.source?.probes ?? [])
+    .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
+    .map(([pos, score]) => ({ pos, len: o.probeLength, score }));
+  if (!peaks.length) {
+    const c = record?.auto?.curves;
+    const half = (record?.features?.timeline?.windowSeconds ?? 6) / 2;
+    peaks = (c?.times ?? []).map((tm, i) => ({ pos: tm - half, len: 2 * half, score: c.intensity?.[i] }))
+      .filter((p) => Number.isFinite(p.pos) && Number.isFinite(p.score));
+  }
+  if (!peaks.length || !(duration > 0)) return [];
+  return focusPlan(peaks, duration, focusBudget(probePlan(duration, o), o), o);
 }

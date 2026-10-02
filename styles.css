@@ -985,7 +985,7 @@ table.pl-compare td:first-child { color: var(--muted); }
 .lv-level i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #22c55e, #eab308 70%, #ef4444); background-size: var(--lv-w, 300px) 100%; transition: width 0.08s linear; }
 .lv-warn { color: var(--warn); margin: 0; }
 .lv-modes { display: flex; flex-wrap: wrap; gap: 6px; }
-#lv-modes { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; padding: 3px; background: var(--field); border: 1px solid var(--border); border-radius: 12px; }
+#lv-modes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px; padding: 3px; background: var(--field); border: 1px solid var(--border); border-radius: 12px; }
 .lv-modes button {
   font: inherit; font-size: 0.82rem; font-weight: 500; padding: 7px 10px; border-radius: 9px; border: 1px solid transparent;
   background: transparent; color: var(--muted); cursor: pointer; white-space: nowrap;
@@ -1378,7 +1378,7 @@ main { view-transition-name: main; }
   .lab-results { grid-template-columns: 1fr; }
   .toolbar > select, .toolbar > .inline { flex: 1 1 auto; }
   .toolbar > .inline > select { flex: 1; min-width: 0; }
-  #lv-modes { grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: repeat(3, 1fr); }
+  #lv-modes { grid-template-columns: repeat(2, 1fr); }
   .lv-modes button { padding: 7px 4px; white-space: normal; }
 }
 @media (max-width: 600px) { .report-grid { grid-template-columns: 1fr; } }

@@ -8,6 +8,7 @@
 //   analyze  (mono, sampleRate, extra) -> Promise<features>   (final analysis, worker in the browser)
 //   save     (track, features, info) -> Promise<record|void>
 //   isDone   (track, options) -> boolean                         (already analysed well enough)
+//   previous (track) -> record | null                           (its last capture, for the fast review)
 //   scoring  () -> { weights, aggregation }
 // Audio arrives through feed(monoBlock) at `sampleRate`.
 
@@ -16,7 +17,7 @@ import { scoreFeatures } from "../scoring/index.js";
 import { ANALYSIS } from "../config.js";
 import { LoudnessMeter } from "./meter.js";
 import {
-  SCAN_DEFAULTS, fullPlan, fixedPlan, probePlan, focusPlan, focusBudget, estimateTrackSeconds, coveredSeconds,
+  SCAN_DEFAULTS, fullPlan, fixedPlan, probePlan, focusPlan, focusBudget, estimateTrackSeconds, coveredSeconds, reviewPlan,
 } from "./plan.js";
 import { t } from "../i18n/index.js";
 
@@ -36,10 +37,10 @@ const MAX_SILENT_TRACKS = 3;
 
 export class Scanner {
   constructor({
-    player, analyze, save, isDone = () => false, scoring, onUpdate = () => {}, sampleRate = ANALYSIS.sampleRate,
+    player, analyze, save, isDone = () => false, previous = () => null, scoring, onUpdate = () => {}, sampleRate = ANALYSIS.sampleRate,
     clock = () => performance.now(), analyzeLive = (mono, sr, extra) => extractFeatures(mono, sr, extra),
   }) {
-    Object.assign(this, { player, analyze, save, isDone, scoring, onUpdate, sampleRate, clock, analyzeLive });
+    Object.assign(this, { player, analyze, save, isDone, previous, scoring, onUpdate, sampleRate, clock, analyzeLive });
     this.consumer = null;
     this.abortWait = null;
     this.levelDb = -120;
@@ -278,7 +279,20 @@ export class Scanner {
       return got;
     };
 
-    if (opts.mode === "adaptive") {
+    // fast review: only the drops of the previous capture; none known → adaptive scan
+    const prev = opts.mode === "review" ? this.previous(track) : null;
+    const drops = prev ? reviewPlan(prev, duration, { ...opts, overhead: this.overhead(opts) }) : [];
+    const mode = opts.mode === "review" && !drops.length ? "adaptive" : opts.mode;
+    if (mode === "review") {
+      cur.plan = drops.map((d) => ({ ...d, state: "planned" }));
+      // the probes stay the previous ones: the next review finds the same drops
+      cur.probes = (prev.source?.probes ?? []).map(([pos, score]) => ({ pos, score }));
+      this.emit();
+      for (const d of cur.plan) {
+        await listen(d);
+        if (this.skipRequested) return null;
+      }
+    } else if (mode === "adaptive") {
       const probes = probePlan(duration, opts);
       cur.plan = probes.map((p) => ({ ...p, state: "planned" }));
       this.emit();
@@ -330,7 +344,7 @@ export class Scanner {
     const covered = coveredSeconds(keep.map((h) => ({ pos: h.trackTime, len: h.data.length / this.sampleRate })));
     const coverage = Math.min(1, covered / duration);
     const info = {
-      mode: opts.mode, coverage, excerpts: keep.map((h) => [round2(h.trackTime), round2(h.data.length / this.sampleRate)]),
+      mode, coverage, excerpts: keep.map((h) => [round2(h.trackTime), round2(h.data.length / this.sampleRate)]),
       probes: cur.probes.map((p) => [round2(p.pos), round2(p.score)]),
     };
     const record = await this.save(track, features, info);
