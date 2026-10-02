@@ -8,6 +8,9 @@ import { renderScoreChart } from "./charts.js";
 import { toast } from "./toast.js";
 import { intensityColor } from "./live-draw.js";
 import { t, tn } from "../i18n/index.js";
+import * as auth from "../spotify/auth.js";
+import * as api from "../spotify/api.js";
+import { sortPlaylistInPlace } from "../spotify/reorder.js";
 
 let onOpen = () => {};
 
@@ -21,6 +24,11 @@ export function initProgression({ openDetail }) {
   $("prog-mode").addEventListener("change", () => { if (state.progression) build(); });
   $("export-m3u").addEventListener("click", () => download(toM3U(state.progression.steps), "progression.m3u", "audio/x-mpegurl"));
   $("export-txt").addEventListener("click", () => download(toText(state.progression.steps), "progression.txt", "text/plain"));
+  $("tab-progression")?.addEventListener("click", () => loadPlaylists());
+  $("prog-sp-playlist").addEventListener("focus", () => loadPlaylists());
+  $("prog-sp-playlist").addEventListener("change", () => { $("prog-sp-sort").disabled = !$("prog-sp-playlist").value; });
+  $("prog-sp-sort").addEventListener("click", sortOnSpotify);
+  $("prog-sp-undo").addEventListener("click", undoSort);
   $("progression-output").addEventListener("click", (e) => {
     const item = e.target.closest("[data-id]");
     if (item) onOpen(item.dataset.id);
@@ -92,4 +100,95 @@ function itemHtml(s) {
     <span class="num"><b class="score-val" style="--sc:${intensityColor(s.score)}">${formatScore(s.score)}</b></span>
     <span class="jump${s.bigJump ? " big" : ""}" title="${t("score gap with the previous track · end of the previous → start of this one: {d}", { d: formatDelta(s.seam) })}">${s.position > 1 ? formatDelta(s.jump) : ""}</span>
   </li>`;
+}
+
+// ---------------------------------------------------------- Spotify playlist
+
+const sp = { loaded: false, loading: null, undo: null, busy: false };
+
+/** Fills the playlist picker once (the user's own and collaborative playlists). */
+function loadPlaylists(force = false) {
+  const sel = document.getElementById("prog-sp-playlist");
+  const status = document.getElementById("prog-sp-status");
+  if (!auth.isLoggedIn()) {
+    status.textContent = t("Log in to Spotify first (Spotify tab).");
+    return null;
+  }
+  if (sp.loaded && !force) return null;
+  sp.loading ??= (async () => {
+    try {
+      const me = await api.me();
+      const lists = (await api.myPlaylists(me.id)).filter((p) => p.editable);
+      const keep = sel.value;
+      sel.innerHTML = `<option value="">—</option>` + lists.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}${p.count != null ? ` (${p.count})` : ""}</option>`).join("");
+      if (lists.some((p) => p.id === keep)) sel.value = keep;
+      sp.loaded = true;
+      if (!sp.busy) status.textContent = lists.length ? "" : t("No playlist of yours on this account.");
+    } catch (err) {
+      status.textContent = err.message;
+    } finally {
+      sp.loading = null;
+      document.getElementById("prog-sp-sort").disabled = !sel.value || sp.busy;
+    }
+  })();
+  return sp.loading;
+}
+
+function setBusy(on) {
+  sp.busy = on;
+  const sel = document.getElementById("prog-sp-playlist");
+  document.getElementById("prog-sp-sort").disabled = on || !sel.value;
+  document.getElementById("prog-sp-undo").disabled = on;
+  sel.disabled = on;
+}
+
+async function sortOnSpotify() {
+  const sel = document.getElementById("prog-sp-playlist");
+  const status = document.getElementById("prog-sp-status");
+  const id = sel.value;
+  if (!id || sp.busy) return;
+  const name = sel.selectedOptions[0]?.textContent ?? "";
+  if (!confirm(t("Reorder “{name}” on your Spotify account, in the progression order? No track is removed or added.", { name }))) return;
+  setBusy(true);
+  document.getElementById("prog-sp-undo").hidden = true;
+  sp.undo = null;
+  status.textContent = t("Reading the playlist…");
+  try {
+    const res = await sortPlaylistInPlace(id, {
+      tolerance: Number(document.getElementById("tolerance").value),
+      byStyle: document.getElementById("prog-mode").value === "style",
+      onProgress: (i, n) => { status.textContent = t("Moving tracks… {i}/{n}", { i, n }); },
+    });
+    if (!res.sorted) {
+      status.textContent = t("No track of this playlist is analysed yet: nothing to sort.");
+    } else if (!res.moves) {
+      status.textContent = t("Already in order.");
+    } else {
+      status.textContent = t("Sorted: {sorted} analysed tracks in order; not analysed, left at the end: {rest}.", res);
+      sp.undo = { id, run: res.undo };
+      document.getElementById("prog-sp-undo").hidden = false;
+      toast(t("Playlist sorted on Spotify."));
+    }
+  } catch (err) {
+    status.textContent = "";
+    toast(err.message, "error");
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function undoSort() {
+  if (!sp.undo || sp.busy) return;
+  const status = document.getElementById("prog-sp-status");
+  setBusy(true);
+  try {
+    await sp.undo.run((i, n) => { status.textContent = t("Restoring the order… {i}/{n}", { i, n }); });
+    status.textContent = t("Previous order restored.");
+    sp.undo = null;
+    document.getElementById("prog-sp-undo").hidden = true;
+  } catch (err) {
+    toast(err.message, "error");
+  } finally {
+    setBusy(false);
+  }
 }

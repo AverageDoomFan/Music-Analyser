@@ -126,7 +126,7 @@ export async function playlistInfo(id) {
   return request("GET", `/playlists/${id}?fields=id,name,snapshot_id,owner(id,display_name),external_urls`);
 }
 
-/** Creates a new playlist in the user's account (never modifies an existing one). */
+/** Creates a new playlist in the user's account. */
 export async function createPlaylist(userId, name, description) {
   const body = { name, description, public: false };
   return withFallback("POST", ["/me/playlists", `/users/${encodeURIComponent(userId)}/playlists`], body);
@@ -137,6 +137,17 @@ export async function addTracks(playlistId, uris) {
     const chunk = uris.slice(i, i + 100);
     await withFallback("POST", [`/playlists/${playlistId}/items`, `/playlists/${playlistId}/tracks`], { uris: chunk });
   }
+}
+
+/**
+ * Moves `length` items starting at `start` so they sit before position `before`
+ * (Spotify's "reorder items"): nothing is removed or added, the dates and
+ * who added each track are kept. Returns the new snapshot id.
+ */
+export async function moveItems(playlistId, { start, before, length = 1, snapshot = null }) {
+  const body = { range_start: start, insert_before: before, range_length: length, ...(snapshot ? { snapshot_id: snapshot } : {}) };
+  const res = await withFallback("PUT", [`/playlists/${playlistId}/items`, `/playlists/${playlistId}/tracks`], body);
+  return res?.snapshot_id ?? null;
 }
 
 // ---------- playback control (live scan) ----------

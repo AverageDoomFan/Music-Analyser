@@ -26,7 +26,7 @@ The **Home** tab shows the possible paths and the state of the app. The detailed
 5. “The score is off” → a few targeted questions, old / new score preview, accept or cancel. Or set a manual score.
 6. **Games** → a daily Spotify track to guess (the same for everyone, analysed live while you guess), guess a track's score on the speed dial, pick the more intense of two tracks (> < =), or hunt a drawn score on Spotify; fix the scores you disagree with.
 7. **Lyrics** (library, track details or directly in the Live tab), **Duels** and **Genres** → tune the perception to how you feel.
-8. **Progression** → “Build a progression”, M3U / text export. **Set** → draw the intensity curve you want; the app picks and orders the tracks.
+8. **Progression** → “Build a progression”, M3U / text export, or sort one of your Spotify playlists in place in that order (“Sort it on Spotify”, with undo). **Set** → draw the intensity curve you want; the app picks and orders the tracks.
 9. **⚑ Report for analysis** (track details) → saves everything about a track, with your comment and expected score, to send for a closer look at the model.
 10. Settings → language, weights, learning from corrections, genre sources (MusicBrainz, optional Last.fm key), JSON export / import, diagnostic export, reports, local data deletion.
 

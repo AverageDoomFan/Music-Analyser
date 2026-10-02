@@ -220,6 +220,16 @@
         <button class="btn" id="export-m3u" type="button" disabled>Export M3U</button>
         <button class="btn" id="export-txt" type="button" disabled>Export text</button>
       </div>
+      <div class="card prog-spotify" id="prog-spotify">
+        <div class="chart-title"><strong>Sort a Spotify playlist</strong><span class="muted small">in place, without creating a new playlist</span></div>
+        <div class="sp-row">
+          <label class="inline">Playlist <select id="prog-sp-playlist" aria-label="Spotify playlist to sort"><option value="">—</option></select></label>
+          <button class="btn primary" id="prog-sp-sort" type="button" disabled>Sort it on Spotify</button>
+          <button class="btn" id="prog-sp-undo" type="button" hidden>Undo</button>
+          <span class="muted small" id="prog-sp-status" role="status"></span>
+        </div>
+        <p class="muted small" id="prog-sp-help">Analysed tracks take the order above (same order and flexibility); the others stay at the end, in their current order. Tracks are only moved: none is removed or added, and their added dates are kept. Only your playlists and the collaborative ones can be sorted.</p>
+      </div>
       <div id="progression-output"><p class="empty">Click “Build a progression” to order the analysed tracks.</p></div>
     </section>
     <section id="panel-set" role="tabpanel" aria-labelledby="tab-set" hidden>

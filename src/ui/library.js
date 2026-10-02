@@ -1,5 +1,6 @@
 // Library view: overview chart + filterable/sortable table.
 
+import { trendHtml } from "./trend.js";
 import { STAGES, stageFor, AGGREGATIONS, CURVE_STATS } from "../config.js";
 import { state, notify } from "../app/store.js";
 import { statusOf, needsReanalysis, isCounted } from "../core/track.js";
@@ -272,7 +273,7 @@ function rowHtml(row) {
     <td><div class="track-name">${escapeHtml(row.name)}</div><div class="track-meta">${meta.join(" · ")}</div>${r?.draft ? draftActions(r) : ""}</td>
     <td class="col-curve hide-sm" title="${r?.auto?.stats ? curveTitle(r) : ""}">${r?.auto?.curves ? sparkline(r.auto.curves.intensity) : ""}</td>
     <td class="hide-sm">${musicCell(r)}</td>
-    <td class="num"><div class="score-cell"${final != null ? ` style="--sc:${intensityColor(final)}"` : ""}>${final != null ? `<span class="minibar" aria-hidden="true"><i style="width:${final}%"></i></span>` : ""}<b>${formatScore(final)}</b></div>${sortTag(r)}</td>
+    <td class="num"><div class="score-cell"${final != null ? ` style="--sc:${intensityColor(final)}"` : ""}>${final != null ? `<span class="minibar" aria-hidden="true"><i style="width:${final}%"></i></span>` : ""}<b>${formatScore(final)}</b>${trendHtml(r)}</div>${sortTag(r)}</td>
     <td class="num hide-sm">${formatScore(auto)}</td>
     <td class="num hide-sm">${corr == null ? "—" : formatDelta(corr)}</td>
     <td>${statusHtml}</td>

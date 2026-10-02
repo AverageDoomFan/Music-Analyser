@@ -1,6 +1,7 @@
 // "Live" tab: scans the imported Spotify playlist by playing it on the
 // user's Spotify app and analysing the captured sound in real time.
 
+import { trendHtml } from "./trend.js";
 import { state, subscribe } from "../app/store.js";
 import * as ctl from "../app/controller.js";
 import * as auth from "../spotify/auth.js";
@@ -784,7 +785,7 @@ function renderQueue(force = false) {
       <span class="ico" title="${st}">${STATE_ICON[st] ?? "·"}</span>
       ${q.track.image ? `<img class="thumb" src="${escapeHtml(q.track.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="thumb"></span>`}
       <div class="nm"><div>${i + 1}. ${escapeHtml(q.track.name)}</div><div class="sub">${escapeHtml(sub)}</div></div>
-      ${score != null ? `<span class="lv-pill" style="background:${intensityColor(score)}">${Math.round(score)}</span>` : `<span class="lv-pill none">${st === "current" ? "…" : "—"}</span>`}
+      ${score != null ? `<span class="lv-score"><span class="lv-pill" style="background:${intensityColor(score)}">${Math.round(score)}</span>${q.score == null || q.score === rec?.finalScore ? trendHtml(rec) : ""}</span>` : `<span class="lv-pill none">${st === "current" ? "…" : "—"}</span>`}
       <button type="button" class="lv-play" data-play="${escapeHtml(q.track.id)}" title="${escapeHtml(t("Analyse this track now"))}" aria-label="${escapeHtml(t("Analyse this track now"))}" ${playable(q.track) && st !== "current" ? "" : "disabled"}>▶</button>
     </li>`;
   }).join("");

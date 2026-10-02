@@ -200,3 +200,21 @@ export const featuresOutdated = (record) =>
 function pushHistory(record, kind, score) {
   record.history = [...(record.history ?? []), { at: Date.now(), kind, score, algorithmVersion: ALGORITHM_VERSION }].slice(-MAX_HISTORY);
 }
+
+/**
+ * How the score moved since the last algorithm update: the current score
+ * against the last one recorded under an older algorithm version.
+ * Null when the track was only ever scored by the current version.
+ * @returns {{ delta:number, from:string, before:number } | null}
+ */
+export function algoTrend(record) {
+  if (record?.finalScore == null) return null;
+  const h = record.history ?? [];
+  for (let i = h.length - 1; i >= 0; i--) {
+    const e = h[i];
+    if (e?.algorithmVersion && e.algorithmVersion !== ALGORITHM_VERSION && Number.isFinite(e.score)) {
+      return { delta: record.finalScore - e.score, from: e.algorithmVersion, before: e.score };
+    }
+  }
+  return null;
+}
