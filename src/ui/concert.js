@@ -12,8 +12,9 @@
 // on the kicks heard (local files) or the beat clock (Spotify).
 // Sync: the show runs on a smoothed clock (the audio clock moves in steps)
 // that follows what is heard (the output latency of a local file; Spotify's
-// position, checked against the app, best round trip kept), plus a visual
-// delay the user can tune ([ ] or - +), remembered per kind of playback.
+// position, checked against the app, best round trip kept, minus the delay
+// between that position and the sound, measured by the Live scan), plus a
+// visual delay the user can tune ([ ] or - +), remembered per kind of playback.
 // WebGL2 (concert-gl.js), Canvas2D fallback (concert-2d.js, or ?concert2d).
 
 import { stageFor, DIMENSIONS } from "../config.js";
@@ -21,6 +22,7 @@ import { t } from "../i18n/index.js";
 import { state } from "../app/store.js";
 import { engine } from "../audio/engine.js";
 import * as api from "../spotify/api.js";
+import { spotifyLag } from "../spotify/lag.js";
 import { player } from "./player.js";
 import { DIM_COLORS, intensityRgb } from "./live-draw.js";
 import {
@@ -269,9 +271,9 @@ export function openConcert(id, { from = null, onClose = null } = {}) {
     id, record, show, kind: player.kind(id), director: new ShowDirector(show), onClose,
     pausedAt: 0, wanted: true, starting: true, seekPos: null, seekTimer: 0, failed: false,
     spCorr: 0, spCorrTarget: 0, syncAt: 0, syncing: false, syncCount: 0, syncs: [], nudge: 0, wasPlaying: false,
-    clock: null, delay: 0,
+    clock: null, delay: 0, spLag: spotifyLag().value,
   };
-  S.delay = clamp(Number(store.get(DELAY_KEY + S.kind)) || 0, -500, 1000);
+  S.delay = clamp(Number(store.get(delayKey())) || 0, -500, 1000);
   showDelay(false);
   const start = Number.isFinite(from) && from > 0 && from < show.duration - 1 ? from : player.isPlaying(id) ? player.position(id) ?? 0 : 0;
   S.pausedAt = start;
@@ -438,11 +440,18 @@ async function syncSpotify() {
   }
 }
 
+/**
+ * Where the visual delay is kept. Spotify's sound delay is now applied by
+ * itself: the delay set by hand before that (which made up for it) starts
+ * again from 0 under a new key.
+ */
+const delayKey = () => DELAY_KEY + (S.kind === "spotify" ? "spotify2" : S.kind);
+
 /** Visual delay (ms, + = later), remembered per kind of playback. */
 function nudgeDelay(ms) {
   if (!S) return;
   S.delay = clamp(Math.round((S.delay + ms) / DELAY_STEP) * DELAY_STEP, -500, 1000);
-  store.set(DELAY_KEY + S.kind, String(S.delay));
+  store.set(delayKey(), String(S.delay));
   showDelay(true);
 }
 
@@ -450,7 +459,10 @@ function showDelay(flash) {
   if (!el || !S) return;
   const d = S.delay;
   el.syncVal.textContent = `${d > 0 ? "+" : d < 0 ? "−" : ""}${Math.abs(d)} ms`;
-  el.syncVal.title = t("Visual delay");
+  const l = S.kind === "spotify" ? spotifyLag() : null;
+  el.syncVal.title = l
+    ? t("Visual delay, on top of Spotify's sound delay: {n} ms ({how})", { n: Math.round(l.value * 1000), how: l.measured ? t("measured by the Live scan") : t("estimate until a Live scan measures it") })
+    : t("Visual delay");
   if (flash) {
     V.syncShownAt = performance.now();
     el.root.classList.add("sync-shown");
@@ -469,6 +481,9 @@ function showClock(dt, playing) {
   if (S.kind === "file") {
     const c = engine.context;
     lat = (c.outputLatency || 0) + (c.baseLatency || 0);
+  } else {
+    // Spotify's position runs ahead of the sound by its output delay (measured by the Live scan)
+    lat = S.spLag;
   }
   const target = raw - lat - S.delay / 1000;
   if (S.clock == null || Math.abs(target - S.clock) > 0.25) S.clock = target;

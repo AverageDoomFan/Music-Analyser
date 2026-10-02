@@ -2,6 +2,7 @@
 // user's Spotify app and analysing the captured sound in real time.
 
 import { trendHtml } from "./trend.js";
+import { spotifyLag, recordSpotifyLag } from "../spotify/lag.js";
 import { state, subscribe } from "../app/store.js";
 import * as ctl from "../app/controller.js";
 import * as auth from "../spotify/auth.js";
@@ -510,6 +511,9 @@ async function startScan(first = null, only = null, { force = false } = {}) {
     player,
     analyze: (mono, sr, extra) => analyzePcm(mono, sr, extra),
     analyzeLive: (mono, sr, extra) => analyzePcm(mono, sr, extra),
+    // Spotify's position vs the sound heard: measured on each excerpt (not in the demo)
+    audioLag: () => (demo ? 0 : spotifyLag().value),
+    onLag: demo ? null : recordSpotifyLag,
     // any earlier capture, older extractor or draft included: only its drops are used
     previous: (track) => state.records.get(ctl.capturedId(track)) ?? null,
     save: async (track, features, info) => {
@@ -766,6 +770,7 @@ function renderLoudness(cur) {
     [t("Range (LRA)"), f(l?.range, 1, " LU")],
     [t("True peak"), f(l?.truePeakDb, 1, " dBFS")],
     [t("Spotify latency"), lat?.last != null ? `${lat.last.toFixed(2)} s` : "—"],
+    [t("Sound behind Spotify's position"), audioLagText()],
   ];
   $("lv-loud-values").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
 }
@@ -863,4 +868,10 @@ function formatLong(sec) {
 function showError(err) {
   console.error(err);
   toast(err?.message || String(err), "error", 7000);
+}
+
+/** The measured (or estimated) delay between Spotify's position and the sound. */
+function audioLagText() {
+  const l = spotifyLag();
+  return `${Math.round(l.value * 1000)} ms${l.measured ? "" : ` (${t("estimate")})`}`;
 }
