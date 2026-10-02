@@ -82,9 +82,9 @@ test("chunks: the part of a new chunk already heard is cut away", () => {
 });
 
 /** Fake Spotify played by "the user" + capture, polled every second of audio. */
-function rig(follower, library) {
+function rig(follower, library, ahead = 0) {
   const p = { id: null, pos: 0, playing: false };
-  const state = () => (p.id ? { itemId: p.id, isPlaying: p.playing, progressMs: (p.pos / SR) * 1000, track: library[p.id].track } : null);
+  const state = () => (p.id ? { itemId: p.id, isPlaying: p.playing, progressMs: (p.pos / SR + (p.playing ? ahead : 0)) * 1000, track: library[p.id].track } : null);
   let sincePoll = 0;
   const B = 2048;
   const run = (seconds) => {
@@ -202,4 +202,37 @@ test("follow mode: too short a listen is not kept, skip drops the track", async 
   await new Promise((r) => setTimeout(r, 10));
   assert.ok(follower.status.current.live.windowCount >= 3, `windows ${follower.status.current.live.windowCount}`);
   assert.deepEqual(follower.status.queue.map((x) => [x.track.id, x.state]), [["A", "skipped"], ["C", "skipped"]]);
+});
+
+test("follow mode: Spotify's position running ahead of the sound does not shift the captured audio", async () => {
+  const b = concat([tracks.hardstyle(), tracks.hardstyle(), tracks.ambient(), tracks.hardstyle()]);
+  const track = { id: "B", uri: "spotify:track:B", name: "B", artists: [], durationMs: (b.length / SR) * 1000 };
+  const analysed = [];
+  const follower = new Follower({
+    player: { state: async () => null },
+    analyze: async (mono, sr, extra) => { analysed.push({ mono: mono.slice(), segments: extra.segments }); return extractFeatures(mono, sr, extra); },
+    analyzeLive: async () => { throw new Error("skip live windows in this test"); },
+    save: async () => null,
+    audioLag: () => 0.35,
+    scoring,
+  });
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    const { p, run } = rig(follower, { B: { audio: b, track } }, 0.35);
+    Object.assign(p, { id: "B", pos: 0, playing: true });
+    run(20);
+    p.pos = 40 * SR; // a seek
+    run(20);
+    follower.endTake(0);
+    await follower.saving;
+  } finally {
+    console.warn = warn;
+  }
+  const segs = analysed[0].segments;
+  assert.equal(segs.length, 2); // 0.35 s ahead is not taken for a seek
+  for (const seg of segs) {
+    const at = Math.round(seg.trackTime * SR);
+    for (const k of [0, 999, seg.end - seg.start - 1]) assert.equal(analysed[0].mono[seg.start + k], b[at + k]);
+  }
 });

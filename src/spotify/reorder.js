@@ -12,10 +12,10 @@ import { planMoves, progressionOrder } from "../playlist/inplace.js";
 export async function recordMatcher(tracks) {
   const records = [...state.records.values()].filter((r) => r.finalScore != null && !r.draft);
   const manual = (await ctl.spotifyStore.get("matches").catch(() => null)) ?? {};
-  const unique = [...new Map(tracks.map((t) => [t.id, t])).values()];
+  const unique = [...new Map(tracks.filter((t) => t.id != null).map((t) => [t.id, t])).values()];
   const m = matchPlaylist(unique, records, manual);
   return (trackId) => {
-    const hit = m.get(trackId);
+    const hit = trackId != null ? m.get(trackId) : null;
     return hit ? state.records.get(hit.recordId) ?? null : null;
   };
 }
@@ -25,7 +25,8 @@ export async function recordMatcher(tracks) {
  * @returns {Promise<{ moves:number, sorted:number, rest:number, total:number, undo:function|null }>}
  */
 export async function sortPlaylistInPlace(playlistId, { tolerance = 6, byStyle = false, onProgress = () => {} } = {}) {
-  const tracks = await api.playlistTracks(playlistId);
+  // every position, episodes and unavailable items included: the moves count them
+  const tracks = await api.playlistEntries(playlistId);
   const recordOf = await recordMatcher(tracks);
   const { order, sorted, rest } = progressionOrder(tracks, recordOf,
     (ids) => ctl.orderRecords(ids, tolerance, { byStyle }).steps.map((s) => s.id));

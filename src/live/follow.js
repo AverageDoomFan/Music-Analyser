@@ -215,7 +215,9 @@ export class Follower extends Scanner {
     const uncertain = this.sinceLastPoll;
     this.sinceLastPoll = 0;
     if (this.skipId && st?.itemId !== this.skipId) this.skipId = null;
-    const ev = this.skipId && st?.itemId === this.skipId ? "idle" : playbackEvent(take?.track.id ?? null, st, expected, this.cfg.seekTolerance);
+    // Spotify's position runs ahead of the sound heard (and captured) by audioLag()
+    const lag = this.audioLag();
+    const ev = this.skipId && st?.itemId === this.skipId ? "idle" : playbackEvent(take?.track.id ?? null, st, expected == null ? null : expected + lag, this.cfg.seekTolerance);
     switch (ev) {
       case "idle":
         this.closeSegment(uncertain);
@@ -232,10 +234,10 @@ export class Follower extends Scanner {
         break;
       case "seek":
         this.closeSegment(uncertain);
-        this.openSegment(st.progressMs / 1000);
+        this.openSegment(st.progressMs / 1000 - lag);
         break;
       case "start":
-        this.openSegment(st.progressMs / 1000);
+        this.openSegment(st.progressMs / 1000 - lag);
         break;
       default:
         break;
@@ -290,7 +292,7 @@ export class Follower extends Scanner {
     this.status.current = cur;
     this.take = { track, cur, q, chunks: [], open: null };
     this.updateCounts();
-    if (st.isPlaying) this.openSegment(st.progressMs / 1000);
+    if (st.isPlaying) this.openSegment(st.progressMs / 1000 - this.audioLag());
     else this.status.phase = t("Paused in Spotify");
   }
 

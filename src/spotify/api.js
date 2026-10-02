@@ -107,12 +107,20 @@ function toTrack(t, addedAt = null) {
 
 /** Tracks of a playlist (episodes skipped). */
 export async function playlistTracks(id) {
-  const entryTrack = (entry) => toTrack(entry?.item ?? entry?.track, entry?.added_at ?? null);
+  return (await playlistEntries(id)).filter((t) => t.id != null);
+}
+
+/**
+ * Every entry of a playlist, one per position (what "reorder items" counts):
+ * an episode or an unavailable item is kept as { id: null }.
+ */
+export async function playlistEntries(id) {
+  const entry = (e) => toTrack(e?.item ?? e?.track, e?.added_at ?? null) ?? { id: null, uri: (e?.item ?? e?.track)?.uri ?? null };
   try {
-    return await allPages(`/playlists/${id}/items?limit=50`, entryTrack);
+    return await allPages(`/playlists/${id}/items?limit=50`, entry);
   } catch (err) {
     if (![404, 405].includes(err.status)) throw err;
-    return allPages(`/playlists/${id}/tracks?limit=50`, entryTrack);
+    return allPages(`/playlists/${id}/tracks?limit=50`, entry);
   }
 }
 

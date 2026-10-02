@@ -3,6 +3,7 @@
 // gauge and the charts are the Live tab's own: the Follower reports its
 // status in the same shape as the Scanner.
 
+import { spotifyLag } from "../spotify/lag.js";
 import * as ctl from "../app/controller.js";
 import * as auth from "../spotify/auth.js";
 import * as api from "../spotify/api.js";
@@ -90,6 +91,7 @@ export async function startFollowing() {
   let lastTrackId = null;
   lv.scanner = new Follower({
     player: { state: () => api.playbackState() },
+    audioLag: () => spotifyLag().value,
     analyze: (mono, sr, extra) => analyzePcm(mono, sr, extra),
     analyzeLive: (mono, sr, extra) => analyzePcm(mono, sr, extra),
     decide: (track, coverage) => followOutcome(coverage, ctl.capturedRecord(track, { drafts: true })),

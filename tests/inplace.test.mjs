@@ -59,3 +59,14 @@ test("score trend: against the last score of an older algorithm only", () => {
   assert.equal(algoTrend({ finalScore: 50, history: [{ score: 50, algorithmVersion: ALGORITHM_VERSION }] }), null);
   assert.equal(algoTrend({ finalScore: null, history: [{ score: 50, algorithmVersion: "1.0" }] }), null);
 });
+
+test("progression order: unavailable entries keep their slot in Spotify's positions", () => {
+  // what api.playlistEntries returns: an episode / unavailable item is { id: null }
+  const tracks = [{ id: "c" }, { id: null }, { id: "a" }, { id: null }, { id: "b" }];
+  const recs = { a: { id: "ra" }, b: { id: "rb" }, c: { id: "rc" } };
+  const scores = { ra: 10, rb: 20, rc: 30 };
+  const res = progressionOrder(tracks, (id) => (id ? recs[id] ?? null : null), (ids) => [...ids].sort((p, q) => scores[p] - scores[q]));
+  assert.deepEqual(res.order, [2, 4, 0, 1, 3]);
+  const after = applyMoves(tracks, planMoves(res.order)).map((t) => t.id);
+  assert.deepEqual(after, ["a", "b", "c", null, null]);
+});

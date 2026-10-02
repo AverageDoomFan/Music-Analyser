@@ -1251,4 +1251,10 @@ export default {
   // Live: fast review mode
   "Fast review": "Revue rapide",
   "Listens only to the drops found by a previous scan, without the short probes. A track never scanned gets the adaptive scan.": "N'écoute que les drops trouvés par un scan précédent, sans les petites sondes. Un morceau jamais scanné passe en scan adaptatif.",
+  // Spotify sound delay
+  "Sound behind Spotify's position": "Retard du son sur la position Spotify",
+  "estimate": "estimation",
+  "Visual delay, on top of Spotify's sound delay: {n} ms ({how})": "Décalage des visuels, en plus du retard du son Spotify : {n} ms ({how})",
+  "measured by the Live scan": "mesuré par le scan Live",
+  "estimate until a Live scan measures it": "estimation en attendant qu'un scan Live le mesure",
 };

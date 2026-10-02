@@ -25,12 +25,12 @@ function song() {
 const fileScore = (audio) => scoreFeatures(extractFeatures(audio.slice(), SR, measureClipping([audio])), DEFAULT_WEIGHTS, "topMean").score;
 
 /** Fake Spotify + capture: audio flows (faster than real time) from the fake player. */
-function rig(audio, trackId = "abc") {
+function rig(audio, trackId = "abc", ahead = 0) {
   const player = {
     playing: false, pos: 0, delay: 0, calls: [],
     async play(uri, ms) { this.calls.push(["play", ms]); this.playing = true; this.pos = Math.round((ms / 1000) * SR); this.delay = Math.round(0.3 * SR); },
     async pause() { this.calls.push(["pause"]); this.playing = false; },
-    async state() { return { itemId: trackId, isPlaying: this.playing, progressMs: (this.pos / SR) * 1000 }; },
+    async state() { return { itemId: trackId, isPlaying: this.playing, progressMs: (this.pos / SR + (this.playing ? ahead : 0)) * 1000 }; },
   };
   let stop = false;
   const start = (scanner) => {
@@ -53,8 +53,8 @@ function rig(audio, trackId = "abc") {
   return { player, start, end: () => { stop = true; } };
 }
 
-async function scan(audio, options, previous = null) {
-  const r = rig(audio);
+async function scan(audio, options, previous = null, { ahead = 0, onLag = null } = {}) {
+  const r = rig(audio, "abc", ahead);
   const saved = [];
   const updates = [];
   const scanner = new Scanner({
@@ -62,6 +62,7 @@ async function scan(audio, options, previous = null) {
     analyze: async (mono, sr, extra) => extractFeatures(mono, sr, extra),
     save: async (track, features, info) => { saved.push({ track, features, info }); },
     previous: () => previous,
+    onLag,
     scoring,
     onUpdate: (s) => updates.push(s.current?.live?.windowCount ?? 0),
     clock: () => performance.now(),
@@ -161,7 +162,7 @@ test("▶ on a queued track: it is analysed now, the interrupted one right after
     item: null, playing: false, pos: 0, delay: 0, played: [],
     async play(uri, ms) { this.item = uri.split(":").pop(); this.played.push(this.item); this.playing = true; this.pos = Math.round((ms / 1000) * SR); this.delay = Math.round(0.3 * SR); },
     async pause() { this.playing = false; },
-    async state() { return { itemId: this.item, isPlaying: this.playing, progressMs: (this.pos / SR) * 1000 }; },
+    async state() { return { itemId: this.item, isPlaying: this.playing, progressMs: (this.pos / SR + (this.playing ? ahead : 0)) * 1000 }; },
   };
   const saved = [];
   let jumped = false;
@@ -218,7 +219,7 @@ async function scanRefusing(list, audio, refuse) {
       this.delay = Math.round(0.3 * SR);
     },
     async pause() { this.playing = false; },
-    async state() { return { itemId: this.item, isPlaying: this.playing, progressMs: (this.pos / SR) * 1000 }; },
+    async state() { return { itemId: this.item, isPlaying: this.playing, progressMs: (this.pos / SR + (this.playing ? ahead : 0)) * 1000 }; },
   };
   const scanner = new Scanner({ player, analyze: async (m, sr, x) => extractFeatures(m, sr, x), save: async () => {}, scoring, clock: () => performance.now() });
   let stop = false;
@@ -298,4 +299,15 @@ test("fast review: listens only to the known drops; a track never scanned gets t
   assert.ok(t + len / 2 > bounds[2] && t + len / 2 < bounds[4], `drop at ${t}`);
   const ref = fileScore(audio);
   assert.ok(Math.abs(status.queue[0].score - ref) < 12, `${status.queue[0].score} vs ${ref}`);
+});
+
+test("Spotify sound delay: each excerpt measures how far progressMs runs ahead of the sound", async () => {
+  const { audio } = song();
+  for (const ahead of [0, 0.35]) {
+    const lags = [];
+    const { status } = await scan(audio, { mode: "fixed", count: 3, length: 6 }, null, { ahead, onLag: (x) => lags.push(x) });
+    assert.ok(lags.length >= 2, `measures: ${lags.length}`);
+    for (const x of lags) assert.ok(Math.abs(x - ahead) < 0.12, `ahead ${ahead}: measured ${x}`);
+    assert.ok(Math.abs(status.latency.lag - ahead) < 0.12);
+  }
 });

@@ -9,6 +9,8 @@
 //   save     (track, features, info) -> Promise<record|void>
 //   isDone   (track, options) -> boolean                         (already analysed well enough)
 //   previous (track) -> record | null                           (its last capture, for the fast review)
+//   audioLag () -> seconds Spotify's progressMs runs ahead of the sound heard
+//   onLag    (seconds) -> void                                  (one measure of it, from each excerpt)
 //   scoring  () -> { weights, aggregation }
 // Audio arrives through feed(monoBlock) at `sampleRate`.
 
@@ -37,10 +39,10 @@ const MAX_SILENT_TRACKS = 3;
 
 export class Scanner {
   constructor({
-    player, analyze, save, isDone = () => false, previous = () => null, scoring, onUpdate = () => {}, sampleRate = ANALYSIS.sampleRate,
+    player, analyze, save, isDone = () => false, previous = () => null, scoring, audioLag = () => 0, onLag = null, onUpdate = () => {}, sampleRate = ANALYSIS.sampleRate,
     clock = () => performance.now(), analyzeLive = (mono, sr, extra) => extractFeatures(mono, sr, extra),
   }) {
-    Object.assign(this, { player, analyze, save, isDone, previous, scoring, onUpdate, sampleRate, clock, analyzeLive });
+    Object.assign(this, { player, analyze, save, isDone, previous, scoring, audioLag, onLag, onUpdate, sampleRate, clock, analyzeLive });
     this.consumer = null;
     this.abortWait = null;
     this.levelDb = -120;
@@ -404,15 +406,27 @@ export class Scanner {
         e.noSound = true;
         throw e;
       }
-      trackTime = st.progressMs / 1000;
+      trackTime = Math.max(0, st.progressMs / 1000 - this.audioLag());
       first = new Float32Array(0);
     }
     const lat = (this.clock() - t0) / 1000;
     if (lat < 5) { this.status.latency.sum += lat; this.status.latency.count++; this.status.latency.last = lat; }
+    // the first sample heard is the excerpt position: from the capture's own
+    // sample count, what is heard at any moment is known exactly
+    const onset = first.length ? this.samplesIn - first.length : null;
+    const askedAt = this.samplesIn;
     // the play command worked, but is it our track? (checked while recording)
     const check = this.player.state().then((st) => {
       if (st && st.itemId && track.id && st.itemId !== track.id && !track.id.startsWith("local:")) {
         this.abortWait?.("mismatch");
+        return;
+      }
+      // how far Spotify's position runs ahead of the sound (read in the middle of the round trip)
+      if (st?.isPlaying && onset != null) {
+        const heard = seg.pos + ((askedAt + this.samplesIn) / 2 - onset) / this.sampleRate;
+        const lag = st.progressMs / 1000 - heard;
+        this.status.latency.lag = lag;
+        this.onLag?.(lag);
       }
     }).catch(() => {});
 
@@ -533,7 +547,7 @@ function idleStatus() {
   return {
     running: false, paused: false, phase: "", queue: [], index: -1, current: null,
     etaSeconds: 0, counts: {}, error: null, options: SCAN_DEFAULTS,
-    latency: { sum: 0, count: 0, last: null },
+    latency: { sum: 0, count: 0, last: null, lag: null },
   };
 }
 

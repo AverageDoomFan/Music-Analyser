@@ -116,3 +116,10 @@ test("the Spotify device falls back to the one that is online (Web Player or app
   assert.equal(pickDevice([{ ...web, restricted: true }], "web"), null);
   assert.equal(pickDevice([], "app"), null);
 });
+
+test("a Spotify capture also matches the same recording under another track id (same ISRC)", () => {
+  const cap = { id: "spotify:old", name: "X - Song", source: { kind: "spotify", trackId: "old" }, tags: { title: "Song", artist: "X", isrc: "FRZ111111111" } };
+  assert.equal(matchScore({ id: "old", name: "Song", artists: ["X"] }, localInfo(cap)), 1);
+  assert.equal(matchScore({ id: "new", name: "Song", artists: ["X"], isrc: "frz111111111" }, localInfo(cap)), 0.99);
+  assert.equal(matchScore({ id: "new", name: "Song", artists: ["X"], isrc: "FRZ222222222" }, localInfo(cap)), 0);
+});
