@@ -7,7 +7,7 @@ import { DEFAULT_WEIGHTS } from "../src/config.js";
 import { Scanner } from "../src/live/scanner.js";
 import { LoudnessMeter } from "../src/live/meter.js";
 import { StreamResampler } from "../src/live/resample.js";
-import { probePlan, focusPlan, fixedPlan, coveredSeconds, estimateTrackSeconds } from "../src/live/plan.js";
+import { probePlan, focusPlan, fixedPlan, coveredSeconds, estimateTrackSeconds, reviewPlan } from "../src/live/plan.js";
 
 const scoring = () => ({ weights: DEFAULT_WEIGHTS, aggregation: "topMean" });
 
@@ -53,7 +53,7 @@ function rig(audio, trackId = "abc") {
   return { player, start, end: () => { stop = true; } };
 }
 
-async function scan(audio, options) {
+async function scan(audio, options, previous = null) {
   const r = rig(audio);
   const saved = [];
   const updates = [];
@@ -61,6 +61,7 @@ async function scan(audio, options) {
     player: r.player,
     analyze: async (mono, sr, extra) => extractFeatures(mono, sr, extra),
     save: async (track, features, info) => { saved.push({ track, features, info }); },
+    previous: () => previous,
     scoring,
     onUpdate: (s) => updates.push(s.current?.live?.windowCount ?? 0),
     clock: () => performance.now(),
@@ -258,4 +259,43 @@ test("a track Spotify never plays is an error, the scan goes on; three in a row 
   const many = await scanRefusing(["a", "c", "d", "e"], audio, (id) => id !== "e");
   assert.deepEqual(many.status.queue.map((q) => q.state), ["error", "error", "error", "pending"]);
   assert.ok(many.status.error);
+});
+
+test("fast review plan: the previous scan's drops, from its probes or else its curve", () => {
+  const probes = [[10, 30], [50, 82], [90, 40], [130, 80]];
+  const plan = reviewPlan({ source: { probes } }, 180);
+  const same = focusPlan(probes.map(([pos, score]) => ({ pos, len: 3, score })), 180, 75 - probePlan(180).length * 4.2);
+  assert.deepEqual(plan, same);
+  assert.ok(plan.length >= 1 && plan.every((d) => d.kind === "focus"));
+  assert.equal(plan[0].pos, 45); // 5 s before the best probe
+  // no probes (whole-track or follow capture): the intensity curve's peaks
+  const times = Array.from({ length: 59 }, (_, i) => 3 + i * 3);
+  const curve = { auto: { curves: { times, intensity: times.map((x) => (x > 100 && x < 130 ? 90 : 20)) } }, source: { probes: [] } };
+  const fromCurve = reviewPlan(curve, 180);
+  assert.ok(fromCurve.length >= 1);
+  assert.ok(fromCurve[0].pos >= 90 && fromCurve[0].pos < 130, `drop at ${fromCurve[0].pos}`);
+  assert.deepEqual(reviewPlan(null, 180), []);
+  assert.deepEqual(reviewPlan({ source: {} }, 180), []);
+});
+
+test("fast review: listens only to the known drops; a track never scanned gets the adaptive scan", async () => {
+  const { audio, bounds } = song();
+  const opts = { budget: 40, maxGap: 20, probeLength: 3, focusLength: 12 };
+  const first = await scan(audio, { ...opts, mode: "review" });
+  assert.equal(first.saved[0].info.mode, "adaptive");
+  const probes = first.saved[0].info.probes;
+  assert.ok(probes.length >= 4);
+  const prev = { source: { probes } };
+  const { status, saved, player } = await scan(audio, { ...opts, mode: "review" }, prev);
+  assert.equal(status.queue[0].state, "done", status.queue[0].message);
+  const info = saved[0].info;
+  assert.equal(info.mode, "review");
+  assert.deepEqual(info.probes, probes);
+  const plays = player.calls.filter((c) => c[0] === "play").length;
+  assert.ok(plays >= 1 && plays < probes.length, `${plays} plays`);
+  assert.ok(info.excerpts.every(([t, len]) => len > 5), "no probe listened to");
+  const [t, len] = info.excerpts[0];
+  assert.ok(t + len / 2 > bounds[2] && t + len / 2 < bounds[4], `drop at ${t}`);
+  const ref = fileScore(audio);
+  assert.ok(Math.abs(status.queue[0].score - ref) < 12, `${status.queue[0].score} vs ${ref}`);
 });

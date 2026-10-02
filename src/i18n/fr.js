@@ -1248,4 +1248,7 @@ export default {
   "Playlist sorted on Spotify.": "Playlist triée sur Spotify.",
   "Restoring the order… {i}/{n}": "Rétablissement de l'ordre… {i}/{n}",
   "Previous order restored.": "Ordre précédent rétabli.",
+  // Live: fast review mode
+  "Fast review": "Revue rapide",
+  "Listens only to the drops found by a previous scan, without the short probes. A track never scanned gets the adaptive scan.": "N'écoute que les drops trouvés par un scan précédent, sans les petites sondes. Un morceau jamais scanné passe en scan adaptatif.",
 };

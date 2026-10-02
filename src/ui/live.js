@@ -202,7 +202,7 @@ function buildModes() {
 function renderModes() {
   document.querySelectorAll("#lv-modes button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.mode === lv.mode)));
   $("lv-params-fixed").hidden = lv.mode !== "fixed";
-  $("lv-params-adaptive").hidden = lv.mode !== "adaptive";
+  $("lv-params-adaptive").hidden = lv.mode !== "adaptive" && lv.mode !== "review";
 }
 
 function buildOrders() {
@@ -510,6 +510,8 @@ async function startScan(first = null, only = null, { force = false } = {}) {
     player,
     analyze: (mono, sr, extra) => analyzePcm(mono, sr, extra),
     analyzeLive: (mono, sr, extra) => analyzePcm(mono, sr, extra),
+    // any earlier capture, older extractor or draft included: only its drops are used
+    previous: (track) => state.records.get(ctl.capturedId(track)) ?? null,
     save: async (track, features, info) => {
       const rec = await ctl.saveCaptured(track, features, info);
       await applyPendingLyrics(track);
