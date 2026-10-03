@@ -11,6 +11,8 @@ import { t, tn } from "../i18n/index.js";
 import * as auth from "../spotify/auth.js";
 import * as api from "../spotify/api.js";
 import { sortPlaylistInPlace } from "../spotify/reorder.js";
+import { player } from "./player.js";
+import { previewWindow, PREVIEW_SECONDS } from "../playlist/preview.js";
 
 let onOpen = () => {};
 
@@ -30,12 +32,19 @@ export function initProgression({ openDetail }) {
   $("prog-sp-sort").addEventListener("click", sortOnSpotify);
   $("prog-sp-undo").addEventListener("click", undoSort);
   $("progression-output").addEventListener("click", (e) => {
+    const prev = e.target.closest("[data-preview]");
+    if (prev) {
+      e.stopPropagation();
+      if (prev.dataset.preview === "all") return pv.on ? stopPreview() : startPreview(0);
+      return startPreview(Number(prev.dataset.preview));
+    }
     const item = e.target.closest("[data-id]");
     if (item) onOpen(item.dataset.id);
   });
 }
 
 function build() {
+  stopPreview();
   const p = ctl.buildProgression(Number(document.getElementById("tolerance").value), { byStyle: document.getElementById("prog-mode").value === "style" });
   if (!p.steps.length) toast(t("No analysed track."), "error");
   renderProgression();
@@ -80,6 +89,10 @@ export function renderProgression() {
       <span>${t("biggest jump <b>{n}</b> points", { n: Math.round(p.stats.maxJump) })}</span>
       <span>${tn(p.stats.bigJumps, "<b>{n}</b> big jump", "<b>{n}</b> big jumps")}</span>
     </div>
+    <div class="prog-preview">
+      <button class="btn" type="button" data-preview="all" id="prog-preview-btn">${t("▶ Preview the drops")}</button>
+      <span class="muted small" id="prog-preview-status" role="status">${t("{n} s of each track, from just before its drop. ▶ on a track starts from there.", { n: PREVIEW_SECONDS })}</span>
+    </div>
     ${p.stats.bigJumps ? `<p class="notice">${t("Big jumps show zones where your library lacks in-between tracks.")}</p>` : ""}
     ${groups.map((g) => `
       <div class="stage-group">
@@ -96,10 +109,80 @@ export function renderProgression() {
 function itemHtml(s) {
   return `<li class="prog-item" data-id="${s.id}" style="cursor:pointer">
     <span class="pos">${s.position}</span>
+    <button class="prog-prev" type="button" data-preview="${s.position - 1}" title="${t("Preview the drops from this track")}" aria-label="${t("Preview the drops from this track")}">▶</button>
     <span><span class="track-name">${escapeHtml(s.name)}</span></span>
     <span class="num"><b class="score-val" style="--sc:${intensityColor(s.score)}">${formatScore(s.score)}</b></span>
     <span class="jump${s.bigJump ? " big" : ""}" title="${t("score gap with the previous track · end of the previous → start of this one: {d}", { d: formatDelta(s.seam) })}">${s.position > 1 ? formatDelta(s.jump) : ""}</span>
   </li>`;
+}
+
+// ---------------------------------------------------------- drop preview
+
+// one excerpt per track, in the progression order; anything else played stops it
+const pv = { on: false, i: -1, id: null, timer: null, run: 0, switching: false, hooked: false };
+
+function previewStatus(text) {
+  const el = document.getElementById("prog-preview-status");
+  if (el) el.textContent = text;
+}
+
+function markPreview() {
+  const out = document.getElementById("progression-output");
+  out.querySelectorAll(".prog-item.previewing").forEach((el) => el.classList.remove("previewing"));
+  const btn = document.getElementById("prog-preview-btn");
+  if (btn) btn.textContent = pv.on ? t("■ Stop the preview") : t("▶ Preview the drops");
+  if (!pv.on) return;
+  const el = out.querySelectorAll(".prog-item")[pv.i];
+  if (!el) return;
+  el.classList.add("previewing");
+  el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+async function startPreview(from) {
+  const steps = state.progression?.steps ?? [];
+  if (!steps.slice(from).some((s) => player.canPlay(s.id))) {
+    toast(t("Nothing to play here: import the files again, or log in to Spotify with playback (Premium)."), "error", 7000);
+    return;
+  }
+  if (!pv.hooked) {
+    pv.hooked = true;
+    // another track played elsewhere (or stopped): the preview gives way
+    player.onChange(() => {
+      if (pv.on && !pv.switching && player.current !== pv.id) stopPreview(false);
+    });
+  }
+  clearTimeout(pv.timer);
+  pv.on = true;
+  const run = ++pv.run;
+  await playStep(from, run);
+}
+
+async function playStep(i, run) {
+  const steps = state.progression?.steps ?? [];
+  while (i < steps.length && !player.canPlay(steps[i].id)) i++;
+  if (run !== pv.run || !pv.on) return;
+  if (i >= steps.length) return stopPreview();
+  const s = steps[i];
+  const w = previewWindow(state.records.get(s.id));
+  Object.assign(pv, { i, id: s.id, switching: true });
+  markPreview();
+  previewStatus(t("{i}/{n} · {name}", { i: i + 1, n: steps.length, name: s.name }));
+  const ok = await player.playAt(s.id, w.start).catch(() => false);
+  pv.switching = false;
+  if (run !== pv.run || !pv.on) return;
+  if (!ok) return stopPreview();
+  pv.timer = setTimeout(() => playStep(i + 1, run), w.len * 1000);
+}
+
+function stopPreview(stopSound = true) {
+  if (!pv.on) return;
+  clearTimeout(pv.timer);
+  pv.run++;
+  const was = pv.id;
+  Object.assign(pv, { on: false, i: -1, id: null, switching: false });
+  if (stopSound && player.isPlaying(was)) player.stop();
+  markPreview();
+  previewStatus("");
 }
 
 // ---------------------------------------------------------- Spotify playlist

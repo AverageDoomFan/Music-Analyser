@@ -1257,4 +1257,11 @@ export default {
   "Visual delay, on top of Spotify's sound delay: {n} ms ({how})": "Décalage des visuels, en plus du retard du son Spotify : {n} ms ({how})",
   "measured by the Live scan": "mesuré par le scan Live",
   "estimate until a Live scan measures it": "estimation en attendant qu'un scan Live le mesure",
+  // Progression: drop preview
+  "▶ Preview the drops": "▶ Aperçu des drops",
+  "■ Stop the preview": "■ Arrêter l'aperçu",
+  "{n} s of each track, from just before its drop. ▶ on a track starts from there.": "{n} s de chaque morceau, juste avant son drop. ▶ sur un morceau démarre à partir de lui.",
+  "Preview the drops from this track": "Aperçu des drops à partir de ce morceau",
+  "Nothing to play here: import the files again, or log in to Spotify with playback (Premium).": "Rien à jouer ici : réimporte les fichiers, ou connecte Spotify avec la lecture (Premium).",
+  "{i}/{n} · {name}": "{i}/{n} · {name}",
 };
