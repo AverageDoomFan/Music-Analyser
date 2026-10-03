@@ -147,6 +147,20 @@ export async function addTracks(playlistId, uris) {
   }
 }
 
+/** Removes every occurrence of these tracks from a playlist; returns the new snapshot id. */
+export async function removeTracks(playlistId, uris, snapshot = null) {
+  const snap = snapshot ? { snapshot_id: snapshot } : {};
+  const list = uris.map((uri) => ({ uri }));
+  let res;
+  try {
+    res = await request("DELETE", `/playlists/${playlistId}/items`, { items: list, ...snap });
+  } catch (err) {
+    if (![400, 404, 405].includes(err.status)) throw err;
+    res = await request("DELETE", `/playlists/${playlistId}/tracks`, { tracks: list, ...snap });
+  }
+  return res?.snapshot_id ?? null;
+}
+
 /**
  * Moves `length` items starting at `start` so they sit before position `before`
  * (Spotify's "reorder items"): nothing is removed or added, the dates and
