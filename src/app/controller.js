@@ -856,12 +856,16 @@ function progressionItem(r) {
   };
 }
 
-export function buildProgression(tolerance, { byStyle = false } = {}) {
-  const ids = [...state.records.values()].filter((r) => progressionItem(r)).map((r) => r.id);
+/**
+ * @param {{byStyle?:boolean, only?:Set<string>|null, playlist?:object|null}} opts
+ *   only: the record ids to order (a Spotify playlist's), else the whole library
+ */
+export function buildProgression(tolerance, { byStyle = false, only = null, playlist = null } = {}) {
+  const ids = [...state.records.values()].filter((r) => progressionItem(r) && (!only || only.has(r.id))).map((r) => r.id);
   const res = orderRecords(ids, tolerance, { byStyle });
   const base = buildOrder(ids.map((id) => progressionItem(state.records.get(id))), { tolerance });
   // stats of the plain order; steps of the chosen one
-  state.progression = { ...base, steps: res.steps, byStyle, tolerance, builtAt: Date.now() };
+  state.progression = { ...base, steps: res.steps, byStyle, tolerance, playlist, builtAt: Date.now() };
   notify();
   return state.progression;
 }

@@ -10,7 +10,8 @@ import { intensityColor } from "./live-draw.js";
 import { t, tn } from "../i18n/index.js";
 import * as auth from "../spotify/auth.js";
 import * as api from "../spotify/api.js";
-import { sortPlaylistInPlace } from "../spotify/reorder.js";
+import { sortPlaylistInPlace, recordMatcher } from "../spotify/reorder.js";
+import { localInfo, matchScore, normalize } from "../spotify/match.js";
 import { player } from "./player.js";
 import { previewWindow, PREVIEW_SECONDS } from "../playlist/preview.js";
 
@@ -22,13 +23,23 @@ export function initProgression({ openDetail }) {
   const tol = $("tolerance");
   tol.addEventListener("input", () => { $("tolerance-value").textContent = tol.value; });
   tol.addEventListener("change", () => { if (state.progression) build(); });
-  $("build-progression").addEventListener("click", build);
+  $("build-progression").addEventListener("click", () => build({ refresh: true }));
   $("prog-mode").addEventListener("change", () => { if (state.progression) build(); });
   $("export-m3u").addEventListener("click", () => download(toM3U(state.progression.steps), "progression.m3u", "audio/x-mpegurl"));
   $("export-txt").addEventListener("click", () => download(toText(state.progression.steps), "progression.txt", "text/plain"));
   $("tab-progression")?.addEventListener("click", () => loadPlaylists());
   $("prog-sp-playlist").addEventListener("focus", () => loadPlaylists());
-  $("prog-sp-playlist").addEventListener("change", () => { $("prog-sp-sort").disabled = !$("prog-sp-playlist").value; });
+  $("prog-sp-playlist").addEventListener("change", () => {
+    $("prog-sp-sort").disabled = !$("prog-sp-playlist").value;
+    showAddRow();
+    if (state.progression) build({ refresh: true });
+  });
+  let searchTimer = null;
+  $("prog-sp-add").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(searchToAdd, 350); });
+  $("prog-sp-results").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-add]");
+    if (b) addToPlaylist(b);
+  });
   $("prog-sp-sort").addEventListener("click", sortOnSpotify);
   $("prog-sp-undo").addEventListener("click", undoSort);
   $("progression-output").addEventListener("click", (e) => {
@@ -38,15 +49,57 @@ export function initProgression({ openDetail }) {
       if (prev.dataset.preview === "all") return pv.on ? stopPreview() : startPreview(0);
       return startPreview(Number(prev.dataset.preview));
     }
+    const rm = e.target.closest("[data-remove]");
+    if (rm) {
+      e.stopPropagation();
+      return removeFromPlaylist(rm.dataset.remove);
+    }
     const item = e.target.closest("[data-id]");
     if (item) onOpen(item.dataset.id);
   });
 }
 
-function build() {
+// the selected playlist's entries, read again on "Build" and after a change
+const pl = { id: null, entries: null };
+
+/** The selected Spotify playlist, as the progression's scope (null = the whole library). */
+async function playlistScope(refresh) {
+  const sel = document.getElementById("prog-sp-playlist");
+  const id = sel.value;
+  if (!id || !auth.isLoggedIn()) return null;
+  if (refresh || pl.id !== id || !pl.entries) Object.assign(pl, { id, entries: await api.playlistEntries(id) });
+  const recordOf = await recordMatcher(pl.entries);
+  const only = new Set();
+  const uris = {};
+  const missing = [];
+  for (const e of pl.entries) {
+    if (!e.id) continue;
+    const r = recordOf(e.id);
+    if (r) {
+      only.add(r.id);
+      (uris[r.id] ??= []).includes(e.uri) || uris[r.id].push(e.uri);
+    } else if (!missing.some((m) => m.uri === e.uri)) {
+      missing.push({ uri: e.uri, name: `${e.artists?.join(", ") || "?"} - ${e.name}` });
+    }
+  }
+  return { only, playlist: { id, name: sel.selectedOptions[0]?.dataset.name ?? sel.selectedOptions[0]?.textContent ?? "", uris, missing, ids: new Set(pl.entries.map((e) => e.id).filter(Boolean)) } };
+}
+
+async function build({ refresh = false } = {}) {
   stopPreview();
-  const p = ctl.buildProgression(Number(document.getElementById("tolerance").value), { byStyle: document.getElementById("prog-mode").value === "style" });
-  if (!p.steps.length) toast(t("No analysed track."), "error");
+  let scope = null;
+  try {
+    scope = await playlistScope(refresh);
+  } catch (err) {
+    toast(err.message, "error");
+    return;
+  }
+  const p = ctl.buildProgression(Number(document.getElementById("tolerance").value), {
+    byStyle: document.getElementById("prog-mode").value === "style",
+    only: scope?.only ?? null,
+    playlist: scope?.playlist ?? null,
+  });
+  if (!p.steps.length && !p.playlist) toast(t("No analysed track."), "error");
   renderProgression();
 }
 
@@ -68,7 +121,9 @@ export function renderProgression() {
   if (out._builtAt === p.builtAt) return;
   out._builtAt = p.builtAt;
   if (!p.steps.length) {
-    out.innerHTML = `<p class="empty">${t("No analysed track yet.")}</p>`;
+    out.innerHTML = p.playlist
+      ? `${playlistHead(p)}<p class="empty">${t("No track of this playlist is analysed yet.")}</p>${missingHtml(p)}`
+      : `<p class="empty">${t("No analysed track yet.")}</p>`;
     return;
   }
   const totalDuration = p.steps.reduce((a, s) => a + (s.duration ?? 0), 0);
@@ -79,6 +134,7 @@ export function renderProgression() {
     groups.at(-1).items.push(s);
   }
   out.innerHTML = `
+    ${playlistHead(p)}
     <div class="card">
       <div class="chart-title"><strong>${t("Playlist intensity curve")}</strong><span class="muted small">${t("hollow points = jumps ≥ 12 points")}</span></div>
       <div class="chart-host"></div>
@@ -97,8 +153,9 @@ export function renderProgression() {
     ${groups.map((g) => `
       <div class="stage-group">
         <h3>${escapeHtml(g.stage)} <small>${tn(g.items.length, "{n} track", "{n} tracks")}</small></h3>
-        <ol class="progression-list">${g.items.map(itemHtml).join("")}</ol>
-      </div>`).join("")}`;
+        <ol class="progression-list">${g.items.map((s) => itemHtml(s, !!p.playlist)).join("")}</ol>
+      </div>`).join("")}
+    ${missingHtml(p)}`;
   renderScoreChart(out.querySelector(".chart-host"), p.steps.map((s) => ({ id: s.id, label: s.name, score: s.score, flag: s.bigJump })), {
     height: 220,
     xLabel: t("play order →"),
@@ -106,14 +163,133 @@ export function renderProgression() {
   });
 }
 
-function itemHtml(s) {
+function playlistHead(p) {
+  if (!p.playlist) return "";
+  return `<p class="notice prog-scope">${t("Playlist “{name}”: {n} analysed tracks, not analysed: {m}.", { name: escapeHtml(p.playlist.name), n: p.steps.length, m: p.playlist.missing.length })}</p>`;
+}
+
+function missingHtml(p) {
+  if (!p.playlist?.missing.length) return "";
+  return `<div class="stage-group">
+    <h3>${t("Not analysed")} <small>${tn(p.playlist.missing.length, "{n} track", "{n} tracks")}</small></h3>
+    <ol class="progression-list">${p.playlist.missing.map((m) => `<li class="prog-item missing">
+      <span class="pos">·</span><span></span>
+      <span><span class="track-name">${escapeHtml(m.name)}</span></span><span></span><span></span>
+      <button class="prog-rm" type="button" data-remove="uri:${escapeHtml(m.uri)}" title="${t("Remove from the playlist")}" aria-label="${t("Remove from the playlist")}">✕</button>
+    </li>`).join("")}</ol>
+  </div>`;
+}
+
+function itemHtml(s, removable = false) {
   return `<li class="prog-item" data-id="${s.id}" style="cursor:pointer">
     <span class="pos">${s.position}</span>
     <button class="prog-prev" type="button" data-preview="${s.position - 1}" title="${t("Preview the drops from this track")}" aria-label="${t("Preview the drops from this track")}">▶</button>
     <span><span class="track-name">${escapeHtml(s.name)}</span></span>
     <span class="num"><b class="score-val" style="--sc:${intensityColor(s.score)}">${formatScore(s.score)}</b></span>
     <span class="jump${s.bigJump ? " big" : ""}" title="${t("score gap with the previous track · end of the previous → start of this one: {d}", { d: formatDelta(s.seam) })}">${s.position > 1 ? formatDelta(s.jump) : ""}</span>
+    ${removable ? `<button class="prog-rm" type="button" data-remove="rec:${escapeHtml(s.id)}" title="${t("Remove from the playlist")}" aria-label="${t("Remove from the playlist")}">✕</button>` : "<span></span>"}
   </li>`;
+}
+
+// ---------------------------------------------------------- playlist editing
+
+function showAddRow() {
+  const on = !!document.getElementById("prog-sp-playlist").value && auth.isLoggedIn();
+  document.getElementById("prog-sp-add-row").hidden = !on;
+  if (!on) document.getElementById("prog-sp-results").hidden = true;
+}
+
+function playlistChanged() {
+  sp.undo = null;
+  document.getElementById("prog-sp-undo").hidden = true;
+}
+
+async function removeFromPlaylist(key) {
+  const p = state.progression;
+  if (!p?.playlist || sp.busy) return;
+  const [kind, ref] = [key.slice(0, key.indexOf(":")), key.slice(key.indexOf(":") + 1)];
+  const uris = kind === "rec" ? p.playlist.uris[ref] ?? [] : [ref];
+  const name = kind === "rec" ? state.records.get(ref)?.name : p.playlist.missing.find((m) => m.uri === ref)?.name;
+  if (!uris.length) return;
+  if (!confirm(t("Remove “{track}” from “{name}” on Spotify?", { track: name ?? "?", name: p.playlist.name }))) return;
+  setBusy(true);
+  try {
+    await api.removeTracks(p.playlist.id, uris);
+    playlistChanged();
+    toast(t("Removed from the playlist."));
+    await build({ refresh: true });
+  } catch (err) {
+    toast(err.message, "error");
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function searchToAdd() {
+  const input = document.getElementById("prog-sp-add");
+  const box = document.getElementById("prog-sp-results");
+  const q = input.value.trim();
+  if (q.length < 2) {
+    box.hidden = true;
+    return;
+  }
+  const inList = state.progression?.playlist?.id === document.getElementById("prog-sp-playlist").value ? state.progression.playlist : null;
+  const words = normalize(q).split(" ").filter(Boolean);
+  const lib = [...state.records.values()]
+    .filter((r) => r.finalScore != null && !r.draft && !inList?.uris[r.id])
+    .filter((r) => { const n = normalize(r.name); return words.every((w) => n.includes(w)); })
+    .slice(0, 5)
+    .map((r) => ({ add: `rec:${r.id}`, name: r.name, where: `${t("Library")} · ${formatScore(r.finalScore)}` }));
+  let spot = [];
+  try {
+    spot = (await api.searchTracks(q, 6))
+      .filter((tr) => !inList?.ids.has(tr.id))
+      .map((tr) => ({ add: `uri:${tr.uri}`, name: `${tr.artists.join(", ")} - ${tr.name}`, where: "Spotify" }));
+  } catch (err) {
+    spot = [];
+    toast(err.message, "error");
+  }
+  if (input.value.trim() !== q) return; // typed on meanwhile
+  const rows = [...lib, ...spot];
+  box.innerHTML = rows.length
+    ? rows.map((x) => `<li><span class="track-name">${escapeHtml(x.name)}</span><span class="muted small">${escapeHtml(x.where)}</span><button class="btn small" type="button" data-add="${escapeHtml(x.add)}">${t("Add")}</button></li>`).join("")
+    : `<li class="muted small">${t("No result.")}</li>`;
+  box.hidden = false;
+}
+
+/** A library record's Spotify track: its capture, else the best catalogue match of the file. */
+async function spotifyUriOf(r) {
+  if (r.source?.kind === "spotify" && r.source.uri?.startsWith("spotify:track:")) return r.source.uri;
+  const info = localInfo(r);
+  const found = await api.searchTracks(`${info.title} ${info.artist}`.trim(), 10);
+  const best = found.map((tr) => ({ tr, s: matchScore(tr, info) })).sort((a, b) => b.s - a.s)[0];
+  return best && best.s >= 0.55 ? best.tr.uri : null;
+}
+
+async function addToPlaylist(btn) {
+  const id = document.getElementById("prog-sp-playlist").value;
+  if (!id || sp.busy) return;
+  const key = btn.dataset.add;
+  const ref = key.slice(key.indexOf(":") + 1);
+  setBusy(true);
+  btn.disabled = true;
+  try {
+    const uri = key.startsWith("rec:") ? await spotifyUriOf(state.records.get(ref)) : ref;
+    if (!uri) {
+      toast(t("This file was not found on Spotify."), "error");
+      return;
+    }
+    await api.addTracks(id, [uri]);
+    playlistChanged();
+    btn.closest("li")?.remove();
+    toast(t("Added to the playlist."));
+    if (state.progression) await build({ refresh: true });
+  } catch (err) {
+    toast(err.message, "error");
+  } finally {
+    btn.disabled = false;
+    setBusy(false);
+  }
 }
 
 // ---------------------------------------------------------- drop preview
@@ -203,9 +379,10 @@ function loadPlaylists(force = false) {
       const me = await api.me();
       const lists = (await api.myPlaylists(me.id)).filter((p) => p.editable);
       const keep = sel.value;
-      sel.innerHTML = `<option value="">—</option>` + lists.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}${p.count != null ? ` (${p.count})` : ""}</option>`).join("");
+      sel.innerHTML = `<option value="">—</option>` + lists.map((p) => `<option value="${escapeHtml(p.id)}" data-name="${escapeHtml(p.name)}">${escapeHtml(p.name)}${p.count != null ? ` (${p.count})` : ""}</option>`).join("");
       if (lists.some((p) => p.id === keep)) sel.value = keep;
       sp.loaded = true;
+      showAddRow();
       if (!sp.busy) status.textContent = lists.length ? "" : t("No playlist of yours on this account.");
     } catch (err) {
       status.textContent = err.message;
